@@ -1,0 +1,12 @@
+ {
+  "name": "medpark-ar-console",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild --bundle --format=esm --minify --external:react --external:react-dom --external:react-dom/client --external:recharts --external:lucide-react --external:xlsx --outfile=dist/assets/main.js src/main.jsx"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0"
+  }
+}
