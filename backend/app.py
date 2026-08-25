@@ -20,11 +20,17 @@ from seed import seed_if_empty
 app = create_app()
 DIST_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "dist")
 
+# 앱이 처음 뜰 때 테이블이 없으면 만들고, users가 비어있으면 자동으로 초기 데이터를 채운다.
+# (AI Space 배포 후 별도로 셸에 접속해 seed.py를 수동 실행하지 않아도 되도록)
 try:
     seed_if_empty(app)
-except Exception as e:
+except Exception as e:  # DB가 아직 준비 전이면 조용히 넘어가고, 요청 시점에 다시 시도되게 둔다
     print(f"[startup] 초기 시딩 스킵/실패: {e}")
 
+
+# ------------------------------------------------------------------ #
+# 인증
+# ------------------------------------------------------------------ #
 
 def login_required(fn):
     @wraps(fn)
@@ -91,6 +97,10 @@ def change_password():
     return jsonify(user.to_dict())
 
 
+# ------------------------------------------------------------------ #
+# 거래처(채권) — 통째로 조회 / 통째로 교체
+# ------------------------------------------------------------------ #
+
 @app.get("/api/customers")
 @login_required
 def get_customers():
@@ -100,6 +110,7 @@ def get_customers():
 @app.put("/api/customers")
 @login_required
 def put_customers():
+    """프론트엔드의 setCustomers(...) 결과 전체를 그대로 받아 upsert + 삭제 동기화."""
     rows = request.get_json(force=True) or []
     incoming_codes = {r["code"] for r in rows}
 
@@ -122,6 +133,10 @@ def put_customers():
     db.session.commit()
     return jsonify([c.to_dict() for c in Customer.query.all()])
 
+
+# ------------------------------------------------------------------ #
+# 수금 등록 대기열
+# ------------------------------------------------------------------ #
 
 @app.get("/api/collection-queue")
 @login_required
@@ -156,6 +171,10 @@ def put_queue():
     return jsonify([q.to_dict() for q in CollectionQueueEntry.query.all()])
 
 
+# ------------------------------------------------------------------ #
+# 계정 (users) — 비밀번호 해시는 여기서만 다루고 프론트로 내려주지 않음
+# ------------------------------------------------------------------ #
+
 @app.get("/api/users")
 @login_required
 def get_users():
@@ -165,6 +184,11 @@ def get_users():
 @app.put("/api/users")
 @login_required
 def put_users():
+    """
+    프론트에서 넘어오는 배열의 각 항목은 UI용 password 평문 필드를 가질 수 있음
+    (신규 계정 생성 시 "이름"을 임시 비밀번호로 넣는 기존 로직). 여기서 해시로 변환해 저장.
+    비밀번호 필드가 없는 기존 계정은 해시를 건드리지 않음.
+    """
     rows = request.get_json(force=True) or []
     incoming_ids = {r["id"] for r in rows}
     existing = {u.id: u for u in User.query.all()}
@@ -179,7 +203,7 @@ def put_users():
         u.role = r["role"]; u.perms = r.get("perms", []); u.status = r["status"]
         u.last_login = r.get("lastLogin", "-")
         u.must_change_password = r.get("mustChangePassword", u.must_change_password if not is_new else True)
-        if r.get("password"):
+        if r.get("password"):  # 평문이 왔을 때만(신규 생성·초기화 시) 해시 갱신
             u.password_hash = generate_password_hash(r["password"])
 
     for uid, u in existing.items():
@@ -189,6 +213,10 @@ def put_users():
     db.session.commit()
     return jsonify([u.to_dict() for u in User.query.all()])
 
+
+# ------------------------------------------------------------------ #
+# 월별 출고 데이터 업로드 이력 / 잠금
+# ------------------------------------------------------------------ #
 
 @app.get("/api/months")
 @login_required
@@ -206,6 +234,7 @@ def get_months():
 @app.put("/api/months/<key>")
 @login_required
 def put_month(key):
+    """해당 월의 잠금 상태 + 업로드 이력 전체를 교체."""
     data = request.get_json(force=True) or {}
     m = MonthRecord.query.get(key)
     if m is None:
@@ -231,6 +260,10 @@ def put_month(key):
     ]
     return jsonify({**m.to_dict(), "history": history})
 
+
+# ------------------------------------------------------------------ #
+# 정적 파일 서빙 (빌드된 프론트엔드) — 기존 app.py와 동일한 역할
+# ------------------------------------------------------------------ #
 
 @app.route("/")
 def index():
