@@ -27,7 +27,7 @@ def _build_database_url():
         name = os.environ.get("DB_NAME")
         user = os.environ.get("DB_USER")
         password = os.environ.get("DB_PASSWORD", "")
-        dialect = os.environ.get("DB_DIALECT", "mysql+pymysql")
+        dialect = os.environ.get("DB_DIALECT", "mysql+pymysql")  # AI Space 기본 DB가 MySQL이라 기본값을 mysql로 맞춤. Postgres면 DB_DIALECT=postgresql+psycopg2로 지정
         port_part = f":{port}" if port else ""
         return f"{dialect}://{user}:{password}@{host}{port_part}/{name}"
 
