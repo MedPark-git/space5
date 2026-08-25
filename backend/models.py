@@ -66,14 +66,14 @@ class CollectionQueueEntry(db.Model):
     code = db.Column(db.String(40), nullable=False, index=True)
     name = db.Column(db.String(120), nullable=False)
     bu = db.Column(db.String(20), nullable=False)
-    recv_status = db.Column(db.String(10), nullable=True)
-    date = db.Column(db.String(10), nullable=False)
+    recv_status = db.Column(db.String(10), nullable=True)  # 정상/미수 — 이 수금이 어느 채권 상태에 대한 것인지
+    date = db.Column(db.String(10), nullable=False)  # 수금일 YYYY-MM-DD
     amount = db.Column(db.BigInteger, nullable=False)
     method = db.Column(db.String(20), nullable=True)
     memo = db.Column(db.Text, default="-")
     input_by = db.Column(db.String(80), nullable=True)
     input_at = db.Column(db.String(30), nullable=True)
-    status = db.Column(db.String(10), nullable=False, default="대기")
+    status = db.Column(db.String(10), nullable=False, default="대기")  # 대기/승인/반려
     balance_at_input = db.Column(db.BigInteger, nullable=True)
     dup = db.Column(db.Boolean, default=False)
     approved_by = db.Column(db.String(80), nullable=True)
@@ -95,7 +95,7 @@ class CollectionQueueEntry(db.Model):
 class MonthRecord(db.Model):
     __tablename__ = "months"
 
-    key = db.Column(db.String(7), primary_key=True)
+    key = db.Column(db.String(7), primary_key=True)  # "2026-08"
     label = db.Column(db.String(20), nullable=False)
     locked = db.Column(db.Boolean, default=False, nullable=False)
     deadline = db.Column(db.String(10), nullable=True)
