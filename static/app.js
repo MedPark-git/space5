@@ -821,6 +821,7 @@ function Customers({
   const [q, setQ] = useState("");
   const [editingNote, setEditingNote] = useState(null);
   const [draftNote, setDraftNote] = useState("");
+  const [receivableDetail, setReceivableDetail] = useState(null);
   useEffect(() => {
     if (preset) {
       setUnit(preset.unit);
@@ -872,6 +873,34 @@ function Customers({
       note: draftNote
     }, "비고를 저장했습니다.");
     setEditingNote(null);
+  }
+  async function openReceivables(c) {
+    try {
+      const result = await api("/api/customers/" + encodeURIComponent(c.code) + "/receivables");
+      setReceivableDetail({
+        ...result,
+        name: c.name
+      });
+    } catch (e) {
+      notify(e.message, true);
+    }
+  }
+  async function saveItemTarget(itemId, target_date) {
+    try {
+      const result = await api("/api/receivables/" + itemId, {
+        method: "PATCH",
+        body: {
+          target_date
+        }
+      });
+      setReceivableDetail(d => ({
+        ...d,
+        items: d.items.map(x => x.id === itemId ? result.item : x)
+      }));
+      notify("채권별 수금목표일을 저장했습니다.");
+    } catch (e) {
+      notify(e.message, true);
+    }
   }
   const distinctCustomers = new Set(rows.map(r => r.code)).size;
   return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Card, {
@@ -952,15 +981,11 @@ function Customers({
     onSave: owner => updateCustomer(c.code, {
       owner
     }, "담당자를 저장했습니다.")
-  })), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement(InlineEdit, {
-    value: c.collection_target_date,
-    placeholder: "날짜 선택",
-    type: "date",
-    canEdit: can("note_edit"),
-    onSave: collection_target_date => updateCustomer(c.code, {
-      collection_target_date
-    }, "수금목표일을 저장했습니다.")
-  })), /*#__PURE__*/React.createElement("td", {
+  })), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "inline-edit",
+    onClick: () => openReceivables(c)
+  }, "채권별 목표 설정")), /*#__PURE__*/React.createElement("td", {
     className: "r num t-strong"
   }, won(c.balance)), /*#__PURE__*/React.createElement("td", {
     className: "r num"
@@ -1004,7 +1029,51 @@ function Customers({
     className: "r num"
   }, won(sum(rows, "advance"))), /*#__PURE__*/React.createElement("td", {
     colSpan: 3
-  })))))));
+  })))))), receivableDetail && /*#__PURE__*/React.createElement("div", {
+    className: "modal-backdrop",
+    onMouseDown: () => setReceivableDetail(null)
+  }, /*#__PURE__*/React.createElement("section", {
+    className: "modal-card modal-card--wide",
+    onMouseDown: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("header", {
+    className: "card__head"
+  }, /*#__PURE__*/React.createElement("h3", null, receivableDetail.name, " · 발생월별 채권 상세"), /*#__PURE__*/React.createElement("div", {
+    className: "spacer"
+  }), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn--sm",
+    onClick: () => setReceivableDetail(null)
+  }, "닫기")), /*#__PURE__*/React.createElement("div", {
+    className: "alert alert--info",
+    style: {
+      margin: 14
+    }
+  }, "조회기준일 ", receivableDetail.as_of, " · 발생월별 잔액과 정상회수월을 확인하고 채권별 목표일을 입력합니다."), /*#__PURE__*/React.createElement("div", {
+    className: "tablewrap"
+  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "채권발생월"), /*#__PURE__*/React.createElement("th", null, "정상회수월"), /*#__PURE__*/React.createElement("th", null, "현재 구분"), /*#__PURE__*/React.createElement("th", {
+    className: "r"
+  }, "최초금액"), /*#__PURE__*/React.createElement("th", {
+    className: "r"
+  }, "현재잔액"), /*#__PURE__*/React.createElement("th", null, "수금목표일"), /*#__PURE__*/React.createElement("th", null, "비고"))), /*#__PURE__*/React.createElement("tbody", null, receivableDetail.items.map(item => /*#__PURE__*/React.createElement("tr", {
+    key: item.id
+  }, /*#__PURE__*/React.createElement("td", {
+    className: "num t-strong"
+  }, item.issue_month || "미확인"), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, item.target_month || "미입력"), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement(Badge, {
+    status: item.as_of_status || item.category
+  })), /*#__PURE__*/React.createElement("td", {
+    className: "r num"
+  }, won(item.original_amount)), /*#__PURE__*/React.createElement("td", {
+    className: "r num t-strong"
+  }, won(item.balance)), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement(InlineEdit, {
+    value: item.target_date,
+    placeholder: "목표일 입력",
+    type: "date",
+    canEdit: can("customer_info_edit"),
+    onSave: value => saveItemTarget(item.id, value)
+  })), /*#__PURE__*/React.createElement("td", {
+    className: "t-sm t-muted"
+  }, item.note || "–")))))))));
 }
 
 /* ══════════════════ 담당자별 채권현황 ══════════════════ */
@@ -1886,9 +1955,11 @@ function CashPlan({
 }) {
   const planMonths = data.meta.cash_plan_months || [thisMonth()];
   const [month, setMonth] = useState(planMonths[0]);
+  const [asOfDate, setAsOfDate] = useState(data.meta.today);
+  const [includeOverdue, setIncludeOverdue] = useState(false);
+  const [includeBad, setIncludeBad] = useState(false);
   const [busy, setBusy] = useState(false);
   async function download() {
-    const includeOverdue = window.confirm("미수채권과 부실채권을 포함하시겠습니까?\n\n확인: 정상·미수·부실채권 포함\n취소: 정상채권만 다운로드");
     setBusy(true);
     try {
       const res = await fetch("/api/cash-plan/export", {
@@ -1899,7 +1970,9 @@ function CashPlan({
         },
         body: JSON.stringify({
           month,
-          include_overdue: includeOverdue
+          as_of_date: asOfDate,
+          include_overdue: includeOverdue,
+          include_bad: includeBad
         })
       });
       if (!res.ok) {
@@ -1913,7 +1986,7 @@ function CashPlan({
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = "MedPark_" + Number(month.slice(5, 7)) + "월_수금계획" + (includeOverdue ? "_미수부실포함" : "") + ".xlsx";
+      link.download = "MedPark_" + Number(month.slice(5, 7)) + "월_수금계획" + (includeOverdue ? "_미수포함" : "") + (includeBad ? "_부실포함" : "") + ".xlsx";
       link.click();
       URL.revokeObjectURL(url);
       notify(Number(month.slice(5, 7)) + "월 수금계획을 생성했습니다.");
@@ -1935,15 +2008,41 @@ function CashPlan({
   }, planMonths.map(m => /*#__PURE__*/React.createElement("option", {
     key: m,
     value: m
-  }, Number(m.slice(5, 7)), "월 수금계획"))))), /*#__PURE__*/React.createElement("div", {
+  }, Number(m.slice(5, 7)), "월 수금계획")))), /*#__PURE__*/React.createElement(Field, {
+    label: "미수채권 조회기준일"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "input",
+    type: "date",
+    value: asOfDate,
+    onChange: e => setAsOfDate(e.target.value)
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "chiprow",
+    style: {
+      marginTop: 12
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    className: "chip",
+    "aria-pressed": includeOverdue
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: includeOverdue,
+    onChange: e => setIncludeOverdue(e.target.checked)
+  }), " 미수채권 포함"), /*#__PURE__*/React.createElement("label", {
+    className: "chip",
+    "aria-pressed": includeBad
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: includeBad,
+    onChange: e => setIncludeBad(e.target.checked)
+  }), " 부실채권 포함")), /*#__PURE__*/React.createElement("div", {
     className: "alert alert--info",
     style: {
       margin: "12px 0"
     }
-  }, "정상채권은 선택한 월의 수금대상 금액만 반영합니다. 다운로드 시 미수·부실채권 포함 여부를 선택할 수 있습니다."), /*#__PURE__*/React.createElement("button", {
+  }, "정상채권은 선택한 월의 수금대상 금액만 반영합니다. 미수채권은 입력한 조회기준일 현재 상태로 산정합니다."), /*#__PURE__*/React.createElement("button", {
     className: "btn btn--primary",
     onClick: download,
-    disabled: busy || !month
+    disabled: busy || !month || !asOfDate
   }, busy ? "엑셀 생성 중" : Number(month.slice(5, 7)) + "월 수금계획 다운로드")), /*#__PURE__*/React.createElement(Card, {
     title: "적용 기준"
   }, /*#__PURE__*/React.createElement("ul", {
