@@ -113,6 +113,9 @@ button { cursor: pointer; }
 .who b { display: block; font-size: 13.5px; }
 .who span { color: var(--muted); }
 .page { padding: 22px 24px 56px; display: grid; gap: 18px; }
+.export-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
+.summary-export { display: grid; gap: 18px; padding: 1px; }
+.zero-result { text-align: center; color: var(--muted); padding: 28px 12px; }
 @media (max-width: 900px) {
   .shell { grid-template-columns: 1fr; }
   .side { position: static; height: auto; }
@@ -218,7 +221,7 @@ tfoot td { background: var(--surface-2); font-weight: 700; border-top: 1px solid
 .customer-search__option small { color: var(--muted); }
 .customer-search__option strong { flex: 0 0 auto; font-size: 12px; }
 .customer-search__empty { padding: 14px 11px; color: var(--muted); font-size: 13px; text-align: center; }
-.customer-filters { display: grid; grid-template-columns: minmax(160px, 220px) minmax(180px, 240px) minmax(240px, 1fr) auto; gap: 12px; align-items: end; }
+.customer-filters { display: grid; grid-template-columns: repeat(5, minmax(128px, 180px)) minmax(220px, 1fr) auto; gap: 12px; align-items: end; }
 .customer-filters .field { margin-bottom: 0; }
 .customer-filters > .btn { margin-bottom: 1px; }
 .customer-table table { min-width: 1480px; }
