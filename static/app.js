@@ -1476,15 +1476,16 @@ const COLUMN_ALIASES = {
   owner: ["담당자", "영업담당", "담당", "owner"],
   balance: ["미수잔액", "미수금액", "채권잔액", "잔액", "미수금", "balance"],
   normal_balance: ["정상채권잔액", "정상채권", "normal_balance"],
-  normal_later_balance: ["10월이후수금대상", "정상채권10월이후", "normal_later_balance"],
-  normal_next_balance: ["9월수금대상", "정상채권9월분", "normal_next_balance"],
-  normal_current_balance: ["8월수금대상", "정상채권8월분", "normal_current_balance"],
+  normal_later_balance: ["차차월이후정상채권", "차차월이후", "10월이후수금대상", "정상채권10월이후", "normal_later_balance"],
+  normal_next_balance: ["익월정상채권", "익월", "9월수금대상", "정상채권9월분", "normal_next_balance"],
+  normal_current_balance: ["당월정상채권", "당월", "8월수금대상", "정상채권8월분", "normal_current_balance"],
   normal_collected: ["정상채권수금현황", "정상채권수금액", "normal_collected"],
   overdue_balance: ["미수채권(11개월내)", "11개월내", "overdue_balance"],
   overdue_source_balance: ["미수채권기초잔액", "overdue_source_balance"],
   overdue_collected: ["미수채권수금현황", "미수채권수금액", "overdue_collected"],
   bad_balance: ["부실채권(12개월이상)", "12개월이상", "bad_balance"],
   advance: ["선수금", "선수금액", "advance"],
+  overdue_months: ["연체기간(개월)", "연체개월", "연체기간개월"],
   overdue_days: ["경과일", "연체일", "경과일수", "연체일수"],
   last_paid_at: ["최종수금일", "최근수금일", "최종입금일"],
   note: ["비고", "특이사항", "메모"]
@@ -1545,16 +1546,35 @@ function Upload({
           setError("머리글 행을 찾지 못했습니다. '거래처코드'와 '거래처명' 열이 있는지 확인하세요.");
           return;
         }
-        const rows = [];
+        const required = ["code", "name", "biz_unit", "normal_balance", "overdue_balance", "bad_balance"];
+        const missing = required.filter(field => map[field] === undefined);
+        if (missing.length) {
+          setError("필수 열이 없습니다: " + missing.map(field => ({
+            code: "거래처코드",
+            name: "거래처명",
+            biz_unit: "사업부",
+            normal_balance: "정상채권잔액",
+            overdue_balance: "미수채권(11개월 내)",
+            bad_balance: "부실채권(12개월 이상)"
+          })[field]).join(", "));
+          return;
+        }
+        const rows = [],
+          issues = [];
         for (let i = headerRow + 1; i < grid.length; i++) {
           const raw = grid[i] || [];
           const pick = f => map[f] === undefined ? "" : raw[map[f]];
           const code = String(pick("code") || "").trim();
           if (!code || /^#REF|^#N\/A/.test(code)) continue;
+          const normalizedCode = /^\d+$/.test(code) ? code.padStart(5, "0") : code;
+          const name = String(pick("name") || "").trim();
+          const bizUnit = String(pick("biz_unit") || "").trim();
+          if (!name) issues.push(i + 1 + "행: 거래처명 누락");
+          if (!data.meta.units.includes(bizUnit)) issues.push(i + 1 + "행: 사업부 오류");
           rows.push({
-            code,
-            name: String(pick("name") || "").trim(),
-            biz_unit: String(pick("biz_unit") || "").trim(),
+            code: normalizedCode,
+            name,
+            biz_unit: bizUnit,
             status: String(pick("status") || "").trim(),
             owner: String(pick("owner") || "").trim(),
             balance: pick("balance"),
@@ -1568,7 +1588,7 @@ function Upload({
             overdue_collected: pick("overdue_collected"),
             bad_balance: pick("bad_balance"),
             advance: pick("advance"),
-            overdue_days: pick("overdue_days"),
+            overdue_days: map.overdue_months !== undefined ? (Number(pick("overdue_months")) || 0) * 30 : pick("overdue_days"),
             last_paid_at: String(pick("last_paid_at") || "").trim(),
             note: String(pick("note") || "").trim()
           });
@@ -1583,6 +1603,7 @@ function Upload({
           filename: file.name,
           rows,
           dupes,
+          issues,
           mapped: Object.keys(map)
         });
       } catch (err) {
@@ -1691,7 +1712,12 @@ function Upload({
     }
   }, /*#__PURE__*/React.createElement("div", {
     className: "alert alert--info"
-  }, /*#__PURE__*/React.createElement("b", null, parsed.filename), " \u2014 \uC720\uD6A8\uD55C ", parsed.rows.length, "\uD589\uC744 \uC77D\uC5C8\uC2B5\uB2C8\uB2E4. \uC778\uC2DD\uD55C \uC5F4: ", parsed.mapped.length, "\uAC1C.", parsed.dupes.length > 0 && " 중복 코드 " + parsed.dupes.length + "건은 마지막 값으로 덮어씁니다."), /*#__PURE__*/React.createElement("p", {
+  }, /*#__PURE__*/React.createElement("b", null, parsed.filename), " \u2014 \uC720\uD6A8\uD55C ", parsed.rows.length, "\uD589\uC744 \uC77D\uC5C8\uC2B5\uB2C8\uB2E4. \uC778\uC2DD\uD55C \uC5F4: ", parsed.mapped.length, "\uAC1C.", parsed.dupes.length > 0 && " 중복 코드 " + parsed.dupes.length + "건이 있습니다."), (parsed.dupes.length > 0 || parsed.issues.length > 0) && /*#__PURE__*/React.createElement("div", {
+    className: "alert alert--bad",
+    style: {
+      marginTop: 10
+    }
+  }, "\uC5C5\uB85C\uB4DC \uC804 \uC218\uC815 \uD544\uC694: ", parsed.dupes.length > 0 && "중복 코드 " + parsed.dupes.join(", "), parsed.dupes.length > 0 && parsed.issues.length > 0 && " · ", parsed.issues.slice(0, 8).join(" · "), parsed.issues.length > 8 && " 외 " + (parsed.issues.length - 8) + "건"), /*#__PURE__*/React.createElement("p", {
     className: "t-sm t-muted"
   }, month, " \uC758 \uAE30\uC874 \uB370\uC774\uD130\uB97C \uC774 \uD30C\uC77C\uB85C \uAD50\uCCB4\uD569\uB2C8\uB2E4. \uB2E4\uB978 \uC6D4 \uB370\uC774\uD130\uB294 \uADF8\uB300\uB85C \uC720\uC9C0\uB429\uB2C8\uB2E4."), /*#__PURE__*/React.createElement("div", {
     className: "tablewrap",
@@ -1713,7 +1739,7 @@ function Upload({
   }, /*#__PURE__*/React.createElement("button", {
     className: "btn btn--primary",
     onClick: send,
-    disabled: busy || locked
+    disabled: busy || locked || parsed.dupes.length > 0 || parsed.issues.length > 0
   }, month, " \uB370\uC774\uD130\uB85C \uBC18\uC601"), /*#__PURE__*/React.createElement("button", {
     className: "btn",
     onClick: () => setParsed(null)
@@ -1742,6 +1768,45 @@ function Upload({
       className: "badge badge--" + (l && l.locked ? "bad" : "mute")
     }, l && l.locked ? "잠김" : "열림")));
   }))))));
+}
+function UploadTemplate() {
+  async function downloadTemplate() {
+    try {
+      const response = await fetch("/static/receivables_upload_template.b64");
+      if (!response.ok) throw new Error("서식 파일을 불러오지 못했습니다.");
+      const encoded = (await response.text()).trim();
+      const bytes = Uint8Array.from(atob(encoded), char => char.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bytes], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "MedPark_채권데이터_업로드서식.xlsx";
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert(e.message);
+    }
+  }
+  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Card, {
+    title: "\uCC44\uAD8C \uB370\uC774\uD130 \uC5D1\uC140 \uC5C5\uB85C\uB4DC \uC11C\uC2DD"
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      marginTop: 0
+    }
+  }, "\uC6D4\uBCC4 \uCC44\uAD8C \uB370\uC774\uD130\uB97C \uC815\uD655\uD558\uAC8C \uB4F1\uB85D\uD560 \uC218 \uC788\uB294 \uD45C\uC900 \uC11C\uC2DD\uC785\uB2C8\uB2E4."), /*#__PURE__*/React.createElement("div", {
+    className: "alert alert--info",
+    style: {
+      marginBottom: 14
+    }
+  }, "\uD544\uC218 \uD56D\uBAA9: \uAC70\uB798\uCC98\uCF54\uB4DC \xB7 \uAC70\uB798\uCC98\uBA85 \xB7 \uC0AC\uC5C5\uBD80 \xB7 \uC815\uC0C1\uCC44\uAD8C\uC794\uC561 \xB7 \uBBF8\uC218\uCC44\uAD8C(11\uAC1C\uC6D4 \uB0B4) \xB7 \uBD80\uC2E4\uCC44\uAD8C(12\uAC1C\uC6D4 \uC774\uC0C1)"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn--primary",
+    onClick: downloadTemplate
+  }, "\uC5D1\uC140 \uC5C5\uB85C\uB4DC \uC11C\uC2DD \uB2E4\uC6B4\uB85C\uB4DC")), /*#__PURE__*/React.createElement(Card, {
+    title: "\uC0AC\uC6A9 \uC21C\uC11C"
+  }, /*#__PURE__*/React.createElement("ol", {
+    className: "template-steps"
+  }, /*#__PURE__*/React.createElement("li", null, "\uC11C\uC2DD\uC744 \uB0B4\uB824\uBC1B\uC544 \uCCAB \uBC88\uC9F8 \uC2DC\uD2B8\uC778 ", /*#__PURE__*/React.createElement("b", null, "\uC5C5\uB85C\uB4DC\uC11C\uC2DD"), "\uC5D0 \uB370\uC774\uD130\uB97C \uC785\uB825\uD569\uB2C8\uB2E4."), /*#__PURE__*/React.createElement("li", null, "\uCD9C\uACE0 \uB370\uC774\uD130 \uC5C5\uB85C\uB4DC \uBA54\uB274\uC5D0\uC11C \uAE30\uC900\uC6D4\uC744 \uC120\uD0DD\uD569\uB2C8\uB2E4."), /*#__PURE__*/React.createElement("li", null, "\uD30C\uC77C\uC744 \uC120\uD0DD\uD574 \uC624\uB958\xB7\uC911\uBCF5 \uC5EC\uBD80\uB97C \uD655\uC778\uD55C \uB4A4 \uD574\uB2F9 \uC6D4 \uB370\uC774\uD130\uB85C \uBC18\uC601\uD569\uB2C8\uB2E4."), /*#__PURE__*/React.createElement("li", null, "\uD655\uC815\uB41C \uC6D4\uC740 \uB9C8\uAC10 \uC7A0\uAE08\uD558\uC5EC \uCD94\uAC00 \uBCC0\uACBD\uC744 \uBC29\uC9C0\uD569\uB2C8\uB2E4."))));
 }
 
 /* ══════════════════ 계정·권한 관리 ══════════════════ */
@@ -1911,6 +1976,11 @@ const SCREENS = [{
   perm: "target_manage",
   group: "수금"
 }, {
+  key: "template",
+  label: "엑셀 업로드 서식",
+  perm: "upload_data",
+  group: "관리"
+}, {
   key: "upload",
   label: "출고 데이터 업로드",
   perm: "upload_data",
@@ -2049,7 +2119,7 @@ function App() {
     data: data,
     notify: notify,
     refresh: load
-  }), screen === "upload" && /*#__PURE__*/React.createElement(Upload, {
+  }), screen === "template" && /*#__PURE__*/React.createElement(UploadTemplate, null), screen === "upload" && /*#__PURE__*/React.createElement(Upload, {
     data: data,
     can: can,
     notify: notify,
