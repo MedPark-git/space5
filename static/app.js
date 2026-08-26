@@ -669,6 +669,9 @@ function BondSummary({
   const total = key => sum(summary, key);
   const rate = (value, base) => base ? (value / base * 100).toFixed(1) + "%" : "0.0%";
   const sourceMonth = data.uploads[0] && data.uploads[0].month || thisMonth();
+  const reportDate = data.meta.today || today();
+  const reportMonth = Number(reportDate.slice(5, 7));
+  const reportDay = Number(reportDate.slice(8, 10));
   async function exportReport(kind) {
     setExporting(true);
     try {
@@ -748,7 +751,7 @@ function BondSummary({
     ref: reportRef,
     className: "summary-export"
   }, /*#__PURE__*/React.createElement(Card, {
-    title: "1. 사업부별 채권 분류 현황 (" + sourceMonth + " 기준)",
+    title: "1. 사업부별 채권 분류 현황 (" + reportDate + " 기준)",
     flush: true
   }, /*#__PURE__*/React.createElement("div", {
     className: "tablewrap summary-table"
@@ -806,9 +809,10 @@ function BondSummary({
   }, won(total("total"))), /*#__PURE__*/React.createElement("td", {
     className: "r num"
   }, rate(total("overdue"), total("total"))))))), /*#__PURE__*/React.createElement("div", {
-    className: "summary-note"
+    className: "summary-note",
+    "data-html2canvas-ignore": "true"
   }, "현재 운영 기초자료 ", data.customers.length, "개 거래처 기준 · 금액 단위: 원")), /*#__PURE__*/React.createElement(Card, {
-    title: "2. " + Number(sourceMonth.slice(5, 7)) + "월 수금실적",
+    title: "2. " + reportMonth + "월 수금실적 (" + reportMonth + "월 1일 기초 대비, " + reportMonth + "월 " + reportDay + "일 누계)",
     flush: true
   }, /*#__PURE__*/React.createElement("div", {
     className: "tablewrap summary-table"
