@@ -513,7 +513,7 @@ def init_db():
                             "INSERT INTO receivable_items (customer_code,source_key,issue_month,target_month,category,original_amount,balance,target_date,note)"
                             " VALUES (%s,%s,%s,%s,'정상',%s,%s,%s,%s) ON CONFLICT(source_key) DO NOTHING",
                             (code, "legacy:%s:normal:%s" % (code, label), shift_month(target, -period),
-                             target, amount, amount, customer["collection_target_date"], "기존 정상채권 세부 전환"))
+                             target, amount, amount, customer["collection_target_date"], ""))
                 months = max(1, (customer["overdue_days"] + 29) // 30)
                 issue = shift_month(base, -months)
                 for category, field in (("연체", "overdue_balance"), ("부실", "bad_balance")):
@@ -523,8 +523,12 @@ def init_db():
                             "INSERT INTO receivable_items (customer_code,source_key,issue_month,target_month,category,original_amount,balance,target_date,note)"
                             " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT(source_key) DO NOTHING",
                             (code, "legacy:%s:%s" % (code, category), issue,
-                             shift_month(issue, period), category, amount, amount, customer["collection_target_date"],
-                             "기존 %s 세부 전환" % category))
+                             shift_month(issue, period), category, amount, amount, customer["collection_target_date"], ""))
+        # 원장 전환 과정에서 자동 생성했던 내부 설명은 사용자 비고가 아니므로 화면에서 제거한다.
+        conn.execute(
+            "UPDATE receivable_items SET note='' WHERE note IN"
+            " ('기존 정상채권 세부 전환','기존 연체 세부 전환','기존 부실 세부 전환')"
+        )
         conn.execute(
             "UPDATE receivable_items SET biz_unit=(SELECT c.biz_unit FROM customers c"
             " WHERE c.code=receivable_items.customer_code) WHERE biz_unit=''"
