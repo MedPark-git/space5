@@ -608,6 +608,51 @@ function Owners({ data }) {
 
 /* ══════════════════ 수금 등록 ══════════════════ */
 
+function CustomerSearch({ customers, value, onChange }) {
+  const selected = customers.find((c) => c.code === value);
+  const [query, setQuery] = useState(selected ? selected.name : "");
+  const [open, setOpen] = useState(false);
+  const matches = useMemo(() => {
+    const keyword = query.trim().toLowerCase();
+    return customers.filter((c) => !keyword
+      || c.name.toLowerCase().includes(keyword)
+      || String(c.code).toLowerCase().includes(keyword)).slice(0, 12);
+  }, [customers, query]);
+
+  useEffect(() => {
+    if (!value) setQuery("");
+  }, [value]);
+
+  function choose(customer) {
+    onChange(customer.code);
+    setQuery(customer.name);
+    setOpen(false);
+  }
+
+  return (
+    <div className="customer-search">
+      <input className="input" value={query} placeholder="거래처명 또는 코드 검색"
+        role="combobox" aria-expanded={open} aria-autocomplete="list"
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onChange={(e) => { setQuery(e.target.value); onChange(""); setOpen(true); }} />
+      {open && (
+        <div className="customer-search__menu" role="listbox">
+          {matches.map((c) => (
+            <button type="button" role="option" key={c.code}
+              className="customer-search__option" onMouseDown={(e) => e.preventDefault()}
+              onClick={() => choose(c)}>
+              <span><b>{c.name}</b><small>{c.code} · {c.biz_unit}</small></span>
+              <strong className="num">{won(c.balance)}원</strong>
+            </button>
+          ))}
+          {matches.length === 0 && <div className="customer-search__empty">검색 결과가 없습니다.</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Collections({ data, can, notify, refresh }) {
   const [form, setForm] = useState({
     customer_code: "", amount: "", method: "계좌수금", paid_at: today(), note: "",
@@ -645,12 +690,8 @@ function Collections({ data, can, notify, refresh }) {
         <Card title="수금 등록">
           <div className="formrow">
             <Field label="거래처">
-              <select className="select" value={form.customer_code} onChange={set("customer_code")}>
-                <option value="">선택하세요</option>
-                {data.customers.map((c) => (
-                  <option key={c.code} value={c.code}>{c.name} · {c.biz_unit} ({won(c.balance)}원)</option>
-                ))}
-              </select>
+              <CustomerSearch customers={data.customers} value={form.customer_code}
+                onChange={(code) => setForm({ ...form, customer_code: code })} />
             </Field>
             <Field label="수금액 (원)">
               <input className="input num" inputMode="numeric" value={form.amount}
