@@ -269,11 +269,11 @@ def bootstrap():
                     amount = int(row["amount"] or 0)
                     bucket_field = bucket_fields.get(row["bucket"], "normal_later_balance")
                     for field in ("balance", "normal_balance", bucket_field):
-                        customer[field] = max(0, int(customer.get(field) or 0) - amount)
+                        customer[field] = int(customer.get(field) or 0) - amount
                     part = (customer.get("unit_breakdown") or {}).get(row["biz_unit"])
                     if part:
                         for field in ("balance", "normal_balance", bucket_field):
-                            part[field] = max(0, int(part.get(field) or 0) - amount)
+                            part[field] = int(part.get(field) or 0) - amount
                 reflected_date = shipment.get("shipment_date") or str(shipment["uploaded_at"])[:10]
                 uploaded_day = int(reflected_date[8:10])
                 reflection_label += " + %d월 %d일 출고데이터 반영" % (
