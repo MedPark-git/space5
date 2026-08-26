@@ -215,10 +215,15 @@ function Dashboard({
   setPreset
 }) {
   const {
-    customers,
     collections,
     targets
   } = data;
+  const viewOptions = data.meta.dashboard_views || [{
+    key: "combined",
+    label: data.meta.reflection_label
+  }];
+  const [dataView, setDataView] = useState(viewOptions.some(v => v.key === "combined") ? "combined" : viewOptions[0].key);
+  const customers = dataView === "closing" ? data.dashboard_closing_customers || data.customers : data.customers;
   const [unit, setUnit] = useState("전체");
   const [normalTopUnit, setNormalTopUnit] = useState("전체");
   const [overdueTopUnit, setOverdueTopUnit] = useState("전체");
@@ -356,7 +361,19 @@ function Dashboard({
     unit: u,
     amount: sum(yesterdayCollections.filter(c => customerUnit[c.customer_code] === u), "amount")
   }));
-  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+  return /*#__PURE__*/React.createElement(React.Fragment, null, viewOptions.length > 1 && /*#__PURE__*/React.createElement(Card, {
+    title: "대시보드 조회기준"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "chiprow",
+    style: {
+      marginBottom: 0
+    }
+  }, viewOptions.map(view => /*#__PURE__*/React.createElement("button", {
+    key: view.key,
+    className: "chip",
+    "aria-pressed": dataView === view.key,
+    onClick: () => setDataView(view.key)
+  }, view.label)))), /*#__PURE__*/React.createElement("div", {
     className: "chiprow"
   }, ["전체", ...data.meta.units].map(u => /*#__PURE__*/React.createElement("button", {
     key: u,
@@ -1765,7 +1782,7 @@ function Upload({
         const seen = new Set(),
           dupes = [];
         preparedRows.forEach(r => {
-          if (seen.has(r.code)) dupes.push(r.code);
+          if (!amaranthMode && seen.has(r.code)) dupes.push(r.code);
           seen.add(r.code);
         });
         setParsed({
@@ -1877,7 +1894,7 @@ function Upload({
     style: {
       margin: "12px 0 0"
     }
-  }, "월별 출고 최소 서식: 거래처코드 · 거래처명 · 사업부 · 담당자 · 회수기간(개월) · 출고금액 · 비고")), error && /*#__PURE__*/React.createElement("div", {
+  }, "아마란스10 출고현황 원본: E열 고객코드 · F열 고객 · AK열 대분류 · AB열 합계액을 자동 인식합니다.")), error && /*#__PURE__*/React.createElement("div", {
     className: "alert alert--bad",
     style: {
       marginTop: 12
@@ -1951,45 +1968,6 @@ function Upload({
       className: "badge badge--" + (l && l.locked ? "bad" : "mute")
     }, l && l.locked ? "잠김" : "열림")));
   }))))));
-}
-function UploadTemplate() {
-  async function downloadTemplate() {
-    try {
-      const response = await fetch("/static/receivables_upload_template.b64");
-      if (!response.ok) throw new Error("서식 파일을 불러오지 못했습니다.");
-      const encoded = (await response.text()).trim();
-      const bytes = Uint8Array.from(atob(encoded), char => char.charCodeAt(0));
-      const url = URL.createObjectURL(new Blob([bytes], {
-        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-      }));
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = "MedPark_출고데이터_업로드서식.xlsx";
-      link.click();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      alert(e.message);
-    }
-  }
-  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Card, {
-    title: "출고데이터 업로드서식"
-  }, /*#__PURE__*/React.createElement("p", {
-    style: {
-      marginTop: 0
-    }
-  }, "월별 출고데이터를 등록하는 표준 서식입니다."), /*#__PURE__*/React.createElement("div", {
-    className: "alert alert--info",
-    style: {
-      marginBottom: 14
-    }
-  }, "필수 항목: 거래처코드 · 거래처명 · 사업부"), /*#__PURE__*/React.createElement("button", {
-    className: "btn btn--primary",
-    onClick: downloadTemplate
-  }, "엑셀 업로드 서식 다운로드")), /*#__PURE__*/React.createElement(Card, {
-    title: "사용 순서"
-  }, /*#__PURE__*/React.createElement("ol", {
-    className: "template-steps"
-  }, /*#__PURE__*/React.createElement("li", null, "서식을 내려받아 첫 번째 시트인 ", /*#__PURE__*/React.createElement("b", null, "업로드서식"), "에 데이터를 입력합니다."), /*#__PURE__*/React.createElement("li", null, "출고 데이터 업로드 메뉴에서 기준월을 선택합니다."), /*#__PURE__*/React.createElement("li", null, "파일을 선택해 오류·중복 여부를 확인한 뒤 해당 월 데이터로 반영합니다."), /*#__PURE__*/React.createElement("li", null, "확정된 월은 마감 잠금하여 추가 변경을 방지합니다."))));
 }
 
 /* ══════════════════ 수금계획 다운로드 ══════════════════ */
@@ -2357,11 +2335,6 @@ const SCREENS = [{
   perm: "target_manage",
   group: "수금"
 }, {
-  key: "template",
-  label: "출고데이터 업로드서식",
-  perm: "upload_data",
-  group: "관리"
-}, {
   key: "upload",
   label: "출고 데이터 업로드",
   perm: "upload_data",
@@ -2507,7 +2480,7 @@ function App() {
     data: data,
     notify: notify,
     refresh: load
-  }), screen === "template" && /*#__PURE__*/React.createElement(UploadTemplate, null), screen === "upload" && /*#__PURE__*/React.createElement(Upload, {
+  }), screen === "upload" && /*#__PURE__*/React.createElement(Upload, {
     data: data,
     can: can,
     notify: notify,
