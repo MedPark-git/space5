@@ -737,6 +737,44 @@ function BondSummary({
 
 /* ══════════════════ 거래처별 현황 ══════════════════ */
 
+function InlineEdit({
+  value,
+  type = "text",
+  placeholder,
+  canEdit,
+  onSave
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value || "");
+  useEffect(() => {
+    if (!editing) setDraft(value || "");
+  }, [value, editing]);
+  async function commit() {
+    setEditing(false);
+    if (draft === (value || "")) return;
+    await onSave(draft);
+  }
+  if (!editing) return /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "inline-edit",
+    disabled: !canEdit,
+    onClick: () => canEdit && setEditing(true)
+  }, value || /*#__PURE__*/React.createElement("span", {
+    className: "t-muted"
+  }, placeholder));
+  return /*#__PURE__*/React.createElement("input", {
+    className: "input input--compact",
+    type: type,
+    value: draft,
+    autoFocus: true,
+    onChange: e => setDraft(e.target.value),
+    onBlur: commit,
+    onKeyDown: e => {
+      if (e.key === "Enter") e.currentTarget.blur();
+      if (e.key === "Escape") setEditing(false);
+    }
+  });
+}
 function Customers({
   data,
   can,
@@ -744,122 +782,107 @@ function Customers({
   notify,
   patchCustomer
 }) {
-  const [open, setOpen] = useState({}); // 사업부는 모두 접힌 상태로 시작
-  const [sel, setSel] = useState(preset || {
-    unit: "전체",
-    status: "전체"
-  });
+  const [unit, setUnit] = useState(preset && preset.unit || "전체");
+  const [type, setType] = useState(preset && preset.status || "전체");
   const [q, setQ] = useState("");
-  const [editing, setEditing] = useState(null);
-  const [draft, setDraft] = useState("");
+  const [editingNote, setEditingNote] = useState(null);
+  const [draftNote, setDraftNote] = useState("");
   useEffect(() => {
     if (preset) {
-      setSel(preset);
-      setOpen(o => ({
-        ...o,
-        [preset.unit]: true
-      }));
+      setUnit(preset.unit);
+      setType(preset.status);
     }
   }, [preset]);
-  const rows = useMemo(() => data.customers.filter(c => {
-    if (sel.unit !== "전체" && c.biz_unit !== sel.unit) return false;
-    if (sel.status !== "전체" && c.status !== sel.status) return false;
+  const rows = useMemo(() => data.customers.flatMap(c => {
+    const parts = [{
+      status: "정상",
+      balance: Number(c.normal_balance) || 0,
+      months: 0
+    }, {
+      status: "연체",
+      balance: Number(c.overdue_balance) || 0,
+      months: overdueMonths(c.overdue_days)
+    }, {
+      status: "부실",
+      balance: Number(c.bad_balance) || 0,
+      months: overdueMonths(c.overdue_days)
+    }].filter(part => part.balance !== 0);
+    return parts.map((part, index) => ({
+      ...c,
+      ...part,
+      advance: index === 0 ? c.advance : 0,
+      rowKey: c.code + "-" + part.status
+    }));
+  }).filter(c => {
+    if (unit !== "전체" && c.biz_unit !== unit) return false;
+    if (type !== "전체" && c.status !== type) return false;
     if (q && !(c.name.includes(q) || c.code.includes(q) || code5(c.code).includes(q) || (c.owner || "").includes(q))) return false;
     return true;
-  }), [data.customers, sel, q]);
-  const countOf = (unit, status) => data.customers.filter(c => (unit === "전체" || c.biz_unit === unit) && (status === "전체" || c.status === status)).length;
-  async function saveNote(code) {
+  }), [data.customers, unit, type, q]);
+  async function updateCustomer(code, body, message) {
     try {
       const {
         customer
       } = await api("/api/customers/" + encodeURIComponent(code), {
         method: "PATCH",
-        body: {
-          note: draft
-        }
+        body
       });
       patchCustomer(customer);
-      setEditing(null);
-      notify("비고를 저장했습니다.");
+      notify(message);
     } catch (e) {
       notify(e.message, true);
     }
   }
-  return /*#__PURE__*/React.createElement("div", {
-    className: "grid grid--split"
-  }, /*#__PURE__*/React.createElement(Card, {
-    title: "\uBD84\uB958"
+  async function saveNote(code) {
+    await updateCustomer(code, {
+      note: draftNote
+    }, "비고를 저장했습니다.");
+    setEditingNote(null);
+  }
+  const distinctCustomers = new Set(rows.map(r => r.code)).size;
+  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Card, {
+    title: "\uC870\uD68C \uC870\uAC74"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "tree"
-  }, /*#__PURE__*/React.createElement("button", {
-    className: "tree__leaf",
-    style: {
-      paddingLeft: 10,
-      fontWeight: 600
-    },
-    "aria-current": sel.unit === "전체" && sel.status === "전체",
-    onClick: () => setSel({
-      unit: "전체",
-      status: "전체"
-    })
-  }, /*#__PURE__*/React.createElement("span", null, "\uC804\uCCB4 \uAC70\uB798\uCC98"), /*#__PURE__*/React.createElement("span", {
-    className: "tree__count"
-  }, data.customers.length)), data.meta.units.map(u => /*#__PURE__*/React.createElement("div", {
+    className: "customer-filters"
+  }, /*#__PURE__*/React.createElement(Field, {
+    label: "\uC0AC\uC5C5\uBD80\uBCC4 \uD544\uD130"
+  }, /*#__PURE__*/React.createElement("select", {
+    className: "select",
+    value: unit,
+    onChange: e => setUnit(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", null, "\uC804\uCCB4"), data.meta.units.map(u => /*#__PURE__*/React.createElement("option", {
     key: u
-  }, /*#__PURE__*/React.createElement("button", {
-    className: "tree__unit",
-    onClick: () => setOpen(o => ({
-      ...o,
-      [u]: !o[u]
-    })),
-    "aria-expanded": !!open[u]
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "tree__caret" + (open[u] ? " tree__caret--open" : "")
-  }, "\u25B8"), u, /*#__PURE__*/React.createElement("span", {
-    className: "spacer",
-    style: {
-      flex: 1
-    }
-  }), /*#__PURE__*/React.createElement("span", {
-    className: "tree__count"
-  }, countOf(u, "전체"))), open[u] && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
-    className: "tree__leaf",
-    "aria-current": sel.unit === u && sel.status === "전체",
-    onClick: () => setSel({
-      unit: u,
-      status: "전체"
-    })
-  }, /*#__PURE__*/React.createElement("span", null, "\uC804\uCCB4"), /*#__PURE__*/React.createElement("span", {
-    className: "tree__count"
-  }, countOf(u, "전체"))), data.meta.statuses.map(s => /*#__PURE__*/React.createElement("button", {
+  }, u)))), /*#__PURE__*/React.createElement(Field, {
+    label: "\uCC44\uAD8C\uC720\uD615\uBCC4 \uD544\uD130"
+  }, /*#__PURE__*/React.createElement("select", {
+    className: "select",
+    value: type,
+    onChange: e => setType(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", null, "\uC804\uCCB4"), data.meta.statuses.map(s => /*#__PURE__*/React.createElement("option", {
     key: s,
-    className: "tree__leaf",
-    "aria-current": sel.unit === u && sel.status === s,
-    onClick: () => setSel({
-      unit: u,
-      status: s
-    })
-  }, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement(Badge, {
-    status: s
-  })), /*#__PURE__*/React.createElement("span", {
-    className: "tree__count"
-  }, countOf(u, s))))))))), /*#__PURE__*/React.createElement(Card, {
-    title: sel.unit + " · " + (STATUS_LABEL[sel.status] || sel.status) + " (" + rows.length + "곳)",
-    actions: /*#__PURE__*/React.createElement("input", {
-      className: "input",
-      style: {
-        width: 220
-      },
-      value: q,
-      placeholder: "\uAC70\uB798\uCC98\uBA85\xB7\uCF54\uB4DC\xB7\uB2F4\uB2F9\uC790",
-      onChange: e => setQ(e.target.value)
-    }),
+    value: s
+  }, STATUS_LABEL[s])))), /*#__PURE__*/React.createElement(Field, {
+    label: "\uAC70\uB798\uCC98 \uAC80\uC0C9"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "input",
+    value: q,
+    placeholder: "\uAC70\uB798\uCC98\uBA85\xB7\uCF54\uB4DC\xB7\uB2F4\uB2F9\uC790",
+    onChange: e => setQ(e.target.value)
+  })), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn--sm",
+    onClick: () => {
+      setUnit("전체");
+      setType("전체");
+      setQ("");
+    }
+  }, "\uCD08\uAE30\uD654"))), /*#__PURE__*/React.createElement(Card, {
+    title: (STATUS_LABEL[type] || type) + " · 거래처 " + distinctCustomers + "곳 / 채권 " + rows.length + "건",
     flush: true
   }, rows.length === 0 ? /*#__PURE__*/React.createElement(Empty, {
-    title: "\uC870\uAC74\uC5D0 \uB9DE\uB294 \uAC70\uB798\uCC98\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4."
-  }, "\uC67C\uCABD \uBD84\uB958\uB098 \uAC80\uC0C9\uC5B4\uB97C \uBC14\uAFD4\uBCF4\uC138\uC694.") : /*#__PURE__*/React.createElement("div", {
-    className: "tablewrap"
-  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "\uCF54\uB4DC"), /*#__PURE__*/React.createElement("th", null, "\uAC70\uB798\uCC98\uBA85"), /*#__PURE__*/React.createElement("th", null, "\uC0AC\uC5C5\uBD80"), /*#__PURE__*/React.createElement("th", null, "\uBD84\uB958"), /*#__PURE__*/React.createElement("th", null, "\uB2F4\uB2F9\uC790"), /*#__PURE__*/React.createElement("th", {
+    title: "\uC870\uAC74\uC5D0 \uB9DE\uB294 \uCC44\uAD8C\uC774 \uC5C6\uC2B5\uB2C8\uB2E4."
+  }, "\uC0C1\uB2E8 \uD544\uD130\uB098 \uAC80\uC0C9\uC5B4\uB97C \uBC14\uAFD4\uBCF4\uC138\uC694.") : /*#__PURE__*/React.createElement("div", {
+    className: "tablewrap customer-table"
+  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "\uCF54\uB4DC"), /*#__PURE__*/React.createElement("th", null, "\uAC70\uB798\uCC98\uBA85"), /*#__PURE__*/React.createElement("th", null, "\uC0AC\uC5C5\uBD80"), /*#__PURE__*/React.createElement("th", null, "\uCC44\uAD8C\uC720\uD615"), /*#__PURE__*/React.createElement("th", null, "\uB2F4\uB2F9\uC790"), /*#__PURE__*/React.createElement("th", null, "\uC218\uAE08\uBAA9\uD45C\uC77C"), /*#__PURE__*/React.createElement("th", {
     className: "r"
   }, "\uCC44\uAD8C\uC794\uC561"), /*#__PURE__*/React.createElement("th", {
     className: "r"
@@ -867,61 +890,70 @@ function Customers({
     className: "r"
   }, "\uC5F0\uCCB4\uAE30\uAC04(\uAC1C\uC6D4)"), /*#__PURE__*/React.createElement("th", null, "\uCD5C\uC885\uC218\uAE08\uC77C"), /*#__PURE__*/React.createElement("th", {
     style: {
-      minWidth: 200
+      minWidth: 180
     }
   }, "\uBE44\uACE0"))), /*#__PURE__*/React.createElement("tbody", null, rows.map(c => /*#__PURE__*/React.createElement("tr", {
-    key: c.code
+    key: c.rowKey
   }, /*#__PURE__*/React.createElement("td", {
     className: "num t-muted"
   }, code5(c.code)), /*#__PURE__*/React.createElement("td", {
     className: "t-strong"
   }, c.name), /*#__PURE__*/React.createElement("td", null, c.biz_unit), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement(Badge, {
     status: c.status
-  })), /*#__PURE__*/React.createElement("td", null, c.owner || /*#__PURE__*/React.createElement("span", {
-    className: "t-muted"
-  }, "\uBBF8\uC9C0\uC815")), /*#__PURE__*/React.createElement("td", {
+  })), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement(InlineEdit, {
+    value: c.owner,
+    placeholder: "\uD074\uB9AD\uD574 \uC785\uB825",
+    canEdit: can("note_edit"),
+    onSave: owner => updateCustomer(c.code, {
+      owner
+    }, "담당자를 저장했습니다.")
+  })), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement(InlineEdit, {
+    value: c.collection_target_date,
+    placeholder: "\uB0A0\uC9DC \uC120\uD0DD",
+    type: "date",
+    canEdit: can("note_edit"),
+    onSave: collection_target_date => updateCustomer(c.code, {
+      collection_target_date
+    }, "수금목표일을 저장했습니다.")
+  })), /*#__PURE__*/React.createElement("td", {
     className: "r num t-strong"
   }, won(c.balance)), /*#__PURE__*/React.createElement("td", {
     className: "r num"
   }, c.advance ? won(c.advance) : "–"), /*#__PURE__*/React.createElement("td", {
     className: "r num"
-  }, overdueMonths(c.overdue_days), "\uAC1C\uC6D4"), /*#__PURE__*/React.createElement("td", {
+  }, c.months, "\uAC1C\uC6D4"), /*#__PURE__*/React.createElement("td", {
     className: "num t-muted t-sm"
   }, c.last_paid_at || "–"), /*#__PURE__*/React.createElement("td", {
     style: {
       whiteSpace: "normal"
     }
-  }, editing === c.code ? /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: 6
-    }
+  }, editingNote === c.rowKey ? /*#__PURE__*/React.createElement("div", {
+    className: "inline-note"
   }, /*#__PURE__*/React.createElement("input", {
     className: "input",
-    value: draft,
+    value: draftNote,
     autoFocus: true,
-    onChange: e => setDraft(e.target.value),
+    onChange: e => setDraftNote(e.target.value),
     onKeyDown: e => e.key === "Enter" && saveNote(c.code)
   }), /*#__PURE__*/React.createElement("button", {
     className: "btn btn--sm btn--primary",
     onClick: () => saveNote(c.code)
   }, "\uC800\uC7A5"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn--sm",
-    onClick: () => setEditing(null)
-  }, "\uCDE8\uC18C")) : /*#__PURE__*/React.createElement("span", {
+    onClick: () => setEditingNote(null)
+  }, "\uCDE8\uC18C")) : /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "inline-edit",
+    disabled: !can("note_edit"),
     onClick: () => {
-      if (can("note_edit")) {
-        setEditing(c.code);
-        setDraft(c.note || "");
-      }
-    },
-    style: {
-      cursor: can("note_edit") ? "text" : "default"
-    },
-    className: c.note ? "" : "t-muted t-sm"
-  }, c.note || (can("note_edit") ? "클릭해 입력" : "–")))))), /*#__PURE__*/React.createElement("tfoot", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
-    colSpan: 5
-  }, "\uD569\uACC4 ", rows.length, "\uACF3"), /*#__PURE__*/React.createElement("td", {
+      setEditingNote(c.rowKey);
+      setDraftNote(c.note || "");
+    }
+  }, c.note || /*#__PURE__*/React.createElement("span", {
+    className: "t-muted"
+  }, "\uD074\uB9AD\uD574 \uC785\uB825")))))), /*#__PURE__*/React.createElement("tfoot", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
+    colSpan: 6
+  }, "\uD569\uACC4 \xB7 \uAC70\uB798\uCC98 ", distinctCustomers, "\uACF3 / \uCC44\uAD8C ", rows.length, "\uAC74"), /*#__PURE__*/React.createElement("td", {
     className: "r num"
   }, won(sum(rows, "balance"))), /*#__PURE__*/React.createElement("td", {
     className: "r num"
