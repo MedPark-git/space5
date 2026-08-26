@@ -880,7 +880,7 @@ function ClosingReceivables({
   const units = unit === "전체" ? data.meta.units : [unit];
   const reports = useMemo(() => units.map(bizUnit => {
     const customers = customersForUnit(data.customers, bizUnit);
-    const detail = customers.flatMap(c => {
+    const rawDetail = customers.flatMap(c => {
       const notes = [c.note, ...(c.detail_notes || [])].filter(Boolean);
       return [{
         ...c,
@@ -890,6 +890,24 @@ function ClosingReceivables({
         notes
       }].filter(row => row.amount > 0);
     }).sort((a, b) => b.amount - a.amount);
+    let detail = rawDetail;
+    if (bizUnit === "에스테틱") {
+      const small = rawDetail.filter(row => row.amount <= 110000);
+      const regular = rawDetail.filter(row => row.amount > 110000);
+      if (small.length) {
+        const representative = small[0];
+        detail = [...regular, {
+          ...representative,
+          code: "esthetic-small-group",
+          name: representative.name + (small.length > 1 ? " 외 " + (small.length - 1) + "개처" : ""),
+          amount: sum(small, "amount"),
+          period: null,
+          months: Math.max(...small.map(row => row.months)),
+          notes: [...new Set(small.flatMap(row => row.notes))],
+          grouped: true
+        }];
+      }
+    }
     const overdueBalance = sum(customers, "overdue_balance");
     const overdueCollected = sum(customers, "overdue_collected");
     const overdueOpening = overdueBalance + overdueCollected;
@@ -1056,7 +1074,7 @@ function ClosingReceivables({
     className: "t-strong"
   }, row.name), /*#__PURE__*/React.createElement("td", null, report.unit), /*#__PURE__*/React.createElement("td", {
     className: row.period == null || Number(row.period) < 0 ? "customer-period--missing" : "r num"
-  }, row.period == null || Number(row.period) < 0 ? "미입력" : Number(row.period) + "개월"), /*#__PURE__*/React.createElement("td", {
+  }, row.grouped ? "합산" : row.period == null || Number(row.period) < 0 ? "미입력" : Number(row.period) + "개월"), /*#__PURE__*/React.createElement("td", {
     className: "r num"
   }, row.months, "개월"), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement(Badge, {
     status: "연체"
