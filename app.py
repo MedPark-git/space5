@@ -227,6 +227,19 @@ def bootstrap():
                     part["normal_next_balance"] += amount
                 else:
                     part["normal_later_balance"] += amount
+        # 확정 기초자료에 포함된 기존 수금 누계는 고객 집계 필드에 보존되어 있다.
+        # 사업부별 원장 전환 시 해당 고객의 기존 사업부에 연결해 요약표 수금액이 사라지지 않게 한다.
+        for customer in customers:
+            unit = customer["biz_unit"]
+            if not unit:
+                continue
+            part = customer["unit_breakdown"].setdefault(unit, dict(
+                balance=0, normal_balance=0, normal_current_balance=0,
+                normal_next_balance=0, normal_later_balance=0,
+                normal_collected=0, overdue_balance=0, overdue_source_balance=0,
+                overdue_collected=0, bad_balance=0))
+            part["normal_collected"] += int(customer.get("normal_collected") or 0)
+            part["overdue_collected"] += int(customer.get("overdue_collected") or 0)
         cash_plan_months = [add_months(latest_snapshot, i) for i in range(3)]
         reflection_label = "마감 데이터 없음"
         dashboard_closing_customers = deepcopy(customers)
