@@ -882,7 +882,7 @@ function Customers({
     title: "\uC870\uAC74\uC5D0 \uB9DE\uB294 \uCC44\uAD8C\uC774 \uC5C6\uC2B5\uB2C8\uB2E4."
   }, "\uC0C1\uB2E8 \uD544\uD130\uB098 \uAC80\uC0C9\uC5B4\uB97C \uBC14\uAFD4\uBCF4\uC138\uC694.") : /*#__PURE__*/React.createElement("div", {
     className: "tablewrap customer-table"
-  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "\uCF54\uB4DC"), /*#__PURE__*/React.createElement("th", null, "\uAC70\uB798\uCC98\uBA85"), /*#__PURE__*/React.createElement("th", null, "\uC0AC\uC5C5\uBD80"), /*#__PURE__*/React.createElement("th", null, "\uCC44\uAD8C\uC720\uD615"), /*#__PURE__*/React.createElement("th", null, "\uB2F4\uB2F9\uC790"), /*#__PURE__*/React.createElement("th", null, "\uC218\uAE08\uBAA9\uD45C\uC77C"), /*#__PURE__*/React.createElement("th", {
+  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "\uCF54\uB4DC"), /*#__PURE__*/React.createElement("th", null, "\uAC70\uB798\uCC98\uBA85"), /*#__PURE__*/React.createElement("th", null, "\uC0AC\uC5C5\uBD80"), /*#__PURE__*/React.createElement("th", null, "\uCC44\uAD8C\uC720\uD615"), /*#__PURE__*/React.createElement("th", null, "\uD68C\uC218\uAE30\uAC04"), /*#__PURE__*/React.createElement("th", null, "\uB2F4\uB2F9\uC790"), /*#__PURE__*/React.createElement("th", null, "\uC218\uAE08\uBAA9\uD45C\uC77C"), /*#__PURE__*/React.createElement("th", {
     className: "r"
   }, "\uCC44\uAD8C\uC794\uC561"), /*#__PURE__*/React.createElement("th", {
     className: "r"
@@ -893,14 +893,17 @@ function Customers({
       minWidth: 180
     }
   }, "\uBE44\uACE0"))), /*#__PURE__*/React.createElement("tbody", null, rows.map(c => /*#__PURE__*/React.createElement("tr", {
-    key: c.rowKey
+    key: c.rowKey,
+    className: c.period == null || Number(c.period) < 0 ? "customer-row--missing-period" : ""
   }, /*#__PURE__*/React.createElement("td", {
     className: "num t-muted"
   }, code5(c.code)), /*#__PURE__*/React.createElement("td", {
     className: "t-strong"
   }, c.name), /*#__PURE__*/React.createElement("td", null, c.biz_unit), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement(Badge, {
     status: c.status
-  })), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement(InlineEdit, {
+  })), /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, c.period == null || Number(c.period) < 0 ? "미입력" : Number(c.period) === 0 ? "0개월 (당월)" : Number(c.period) === 1 ? "1개월 (익월)" : c.period + "개월"), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement(InlineEdit, {
     value: c.owner,
     placeholder: "\uD074\uB9AD\uD574 \uC785\uB825",
     canEdit: can("note_edit"),
@@ -952,7 +955,7 @@ function Customers({
   }, c.note || /*#__PURE__*/React.createElement("span", {
     className: "t-muted"
   }, "\uD074\uB9AD\uD574 \uC785\uB825")))))), /*#__PURE__*/React.createElement("tfoot", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
-    colSpan: 6
+    colSpan: 7
   }, "\uD569\uACC4 \xB7 \uAC70\uB798\uCC98 ", distinctCustomers, "\uACF3 / \uCC44\uAD8C ", rows.length, "\uAC74"), /*#__PURE__*/React.createElement("td", {
     className: "r num"
   }, won(sum(rows, "balance"))), /*#__PURE__*/React.createElement("td", {
@@ -1474,6 +1477,8 @@ const COLUMN_ALIASES = {
   biz_unit: ["사업부", "사업부문", "부문", "unit"],
   status: ["채권분류", "분류", "채권상태", "상태", "status"],
   owner: ["담당자", "영업담당", "담당", "owner"],
+  collection_period: ["회수기간(개월)", "회수기간", "collection_period"],
+  shipment_amount: ["출고금액", "출고액", "shipment_amount"],
   balance: ["미수잔액", "미수금액", "채권잔액", "잔액", "미수금", "balance"],
   normal_balance: ["정상채권잔액", "정상채권", "normal_balance"],
   normal_later_balance: ["차차월이후정상채권", "차차월이후", "10월이후수금대상", "정상채권10월이후", "normal_later_balance"],
@@ -1546,7 +1551,8 @@ function Upload({
           setError("머리글 행을 찾지 못했습니다. '거래처코드'와 '거래처명' 열이 있는지 확인하세요.");
           return;
         }
-        const required = ["code", "name", "biz_unit", "normal_balance", "overdue_balance", "bad_balance"];
+        const shipmentMode = map.shipment_amount !== undefined;
+        const required = shipmentMode ? ["code", "name", "biz_unit", "collection_period", "shipment_amount"] : ["code", "name", "biz_unit", "normal_balance", "overdue_balance", "bad_balance"];
         const missing = required.filter(field => map[field] === undefined);
         if (missing.length) {
           setError("필수 열이 없습니다: " + missing.map(field => ({
@@ -1555,7 +1561,9 @@ function Upload({
             biz_unit: "사업부",
             normal_balance: "정상채권잔액",
             overdue_balance: "미수채권(11개월 내)",
-            bad_balance: "부실채권(12개월 이상)"
+            bad_balance: "부실채권(12개월 이상)",
+            collection_period: "회수기간(개월)",
+            shipment_amount: "출고금액"
           })[field]).join(", "));
           return;
         }
@@ -1571,12 +1579,18 @@ function Upload({
           const bizUnit = String(pick("biz_unit") || "").trim();
           if (!name) issues.push(i + 1 + "행: 거래처명 누락");
           if (!data.meta.units.includes(bizUnit)) issues.push(i + 1 + "행: 사업부 오류");
+          const period = pick("collection_period");
+          if (shipmentMode && (period === "" || Number(period) < 0 || !Number.isFinite(Number(period)))) {
+            issues.push(i + 1 + "행: 회수기간 오류");
+          }
           rows.push({
             code: normalizedCode,
             name,
             biz_unit: bizUnit,
             status: String(pick("status") || "").trim(),
             owner: String(pick("owner") || "").trim(),
+            collection_period: period,
+            shipment_amount: pick("shipment_amount"),
             balance: pick("balance"),
             normal_balance: pick("normal_balance"),
             normal_later_balance: pick("normal_later_balance"),
@@ -1604,7 +1618,8 @@ function Upload({
           rows,
           dupes,
           issues,
-          mapped: Object.keys(map)
+          mapped: Object.keys(map),
+          mode: shipmentMode ? "shipment" : "snapshot"
         });
       } catch (err) {
         setError("파일을 읽지 못했습니다: " + err.message);
@@ -1620,7 +1635,8 @@ function Upload({
         body: {
           month,
           filename: parsed.filename,
-          rows: parsed.rows
+          rows: parsed.rows,
+          mode: parsed.mode
         }
       });
       applyUpload(res);
@@ -1696,7 +1712,7 @@ function Upload({
     style: {
       margin: "12px 0 0"
     }
-  }, "\uCCAB \uBC88\uC9F8 \uC2DC\uD2B8\uB97C \uC77D\uC2B5\uB2C8\uB2E4. \uC778\uC2DD\uD558\uB294 \uC5F4: \uAC70\uB798\uCC98\uCF54\uB4DC \xB7 \uAC70\uB798\uCC98\uBA85 \xB7 \uC0AC\uC5C5\uBD80 \xB7 \uCC44\uAD8C\uBD84\uB958 \xB7 \uB2F4\uB2F9\uC790 \xB7 \uCC44\uAD8C\uC794\uC561 \xB7 \uC120\uC218\uAE08 \xB7 \uC5F0\uCCB4\uAE30\uAC04(\uAC1C\uC6D4) \xB7 \uCD5C\uC885\uC218\uAE08\uC77C \xB7 \uBE44\uACE0")), error && /*#__PURE__*/React.createElement("div", {
+  }, "\uC6D4\uBCC4 \uCD9C\uACE0 \uCD5C\uC18C \uC11C\uC2DD: \uAC70\uB798\uCC98\uCF54\uB4DC \xB7 \uAC70\uB798\uCC98\uBA85 \xB7 \uC0AC\uC5C5\uBD80 \xB7 \uB2F4\uB2F9\uC790 \xB7 \uD68C\uC218\uAE30\uAC04(\uAC1C\uC6D4) \xB7 \uCD9C\uACE0\uAE08\uC561 \xB7 \uBE44\uACE0")), error && /*#__PURE__*/React.createElement("div", {
     className: "alert alert--bad",
     style: {
       marginTop: 12
@@ -1719,22 +1735,22 @@ function Upload({
     }
   }, "\uC5C5\uB85C\uB4DC \uC804 \uC218\uC815 \uD544\uC694: ", parsed.dupes.length > 0 && "중복 코드 " + parsed.dupes.join(", "), parsed.dupes.length > 0 && parsed.issues.length > 0 && " · ", parsed.issues.slice(0, 8).join(" · "), parsed.issues.length > 8 && " 외 " + (parsed.issues.length - 8) + "건"), /*#__PURE__*/React.createElement("p", {
     className: "t-sm t-muted"
-  }, month, " \uC758 \uAE30\uC874 \uB370\uC774\uD130\uB97C \uC774 \uD30C\uC77C\uB85C \uAD50\uCCB4\uD569\uB2C8\uB2E4. \uB2E4\uB978 \uC6D4 \uB370\uC774\uD130\uB294 \uADF8\uB300\uB85C \uC720\uC9C0\uB429\uB2C8\uB2E4."), /*#__PURE__*/React.createElement("div", {
+  }, parsed.mode === "shipment" ? month + " 출고분만 재설정하며 회수기간에 따라 수금대상월을 자동 산출합니다." : month + " 의 기존 확정 채권 데이터를 교체합니다.", " \uB2E4\uB978 \uC6D4 \uB370\uC774\uD130\uB294 \uADF8\uB300\uB85C \uC720\uC9C0\uB429\uB2C8\uB2E4."), /*#__PURE__*/React.createElement("div", {
     className: "tablewrap",
     style: {
       maxHeight: 260,
       overflowY: "auto",
       marginBottom: 12
     }
-  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "\uCF54\uB4DC"), /*#__PURE__*/React.createElement("th", null, "\uAC70\uB798\uCC98\uBA85"), /*#__PURE__*/React.createElement("th", null, "\uC0AC\uC5C5\uBD80"), /*#__PURE__*/React.createElement("th", null, "\uBD84\uB958"), /*#__PURE__*/React.createElement("th", null, "\uB2F4\uB2F9\uC790"), /*#__PURE__*/React.createElement("th", {
+  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "\uCF54\uB4DC"), /*#__PURE__*/React.createElement("th", null, "\uAC70\uB798\uCC98\uBA85"), /*#__PURE__*/React.createElement("th", null, "\uC0AC\uC5C5\uBD80"), /*#__PURE__*/React.createElement("th", null, parsed.mode === "shipment" ? "회수기간" : "분류"), /*#__PURE__*/React.createElement("th", null, "\uB2F4\uB2F9\uC790"), /*#__PURE__*/React.createElement("th", {
     className: "r"
-  }, "\uCC44\uAD8C\uC794\uC561"))), /*#__PURE__*/React.createElement("tbody", null, parsed.rows.slice(0, 12).map((r, i) => /*#__PURE__*/React.createElement("tr", {
+  }, parsed.mode === "shipment" ? "출고금액" : "채권잔액"))), /*#__PURE__*/React.createElement("tbody", null, parsed.rows.slice(0, 12).map((r, i) => /*#__PURE__*/React.createElement("tr", {
     key: i
   }, /*#__PURE__*/React.createElement("td", {
     className: "num"
-  }, r.code), /*#__PURE__*/React.createElement("td", null, r.name), /*#__PURE__*/React.createElement("td", null, r.biz_unit || "–"), /*#__PURE__*/React.createElement("td", null, r.status || "자동판정"), /*#__PURE__*/React.createElement("td", null, r.owner || "–"), /*#__PURE__*/React.createElement("td", {
+  }, r.code), /*#__PURE__*/React.createElement("td", null, r.name), /*#__PURE__*/React.createElement("td", null, r.biz_unit || "–"), /*#__PURE__*/React.createElement("td", null, parsed.mode === "shipment" ? r.collection_period + "개월" : r.status || "자동판정"), /*#__PURE__*/React.createElement("td", null, r.owner || "–"), /*#__PURE__*/React.createElement("td", {
     className: "r num"
-  }, won(r.balance))))))), /*#__PURE__*/React.createElement("div", {
+  }, won(parsed.mode === "shipment" ? r.shipment_amount : r.balance))))))), /*#__PURE__*/React.createElement("div", {
     className: "btnrow"
   }, /*#__PURE__*/React.createElement("button", {
     className: "btn btn--primary",
@@ -2087,7 +2103,9 @@ function App() {
     className: "topbar"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h1", null, current.label), /*#__PURE__*/React.createElement("div", {
     className: "sub"
-  }, "\uAC70\uB798\uCC98 ", data.customers.length, "\uACF3 \xB7 \uBBF8\uC218 \uD569\uACC4 ", won(sum(data.customers, "balance")), "\uC6D0")), /*#__PURE__*/React.createElement("div", {
+  }, "\uAE30\uC900\uC77C ", data.meta.today, " \xB7 ", data.meta.reflection_label), /*#__PURE__*/React.createElement("div", {
+    className: "sub"
+  }, "\uAC70\uB798\uCC98 ", data.customers.length, "\uACF3 \xB7 \uC804\uCCB4 \uCC44\uAD8C ", won(sum(data.customers, "balance")), "\uC6D0")), /*#__PURE__*/React.createElement("div", {
     className: "spacer"
   }), /*#__PURE__*/React.createElement("div", {
     className: "who"
