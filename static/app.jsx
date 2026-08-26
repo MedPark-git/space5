@@ -16,6 +16,8 @@ const STATUS_LABEL = { 정상: "정상채권", 연체: "미수채권", 부실: "
 const today = () => new Date().toISOString().slice(0, 10);
 const thisMonth = () => new Date().toISOString().slice(0, 7);
 const sum = (list, key) => list.reduce((a, x) => a + (Number(x[key]) || 0), 0);
+const code5 = (code) => String(code || "").padStart(5, "0");
+const overdueMonths = (days) => Math.ceil(Math.max(0, Number(days) || 0) / 30);
 
 async function api(path, options = {}) {
   const res = await fetch(path, {
@@ -341,7 +343,7 @@ function Dashboard({ data, setScreen, setPreset }) {
                   <tr key={c.code}>
                     <td className="t-muted num" style={{ width: 26 }}>{i + 1}</td>
                     <td className="t-strong">{c.name}</td>
-                    <td className="num t-sm t-muted">{c.overdue_days}일</td>
+                    <td className="num t-sm t-muted">{overdueMonths(c.overdue_days)}개월</td>
                     <td className="r num">{won(c.overdue_balance)}</td>
                   </tr>
                 ))}
@@ -519,7 +521,7 @@ function Customers({ data, can, preset, notify, patchCustomer }) {
   const rows = useMemo(() => data.customers.filter((c) => {
     if (sel.unit !== "전체" && c.biz_unit !== sel.unit) return false;
     if (sel.status !== "전체" && c.status !== sel.status) return false;
-    if (q && !(c.name.includes(q) || c.code.includes(q) || (c.owner || "").includes(q))) return false;
+    if (q && !(c.name.includes(q) || c.code.includes(q) || code5(c.code).includes(q) || (c.owner || "").includes(q))) return false;
     return true;
   }), [data.customers, sel, q]);
 
@@ -587,21 +589,21 @@ function Customers({ data, can, preset, notify, patchCustomer }) {
               <thead>
                 <tr>
                   <th>코드</th><th>거래처명</th><th>사업부</th><th>분류</th><th>담당자</th>
-                  <th className="r">미수잔액</th><th className="r">선수금</th>
-                  <th className="r">경과일</th><th>최종수금일</th><th style={{ minWidth: 200 }}>비고</th>
+                  <th className="r">채권잔액</th><th className="r">선수금</th>
+                  <th className="r">연체기간(개월)</th><th>최종수금일</th><th style={{ minWidth: 200 }}>비고</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((c) => (
                   <tr key={c.code}>
-                    <td className="num t-muted">{c.code}</td>
+                    <td className="num t-muted">{code5(c.code)}</td>
                     <td className="t-strong">{c.name}</td>
                     <td>{c.biz_unit}</td>
                     <td><Badge status={c.status} /></td>
                     <td>{c.owner || <span className="t-muted">미지정</span>}</td>
                     <td className="r num t-strong">{won(c.balance)}</td>
                     <td className="r num">{c.advance ? won(c.advance) : "–"}</td>
-                    <td className="r num">{c.overdue_days || "–"}</td>
+                    <td className="r num">{overdueMonths(c.overdue_days)}개월</td>
                     <td className="num t-muted t-sm">{c.last_paid_at || "–"}</td>
                     <td style={{ whiteSpace: "normal" }}>
                       {editing === c.code ? (
@@ -690,17 +692,17 @@ function Owners({ data }) {
             <table>
               <thead>
                 <tr><th>코드</th><th>거래처명</th><th>사업부</th><th>분류</th>
-                  <th className="r">미수잔액</th><th className="r">경과일</th><th>비고</th></tr>
+                  <th className="r">채권잔액</th><th className="r">연체기간(개월)</th><th>비고</th></tr>
               </thead>
               <tbody>
                 {[...active.rows].sort((a, b) => b.balance - a.balance).map((c) => (
                   <tr key={c.code}>
-                    <td className="num t-muted">{c.code}</td>
+                    <td className="num t-muted">{code5(c.code)}</td>
                     <td className="t-strong">{c.name}</td>
                     <td>{c.biz_unit}</td>
                     <td><Badge status={c.status} /></td>
                     <td className="r num t-strong">{won(c.balance)}</td>
-                    <td className="r num">{c.overdue_days || "–"}</td>
+                    <td className="r num">{overdueMonths(c.overdue_days)}개월</td>
                     <td className="t-sm t-muted" style={{ whiteSpace: "normal" }}>{c.note || "–"}</td>
                   </tr>
                 ))}
@@ -726,7 +728,8 @@ function CustomerSearch({ customers, value, onChange }) {
     const keyword = query.trim().toLowerCase();
     return customers.filter((c) => !keyword
       || c.name.toLowerCase().includes(keyword)
-      || String(c.code).toLowerCase().includes(keyword)).slice(0, 12);
+      || String(c.code).toLowerCase().includes(keyword)
+      || code5(c.code).includes(keyword)).slice(0, 12);
   }, [customers, query]);
 
   useEffect(() => {
@@ -752,7 +755,7 @@ function CustomerSearch({ customers, value, onChange }) {
             <button type="button" role="option" key={c.code}
               className="customer-search__option" onMouseDown={(e) => e.preventDefault()}
               onClick={() => choose(c)}>
-              <span><b>{c.name}</b><small>{c.code} · {c.biz_unit}</small></span>
+              <span><b>{c.name}</b><small>{code5(c.code)} · {c.biz_unit}</small></span>
               <strong className="num">{won(c.balance)}원</strong>
             </button>
           ))}
@@ -1176,7 +1179,7 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
             onChange={(e) => e.target.files[0] && readFile(e.target.files[0])} />
           <p className="t-sm t-muted" style={{ margin: "12px 0 0" }}>
             첫 번째 시트를 읽습니다. 인식하는 열: 거래처코드 · 거래처명 · 사업부 · 채권분류 ·
-            담당자 · 미수잔액 · 선수금 · 경과일 · 최종수금일 · 비고
+            담당자 · 채권잔액 · 선수금 · 연체기간(개월) · 최종수금일 · 비고
           </p>
         </div>
 
@@ -1201,7 +1204,7 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
               <table>
                 <thead>
                   <tr><th>코드</th><th>거래처명</th><th>사업부</th><th>분류</th><th>담당자</th>
-                    <th className="r">미수잔액</th></tr>
+                    <th className="r">채권잔액</th></tr>
                 </thead>
                 <tbody>
                   {parsed.rows.slice(0, 12).map((r, i) => (
