@@ -258,6 +258,7 @@ tfoot td { background: var(--surface-2); font-weight: 700; border-top: 1px solid
 .summary-bad { color: #cf4339; font-weight: 600; }
 .summary-subtotal { background: #e4f4f0; font-weight: 700; }
 .summary-note { padding: 11px 14px; background: #fff8e7; color: #9a5d00; font-size: 12.5px; }
+.template-steps { margin: 0; padding-left: 22px; display: grid; gap: 10px; line-height: 1.6; }
 
 /* ── 트리 ───────────────────────────────────────────────────────── */
 .tree { display: grid; gap: 3px; }
