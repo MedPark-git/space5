@@ -255,8 +255,8 @@ def bootstrap():
             if shipment:
                 closing_map = {c["code"]: c for c in dashboard_closing_customers}
                 shipment_rows = [r for r in conn.execute(
-                    "SELECT code,biz_unit,bucket,balance FROM monthly_shipment_units"
-                    " WHERE month=%s AND balance<>0", (next_month,))]
+                    "SELECT code,biz_unit,bucket,amount FROM monthly_shipment_units"
+                    " WHERE month=%s AND amount<>0", (next_month,))]
                 bucket_fields = {
                     "current": "normal_current_balance",
                     "next": "normal_next_balance",
@@ -266,7 +266,7 @@ def bootstrap():
                     customer = closing_map.get(row["code"])
                     if not customer:
                         continue
-                    amount = int(row["balance"] or 0)
+                    amount = int(row["amount"] or 0)
                     bucket_field = bucket_fields.get(row["bucket"], "normal_later_balance")
                     for field in ("balance", "normal_balance", bucket_field):
                         customer[field] = max(0, int(customer.get(field) or 0) - amount)
@@ -841,6 +841,7 @@ def export_cash_plan():
     month = (data.get("month") or "").strip()
     include_overdue = bool(data.get("include_overdue"))
     include_bad = bool(data.get("include_bad"))
+    data_view = (data.get("data_view") or "combined").strip()
     as_of_date = (data.get("as_of_date") or date.today().isoformat()).strip()
     if len(month) != 7 or month[4] != "-":
         return jsonify(error="다운로드 기준월을 선택하세요."), 400
@@ -850,10 +851,18 @@ def export_cash_plan():
         return jsonify(error="미수채권 조회기준일 형식이 올바르지 않습니다."), 400
 
     with connect() as conn:
+        item_where = " WHERE ri.balance>0"
+        item_params = []
+        if data_view == "closing":
+            closed = conn.execute(
+                "SELECT month FROM month_locks WHERE locked=1 ORDER BY month DESC LIMIT 1").fetchone()
+            if closed:
+                item_where += " AND NOT (ri.source_key LIKE 'shipment:%%' AND ri.issue_month>%s)"
+                item_params.append(closed["month"])
         items = [r for r in conn.execute(
             "SELECT ri.*,c.name,COALESCE(NULLIF(ri.biz_unit,''),c.biz_unit) AS biz_unit FROM receivable_items ri"
-            " JOIN customers c ON c.code=ri.customer_code WHERE ri.balance>0"
-            " ORDER BY c.biz_unit,c.name,ri.issue_month,ri.id")]
+            " JOIN customers c ON c.code=ri.customer_code" + item_where
+            + " ORDER BY c.biz_unit,c.name,ri.issue_month,ri.id", item_params)]
         snapshot = conn.execute(
             "SELECT month FROM uploads WHERE upload_type='snapshot' ORDER BY id DESC LIMIT 1"
         ).fetchone()
