@@ -143,7 +143,10 @@ function Login({ onDone }) {
 /* ══════════════════ 대시보드 ══════════════════ */
 
 function Dashboard({ data, setScreen, setPreset }) {
-  const { customers, collections, targets } = data;
+  const { collections, targets } = data;
+  const viewOptions = data.meta.dashboard_views || [{ key: "combined", label: data.meta.reflection_label }];
+  const [dataView, setDataView] = useState(viewOptions.some((v) => v.key === "combined") ? "combined" : viewOptions[0].key);
+  const customers = dataView === "closing" ? (data.dashboard_closing_customers || data.customers) : data.customers;
   const [unit, setUnit] = useState("전체");
   const [normalTopUnit, setNormalTopUnit] = useState("전체");
   const [overdueTopUnit, setOverdueTopUnit] = useState("전체");
@@ -234,6 +237,12 @@ function Dashboard({ data, setScreen, setPreset }) {
 
   return (
     <>
+      {viewOptions.length > 1 && <Card title="대시보드 조회기준">
+        <div className="chiprow" style={{ marginBottom: 0 }}>
+          {viewOptions.map((view) => <button key={view.key} className="chip"
+            aria-pressed={dataView === view.key} onClick={() => setDataView(view.key)}>{view.label}</button>)}
+        </div>
+      </Card>}
       <div className="chiprow">
         {["전체", ...data.meta.units].map((u) => (
           <button key={u} className="chip" aria-pressed={unit === u} onClick={() => setUnit(u)}>{u}</button>
@@ -1236,7 +1245,10 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
             .filter(([, units]) => units.size > 1).map(([code]) => code);
         }
         const seen = new Set(), dupes = [];
-        preparedRows.forEach((r) => { if (seen.has(r.code)) dupes.push(r.code); seen.add(r.code); });
+        preparedRows.forEach((r) => {
+          if (!amaranthMode && seen.has(r.code)) dupes.push(r.code);
+          seen.add(r.code);
+        });
         setParsed({ filename: file.name, rows: preparedRows, dupes, issues,
           mapped: Object.keys(map), amaranthMode, multiUnitCodes,
           mode: shipmentMode ? "shipment" : "snapshot" });
@@ -1300,7 +1312,7 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
           <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv"
             onChange={(e) => e.target.files[0] && readFile(e.target.files[0])} />
           <p className="t-sm t-muted" style={{ margin: "12px 0 0" }}>
-            월별 출고 최소 서식: 거래처코드 · 거래처명 · 사업부 · 담당자 · 회수기간(개월) · 출고금액 · 비고
+            아마란스10 출고현황 원본: E열 고객코드 · F열 고객 · AK열 대분류 · AB열 합계액을 자동 인식합니다.
           </p>
         </div>
 
@@ -1393,45 +1405,6 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
             </tbody>
           </table>
         </div>
-      </Card>
-    </>
-  );
-}
-
-function UploadTemplate() {
-  async function downloadTemplate() {
-    try {
-      const response = await fetch("/static/receivables_upload_template.b64");
-      if (!response.ok) throw new Error("서식 파일을 불러오지 못했습니다.");
-      const encoded = (await response.text()).trim();
-      const bytes = Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0));
-      const url = URL.createObjectURL(new Blob([bytes], {
-        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      }));
-      const link = document.createElement("a");
-      link.href = url; link.download = "MedPark_출고데이터_업로드서식.xlsx"; link.click();
-      URL.revokeObjectURL(url);
-    } catch (e) { alert(e.message); }
-  }
-
-  return (
-    <>
-      <Card title="출고데이터 업로드서식">
-        <p style={{ marginTop: 0 }}>월별 출고데이터를 등록하는 표준 서식입니다.</p>
-        <div className="alert alert--info" style={{ marginBottom: 14 }}>
-          필수 항목: 거래처코드 · 거래처명 · 사업부
-        </div>
-        <button className="btn btn--primary" onClick={downloadTemplate}>
-          엑셀 업로드 서식 다운로드
-        </button>
-      </Card>
-      <Card title="사용 순서">
-        <ol className="template-steps">
-          <li>서식을 내려받아 첫 번째 시트인 <b>업로드서식</b>에 데이터를 입력합니다.</li>
-          <li>출고 데이터 업로드 메뉴에서 기준월을 선택합니다.</li>
-          <li>파일을 선택해 오류·중복 여부를 확인한 뒤 해당 월 데이터로 반영합니다.</li>
-          <li>확정된 월은 마감 잠금하여 추가 변경을 방지합니다.</li>
-        </ol>
       </Card>
     </>
   );
@@ -1657,7 +1630,6 @@ const SCREENS = [
   { key: "owners",    label: "담당자별 채권현황", perm: "owner_view",          group: "현황" },
   { key: "collections", label: "수금 등록",       perm: "collection_register", group: "수금", alt: "collection_approve" },
   { key: "targets",   label: "수금목표 관리",     perm: "target_manage",       group: "수금" },
-  { key: "template",  label: "출고데이터 업로드서식", perm: "upload_data",       group: "관리" },
   { key: "upload",    label: "출고 데이터 업로드", perm: "upload_data",        group: "관리" },
   { key: "cashplan",  label: "수금계획 다운로드", perm: "data_export",          group: "관리" },
   { key: "users",     label: "계정·권한 관리",    perm: "user_manage",         group: "관리" },
@@ -1766,7 +1738,6 @@ function App() {
           {screen === "owners" && <Owners data={data} />}
           {screen === "collections" && <Collections data={data} can={can} notify={notify} refresh={load} />}
           {screen === "targets" && <Targets data={data} notify={notify} refresh={load} />}
-          {screen === "template" && <UploadTemplate />}
           {screen === "upload" && <Upload data={data} can={can} notify={notify}
             applyUpload={applyUpload} refresh={load} />}
           {screen === "cashplan" && <CashPlan data={data} notify={notify} />}
