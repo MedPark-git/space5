@@ -11,6 +11,7 @@ function short(n) {
     return { value: v.toLocaleString("ko-KR"), unit: "원" };
 }
 const STATUS_STYLE = { 정상: "ok", 연체: "warn", 부실: "bad" };
+const STATUS_LABEL = { 정상: "정상채권", 연체: "미수채권", 부실: "부실채권" };
 const today = () => new Date().toISOString().slice(0, 10);
 const thisMonth = () => new Date().toISOString().slice(0, 7);
 const sum = (list, key) => list.reduce((a, x) => a + (Number(x[key]) || 0), 0);
@@ -45,7 +46,7 @@ function Empty({ title, children }) {
         children);
 }
 function Badge({ status }) {
-    return React.createElement("span", { className: "badge badge--" + (STATUS_STYLE[status] || "mute") }, status);
+    return React.createElement("span", { className: "badge badge--" + (STATUS_STYLE[status] || "mute") }, STATUS_LABEL[status] || status);
 }
 function Field({ label, children }) {
     return React.createElement("div", { className: "field" },
@@ -201,16 +202,16 @@ function Dashboard({ data, setScreen, setPreset }) {
             React.createElement(Card, { title: "\uC0AC\uC5C5\uBD80\uBCC4 \uCC44\uAD8C \uBD84\uB958 \uD604\uD669", actions: React.createElement("div", { className: "legend" },
                     React.createElement("span", null,
                         React.createElement("i", { style: { background: "var(--ok)" } }),
-                        "\uC815\uC0C1"),
+                        "\uC815\uC0C1\uCC44\uAD8C"),
                     React.createElement("span", null,
                         React.createElement("i", { style: { background: "var(--warn)" } }),
-                        "\uC5F0\uCCB4"),
+                        "\uBBF8\uC218\uCC44\uAD8C"),
                     React.createElement("span", null,
                         React.createElement("i", { style: { background: "var(--bad)" } }),
-                        "\uBD80\uC2E4")) },
+                        "\uBD80\uC2E4\uCC44\uAD8C")) },
                 React.createElement("div", { className: "signal" }, byUnit.map((g) => (React.createElement("div", { className: "signal__row", key: g.unit },
                     React.createElement("div", { className: "signal__unit" }, g.unit),
-                    React.createElement("div", { className: "signal__bar", style: { width: (Math.max(8, (g.total / maxUnit) * 100)) + "%" } }, ["정상", "연체", "부실"].map((s) => g[s] > 0 && (React.createElement("button", { key: s, className: "signal__seg signal__seg--" + STATUS_STYLE[s], style: { width: (g[s] / g.total) * 100 + "%" }, title: g.unit + " " + s + " " + won(g[s]) + "원", onClick: () => { setPreset({ status: s, unit: g.unit }); setScreen("customers"); } })))),
+                    React.createElement("div", { className: "signal__bar", style: { width: (Math.max(8, (g.total / maxUnit) * 100)) + "%" } }, ["정상", "연체", "부실"].map((s) => g[s] > 0 && (React.createElement("button", { key: s, className: "signal__seg signal__seg--" + STATUS_STYLE[s], style: { width: (g[s] / g.total) * 100 + "%" }, title: g.unit + " " + STATUS_LABEL[s] + " " + won(g[s]) + "원", onClick: () => { setPreset({ status: s, unit: g.unit }); setScreen("customers"); } })))),
                     React.createElement("div", { className: "signal__total num" },
                         short(g.total).value,
                         short(g.total).unit))))),
@@ -285,11 +286,11 @@ function Dashboard({ data, setScreen, setPreset }) {
                         React.createElement("tr", null,
                             React.createElement("th", null, "\uB2F4\uB2F9\uC790"),
                             React.createElement("th", { className: "r" }, "\uAC70\uB798\uCC98"),
-                            React.createElement("th", { className: "r" }, "\uC815\uC0C1"),
-                            React.createElement("th", { className: "r" }, "\uC5F0\uCCB4"),
-                            React.createElement("th", { className: "r" }, "\uBD80\uC2E4"),
+                            React.createElement("th", { className: "r" }, "\uC815\uC0C1\uCC44\uAD8C"),
+                            React.createElement("th", { className: "r" }, "\uBBF8\uC218\uCC44\uAD8C"),
+                            React.createElement("th", { className: "r" }, "\uBD80\uC2E4\uCC44\uAD8C"),
                             React.createElement("th", { className: "r" }, "\uD569\uACC4"),
-                            React.createElement("th", { style: { width: 130 } }, "\uC5F0\uCCB4\u00B7\uBD80\uC2E4 \uBE44\uC911"))),
+                            React.createElement("th", { style: { width: 150 } }, "\uBBF8\uC218\u00B7\uBD80\uC2E4\uCC44\uAD8C \uBE44\uC911"))),
                     React.createElement("tbody", null, owners.map((o) => {
                         const risk = o.total ? ((o.연체 + o.부실) / o.total) * 100 : 0;
                         return (React.createElement("tr", { key: o.owner },
@@ -363,7 +364,7 @@ function Customers({ data, can, preset, notify, patchCustomer }) {
                             React.createElement("span", null,
                                 React.createElement(Badge, { status: s })),
                             React.createElement("span", { className: "tree__count" }, countOf(u, s)))))))))))),
-        React.createElement(Card, { title: sel.unit + " · " + sel.status + " (" + rows.length + "곳)", actions: React.createElement("input", { className: "input", style: { width: 220 }, value: q, placeholder: "\uAC70\uB798\uCC98\uBA85\u00B7\uCF54\uB4DC\u00B7\uB2F4\uB2F9\uC790", onChange: (e) => setQ(e.target.value) }), flush: true }, rows.length === 0 ? (React.createElement(Empty, { title: "\uC870\uAC74\uC5D0 \uB9DE\uB294 \uAC70\uB798\uCC98\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4." }, "\uC67C\uCABD \uBD84\uB958\uB098 \uAC80\uC0C9\uC5B4\uB97C \uBC14\uAFD4\uBCF4\uC138\uC694.")) : (React.createElement("div", { className: "tablewrap" },
+        React.createElement(Card, { title: sel.unit + " · " + (STATUS_LABEL[sel.status] || sel.status) + " (" + rows.length + "곳)", actions: React.createElement("input", { className: "input", style: { width: 220 }, value: q, placeholder: "\uAC70\uB798\uCC98\uBA85\u00B7\uCF54\uB4DC\u00B7\uB2F4\uB2F9\uC790", onChange: (e) => setQ(e.target.value) }), flush: true }, rows.length === 0 ? (React.createElement(Empty, { title: "\uC870\uAC74\uC5D0 \uB9DE\uB294 \uAC70\uB798\uCC98\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4." }, "\uC67C\uCABD \uBD84\uB958\uB098 \uAC80\uC0C9\uC5B4\uB97C \uBC14\uAFD4\uBCF4\uC138\uC694.")) : (React.createElement("div", { className: "tablewrap" },
             React.createElement("table", null,
                 React.createElement("thead", null,
                     React.createElement("tr", null,
@@ -438,7 +439,7 @@ function Owners({ data }) {
                 "\uACF3 \u00B7 ",
                 won(o.total),
                 "\uC6D0"),
-            React.createElement("div", { className: "signal__bar" }, ["정상", "연체", "부실"].map((s) => o[s] > 0 && (React.createElement("div", { key: s, className: "signal__seg signal__seg--" + STATUS_STYLE[s], style: { width: (o[s] / o.total) * 100 + "%" }, title: s + " " + won(o[s]) })))))))),
+            React.createElement("div", { className: "signal__bar" }, ["정상", "연체", "부실"].map((s) => o[s] > 0 && (React.createElement("div", { key: s, className: "signal__seg signal__seg--" + STATUS_STYLE[s], style: { width: (o[s] / o.total) * 100 + "%" }, title: STATUS_LABEL[s] + " " + won(o[s]) })))))))),
         active && (React.createElement(Card, { title: active.owner + " 담당 거래처", flush: true },
             React.createElement("div", { className: "tablewrap" },
                 React.createElement("table", null,
