@@ -863,6 +863,222 @@ function BondSummary({
   }, rate(total("overdueCollected"), total("overdue") + total("overdueCollected"))))))))));
 }
 
+/* ═══════════════ 결산회의용 부서별 미수채권현황 ═══════════════ */
+
+function ClosingReceivables({
+  data,
+  notify
+}) {
+  const [unit, setUnit] = useState("전체");
+  const reportRef = useRef(null);
+  const [exporting, setExporting] = useState(false);
+  const unitNames = {
+    덴탈: "국내덴탈",
+    메디컬: "국내메디컬",
+    에스테틱: "국내에스테틱"
+  };
+  const units = unit === "전체" ? data.meta.units : [unit];
+  const reports = useMemo(() => units.map(bizUnit => {
+    const customers = customersForUnit(data.customers, bizUnit);
+    const detail = customers.flatMap(c => {
+      const notes = [c.note, ...(c.detail_notes || [])].filter(Boolean);
+      return [{
+        ...c,
+        category: "미수채권",
+        amount: Number(c.overdue_balance) || 0,
+        months: overdueMonths(c.overdue_days),
+        notes
+      }, {
+        ...c,
+        category: "부실채권",
+        amount: Number(c.bad_balance) || 0,
+        months: overdueMonths(c.overdue_days),
+        notes
+      }].filter(row => row.amount > 0);
+    }).sort((a, b) => b.amount - a.amount);
+    const overdueBalance = sum(customers, "overdue_balance");
+    const badBalance = sum(customers, "bad_balance");
+    const overdueCollected = sum(customers, "overdue_collected");
+    const overdueOpening = overdueBalance + badBalance + overdueCollected;
+    const normalBalance = sum(customers, "normal_balance");
+    const normalCollected = sum(customers, "normal_collected");
+    return {
+      unit: bizUnit,
+      customers,
+      detail,
+      overdueBalance,
+      badBalance,
+      overdueCollected,
+      overdueOpening,
+      normalBalance,
+      normalCollected,
+      normalOpening: normalBalance + normalCollected
+    };
+  }).filter(report => report.overdueBalance + report.badBalance > 0), [data.customers, units.join("|")]);
+  const rate = (paid, opening) => opening ? (paid / opening * 100).toFixed(1) + "%" : "0.0%";
+  async function exportReport(kind) {
+    setExporting(true);
+    try {
+      if (!window.html2canvas) throw new Error("이미지 변환 모듈을 불러오지 못했습니다.");
+      const canvas = await window.html2canvas(reportRef.current, {
+        scale: 2,
+        backgroundColor: "#eef1f6",
+        useCORS: true
+      });
+      const base = "결산회의_부서별_미수채권현황_" + data.meta.today;
+      if (kind === "png") {
+        const link = document.createElement("a");
+        link.download = base + ".png";
+        link.href = canvas.toDataURL("image/png");
+        link.click();
+      } else {
+        if (!window.PptxGenJS) throw new Error("PPT 변환 모듈을 불러오지 못했습니다.");
+        const pptx = new window.PptxGenJS();
+        pptx.layout = "LAYOUT_WIDE";
+        pptx.author = "MEDPARK";
+        const imageData = canvas.toDataURL("image/png");
+        const pageHeight = Math.floor(canvas.width * 6.75 / 12.65);
+        for (let top = 0; top < canvas.height; top += pageHeight) {
+          const slice = document.createElement("canvas");
+          slice.width = canvas.width;
+          slice.height = Math.min(pageHeight, canvas.height - top);
+          slice.getContext("2d").drawImage(canvas, 0, top, canvas.width, slice.height, 0, 0, canvas.width, slice.height);
+          const slide = pptx.addSlide();
+          slide.background = {
+            color: "EEF1F6"
+          };
+          slide.addText("㈜메드파크 결산회의용 부서별 미수채권현황", {
+            x: .35,
+            y: .1,
+            w: 9,
+            h: .3,
+            fontFace: "Pretendard",
+            fontSize: 16,
+            bold: true,
+            color: "16202E"
+          });
+          slide.addText("기준일 " + data.meta.today, {
+            x: 10.2,
+            y: .15,
+            w: 2.75,
+            h: .2,
+            align: "right",
+            fontSize: 9,
+            color: "5C6B80"
+          });
+          slide.addImage({
+            data: slice.toDataURL("image/png"),
+            x: .34,
+            y: .48,
+            w: 12.65,
+            h: 12.65 * slice.height / slice.width
+          });
+        }
+        await pptx.writeFile({
+          fileName: base + ".pptx"
+        });
+      }
+      notify((kind === "png" ? "그림파일" : "PPT") + " 다운로드를 시작했습니다.");
+    } catch (e) {
+      notify(e.message, true);
+    } finally {
+      setExporting(false);
+    }
+  }
+  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "closing-toolbar"
+  }, /*#__PURE__*/React.createElement(Field, {
+    label: "사업부"
+  }, /*#__PURE__*/React.createElement("select", {
+    className: "select",
+    value: unit,
+    onChange: e => setUnit(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", null, "전체"), data.meta.units.map(u => /*#__PURE__*/React.createElement("option", {
+    key: u
+  }, u)))), /*#__PURE__*/React.createElement("div", {
+    className: "spacer"
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "t-muted t-sm"
+  }, "결산회의용 다운로드"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn--sm",
+    disabled: exporting,
+    onClick: () => exportReport("png")
+  }, "그림파일(PNG)"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn--sm btn--primary",
+    disabled: exporting,
+    onClick: () => exportReport("pptx")
+  }, "PPT")), /*#__PURE__*/React.createElement("div", {
+    ref: reportRef,
+    className: "closing-report"
+  }, reports.length === 0 && /*#__PURE__*/React.createElement(Card, null, /*#__PURE__*/React.createElement("div", {
+    className: "zero-result"
+  }, "조회 대상 채권이 없습니다.")), reports.map(report => /*#__PURE__*/React.createElement(Card, {
+    key: report.unit,
+    title: (unitNames[report.unit] || report.unit) + " · 미수채권현황",
+    flush: true
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "closing-meta"
+  }, "기준일 ", data.meta.today, " · 잔액이 있는 채권만 표시"), /*#__PURE__*/React.createElement("div", {
+    className: "tablewrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "closing-summary"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "구분"), /*#__PURE__*/React.createElement("th", {
+    className: "r"
+  }, "기초"), /*#__PURE__*/React.createElement("th", {
+    className: "r"
+  }, "수금액"), /*#__PURE__*/React.createElement("th", {
+    className: "r"
+  }, "잔액"), /*#__PURE__*/React.createElement("th", {
+    className: "r"
+  }, "회수율"), /*#__PURE__*/React.createElement("th", null, "주요사항"))), /*#__PURE__*/React.createElement("tbody", null, /*#__PURE__*/React.createElement("tr", {
+    className: "closing-summary--overdue"
+  }, /*#__PURE__*/React.createElement("td", null, "미수·부실채권"), /*#__PURE__*/React.createElement("td", {
+    className: "r num"
+  }, won(report.overdueOpening)), /*#__PURE__*/React.createElement("td", {
+    className: "r num"
+  }, won(report.overdueCollected)), /*#__PURE__*/React.createElement("td", {
+    className: "r num t-strong"
+  }, won(report.overdueBalance + report.badBalance)), /*#__PURE__*/React.createElement("td", {
+    className: "r num"
+  }, rate(report.overdueCollected, report.overdueOpening)), /*#__PURE__*/React.createElement("td", null, report.detail.filter(x => x.notes.length).length, "개 거래처 특이사항 등록")), report.normalOpening > 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", null, "정상채권 (수금 대상)"), /*#__PURE__*/React.createElement("td", {
+    className: "r num"
+  }, won(report.normalOpening)), /*#__PURE__*/React.createElement("td", {
+    className: "r num"
+  }, won(report.normalCollected)), /*#__PURE__*/React.createElement("td", {
+    className: "r num t-strong"
+  }, won(report.normalBalance)), /*#__PURE__*/React.createElement("td", {
+    className: "r num"
+  }, rate(report.normalCollected, report.normalOpening)), /*#__PURE__*/React.createElement("td", null))))), /*#__PURE__*/React.createElement("div", {
+    className: "tablewrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "closing-detail"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "거래처명"), /*#__PURE__*/React.createElement("th", null, "사업부"), /*#__PURE__*/React.createElement("th", {
+    className: "r"
+  }, "회수기간"), /*#__PURE__*/React.createElement("th", {
+    className: "r"
+  }, "연체기간"), /*#__PURE__*/React.createElement("th", null, "채권구분"), /*#__PURE__*/React.createElement("th", {
+    className: "r"
+  }, "채권잔액"), /*#__PURE__*/React.createElement("th", null, "특이사항"))), /*#__PURE__*/React.createElement("tbody", null, report.detail.map(row => /*#__PURE__*/React.createElement("tr", {
+    key: row.code + row.category
+  }, /*#__PURE__*/React.createElement("td", {
+    className: "t-strong"
+  }, row.name), /*#__PURE__*/React.createElement("td", null, report.unit), /*#__PURE__*/React.createElement("td", {
+    className: row.period == null || Number(row.period) < 0 ? "customer-period--missing" : "r num"
+  }, row.period == null || Number(row.period) < 0 ? "미입력" : Number(row.period) + "개월"), /*#__PURE__*/React.createElement("td", {
+    className: "r num"
+  }, row.months, "개월"), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement(Badge, {
+    status: row.category === "부실채권" ? "부실" : "연체"
+  })), /*#__PURE__*/React.createElement("td", {
+    className: "r num closing-amount"
+  }, won(row.amount)), /*#__PURE__*/React.createElement("td", {
+    className: "closing-notes"
+  }, row.notes.join(" · ") || "–")))), /*#__PURE__*/React.createElement("tfoot", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
+    colSpan: 5
+  }, "합계 · ", report.detail.length, "건"), /*#__PURE__*/React.createElement("td", {
+    className: "r num"
+  }, won(sum(report.detail, "amount"))), /*#__PURE__*/React.createElement("td", null)))))))));
+}
+
 /* ══════════════════ 거래처별 현황 ══════════════════ */
 
 function InlineEdit({
@@ -2460,6 +2676,11 @@ const SCREENS = [{
   perm: "dashboard_view",
   group: "현황"
 }, {
+  key: "closing",
+  label: "결산회의 미수채권",
+  perm: "dashboard_view",
+  group: "현황"
+}, {
   key: "customers",
   label: "거래처별 현황",
   perm: "customer_view",
@@ -2496,7 +2717,7 @@ const SCREENS = [{
   perm: "user_manage",
   group: "관리"
 }];
-const REPORT_SCREENS = new Set(["dashboard", "summary", "customers", "owners", "targets", "cashplan"]);
+const REPORT_SCREENS = new Set(["dashboard", "summary", "closing", "customers", "owners", "targets", "cashplan"]);
 function App() {
   const [user, setUser] = useState(undefined);
   const [data, setData] = useState(null);
@@ -2647,6 +2868,9 @@ function App() {
     setScreen: setScreen,
     setPreset: setPreset
   }), screen === "summary" && /*#__PURE__*/React.createElement(BondSummary, {
+    data: reportData,
+    notify: notify
+  }), screen === "closing" && /*#__PURE__*/React.createElement(ClosingReceivables, {
     data: reportData,
     notify: notify
   }), screen === "customers" && /*#__PURE__*/React.createElement(Customers, {
