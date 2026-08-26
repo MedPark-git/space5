@@ -888,18 +888,11 @@ function ClosingReceivables({
         amount: Number(c.overdue_balance) || 0,
         months: overdueMonths(c.overdue_days),
         notes
-      }, {
-        ...c,
-        category: "부실채권",
-        amount: Number(c.bad_balance) || 0,
-        months: overdueMonths(c.overdue_days),
-        notes
       }].filter(row => row.amount > 0);
     }).sort((a, b) => b.amount - a.amount);
     const overdueBalance = sum(customers, "overdue_balance");
-    const badBalance = sum(customers, "bad_balance");
     const overdueCollected = sum(customers, "overdue_collected");
-    const overdueOpening = overdueBalance + badBalance + overdueCollected;
+    const overdueOpening = overdueBalance + overdueCollected;
     const normalBalance = sum(customers, "normal_balance");
     const normalCollected = sum(customers, "normal_collected");
     return {
@@ -907,14 +900,13 @@ function ClosingReceivables({
       customers,
       detail,
       overdueBalance,
-      badBalance,
       overdueCollected,
       overdueOpening,
       normalBalance,
       normalCollected,
       normalOpening: normalBalance + normalCollected
     };
-  }).filter(report => report.overdueBalance + report.badBalance > 0), [data.customers, units.join("|")]);
+  }).filter(report => report.overdueBalance > 0), [data.customers, units.join("|")]);
   const rate = (paid, opening) => opening ? (paid / opening * 100).toFixed(1) + "%" : "0.0%";
   async function exportReport(kind) {
     setExporting(true);
@@ -1032,13 +1024,13 @@ function ClosingReceivables({
     className: "r"
   }, "회수율"), /*#__PURE__*/React.createElement("th", null, "주요사항"))), /*#__PURE__*/React.createElement("tbody", null, /*#__PURE__*/React.createElement("tr", {
     className: "closing-summary--overdue"
-  }, /*#__PURE__*/React.createElement("td", null, "미수·부실채권"), /*#__PURE__*/React.createElement("td", {
+  }, /*#__PURE__*/React.createElement("td", null, "미수채권"), /*#__PURE__*/React.createElement("td", {
     className: "r num"
   }, won(report.overdueOpening)), /*#__PURE__*/React.createElement("td", {
     className: "r num"
   }, won(report.overdueCollected)), /*#__PURE__*/React.createElement("td", {
     className: "r num t-strong"
-  }, won(report.overdueBalance + report.badBalance)), /*#__PURE__*/React.createElement("td", {
+  }, won(report.overdueBalance)), /*#__PURE__*/React.createElement("td", {
     className: "r num"
   }, rate(report.overdueCollected, report.overdueOpening)), /*#__PURE__*/React.createElement("td", null, report.detail.filter(x => x.notes.length).length, "개 거래처 특이사항 등록")), report.normalOpening > 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", null, "정상채권 (수금 대상)"), /*#__PURE__*/React.createElement("td", {
     className: "r num"
@@ -1067,7 +1059,7 @@ function ClosingReceivables({
   }, row.period == null || Number(row.period) < 0 ? "미입력" : Number(row.period) + "개월"), /*#__PURE__*/React.createElement("td", {
     className: "r num"
   }, row.months, "개월"), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement(Badge, {
-    status: row.category === "부실채권" ? "부실" : "연체"
+    status: "연체"
   })), /*#__PURE__*/React.createElement("td", {
     className: "r num closing-amount"
   }, won(row.amount)), /*#__PURE__*/React.createElement("td", {
