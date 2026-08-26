@@ -552,7 +552,7 @@ def upload_rows():
                 status = "부실" if bad_balance else (
                     "연체" if overdue_balance or overdue > 0 else "정상")
             period_raw = r.get("collection_period")
-            collection_period = -1 if period_raw in (None, "") else max(as_int(period_raw), 0)
+            collection_period = -1 if period_raw in (None, "") else as_int(period_raw, -1)
             payload[code] = (
                 code, str(r.get("name") or "").strip() or code, unit, status,
                 str(r.get("owner") or "").strip(), balance,
