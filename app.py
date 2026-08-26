@@ -93,6 +93,12 @@ def as_int(value, default=0):
         return default
 
 
+def add_months(month, offset):
+    year, mon = (int(x) for x in month.split("-"))
+    total = year * 12 + mon - 1 + int(offset)
+    return "%04d-%02d" % (total // 12, total % 12 + 1)
+
+
 # ─────────────────────────────── 화면 ───────────────────────────────
 
 BUILD = str(int(os.path.getmtime(os.path.join(os.path.dirname(__file__), "static", "app.js"))))
@@ -175,6 +181,18 @@ def bootstrap():
         uploads = [r for r in conn.execute(
             "SELECT * FROM uploads ORDER BY id DESC LIMIT 200")]
         locks = [r for r in conn.execute("SELECT * FROM month_locks")]
+        finalized = sorted([r["month"] for r in locks if r.get("locked")])
+        reflection_label = "마감 데이터 없음"
+        if finalized:
+            closed_month = finalized[-1]
+            reflection_label = "%d월 최종마감 반영" % int(closed_month[5:7])
+            next_month = add_months(closed_month, 1)
+            shipment = next((u for u in uploads
+                             if u.get("upload_type") == "shipment" and u["month"] == next_month), None)
+            if shipment:
+                uploaded_day = int(str(shipment["uploaded_at"])[8:10])
+                reflection_label += " + %d월 %d일 출고데이터 반영" % (
+                    int(next_month[5:7]), uploaded_day)
         users = []
         if "user_manage" in user["permissions"]:
             users = [{k: v for k, v in r.items() if k != "password"}
@@ -187,7 +205,7 @@ def bootstrap():
         meta=dict(permissions=[{"key": k, "label": l} for k, l in PERMISSIONS],
                   roles={k: v for k, v in ROLE_TEMPLATES.items()},
                   methods=METHODS, units=UNITS, statuses=STATUSES,
-                  today=date.today().isoformat()),
+                  today=date.today().isoformat(), reflection_label=reflection_label),
     )
 
 
@@ -258,6 +276,9 @@ def approve_collection(cid):
     조건에 걸려 0행이 바뀌면 다른 요청이 이미 가져간 것이다.
     """
     with connect() as conn:
+        before = conn.execute(
+            "SELECT bad_balance, overdue_balance, normal_balance FROM customers WHERE code=("
+            "SELECT customer_code FROM collections WHERE id=%s)", (cid,)).fetchone()
         row = conn.execute(
             "UPDATE collections SET state='approved', approved_by=%s,"
             " approved_at=" + db.NOW_SQL +
@@ -272,6 +293,11 @@ def approve_collection(cid):
 
         # 잔액 차감도 읽고 쓰지 않고 한 문장으로 끝낸다.
         amount = row["amount"]
+        normal_paid = 0
+        if before:
+            normal_paid = min(
+                max(amount - before["bad_balance"] - before["overdue_balance"], 0),
+                before["normal_balance"])
         customer = conn.execute(
             "UPDATE customers SET"
             " balance = CASE WHEN balance - %s < 0 THEN 0 ELSE balance - %s END,"
@@ -293,6 +319,21 @@ def approve_collection(cid):
              amount, amount, amount,
              amount, amount, amount,
              amount, amount, row["paid_at"], row["customer_code"])).fetchone()
+        # 정상채권까지 차감된 경우 수금대상월이 오래된 출고분부터 잔액을 줄인다.
+        remaining = normal_paid
+        if remaining > 0:
+            shipment_rows = [s for s in conn.execute(
+                "SELECT month,code,balance FROM monthly_shipments"
+                " WHERE code=%s AND balance>0 ORDER BY target_month,month",
+                (row["customer_code"],))]
+            for shipment in shipment_rows:
+                paid = min(remaining, shipment["balance"])
+                conn.execute(
+                    "UPDATE monthly_shipments SET balance=balance-%s WHERE month=%s AND code=%s",
+                    (paid, shipment["month"], shipment["code"]))
+                remaining -= paid
+                if remaining <= 0:
+                    break
         log(conn, request.user["username"], "collection_approve", str(cid))
     return jsonify(collection=row, customer=customer)
 
@@ -383,6 +424,7 @@ def upload_rows():
     data = body()
     month = (data.get("month") or "").strip()
     rows = data.get("rows") or []
+    upload_type = data.get("mode") or "snapshot"
     filename = data.get("filename") or "unknown.xlsx"
     if len(month) != 7 or month[4] != "-":
         return jsonify(error="기준월 형식이 올바르지 않습니다. 예: 2026-08"), 400
@@ -393,6 +435,92 @@ def upload_rows():
         lock = conn.execute("SELECT locked FROM month_locks WHERE month = %s", (month,)).fetchone()
         if lock and lock["locked"]:
             return jsonify(error="%s 은 마감 잠금 상태입니다. 잠금을 해제한 뒤 업로드하세요." % month), 423
+
+        if upload_type == "shipment":
+            shipments = {}
+            for r in rows:
+                code = str(r.get("code") or "").strip()
+                if not code:
+                    continue
+                if code.isdigit():
+                    code = code.zfill(5)
+                period_raw = r.get("collection_period")
+                if period_raw in (None, ""):
+                    return jsonify(error="%s 거래처의 회수기간이 없습니다." % code), 400
+                period = as_int(period_raw, -1)
+                amount = as_int(r.get("shipment_amount"))
+                if period < 0:
+                    return jsonify(error="%s 거래처의 회수기간은 0 이상이어야 합니다." % code), 400
+                if amount < 0:
+                    return jsonify(error="%s 거래처의 출고금액은 0 이상이어야 합니다." % code), 400
+                target_month = add_months(month, period)
+                bucket = "current" if period == 0 else ("next" if period == 1 else "later")
+                shipments[code] = dict(
+                    code=code, name=str(r.get("name") or "").strip() or code,
+                    biz_unit=str(r.get("biz_unit") or "").strip() or "덴탈",
+                    owner=str(r.get("owner") or "").strip(), period=period,
+                    target_month=target_month, bucket=bucket, amount=amount,
+                    note=str(r.get("note") or "").strip())
+
+            previous_rows = [x for x in conn.execute(
+                "SELECT * FROM monthly_shipments WHERE month=%s", (month,))]
+            previous = len(previous_rows)
+            bucket_columns = {
+                "current": "normal_current_balance",
+                "next": "normal_next_balance",
+                "later": "normal_later_balance",
+            }
+            # 같은 월 재업로드는 그 월 출고분의 남은 잔액만 먼저 제거한다.
+            for old in previous_rows:
+                amount = old["balance"]
+                column = bucket_columns.get(old["bucket"], "normal_later_balance")
+                conn.execute(
+                    "UPDATE customers SET balance=CASE WHEN balance-%s<0 THEN 0 ELSE balance-%s END,"
+                    " normal_balance=CASE WHEN normal_balance-%s<0 THEN 0 ELSE normal_balance-%s END,"
+                    " " + column + "=CASE WHEN " + column + "-%s<0 THEN 0 ELSE " + column + "-%s END"
+                    " WHERE code=%s",
+                    (amount, amount, amount, amount, amount, amount, old["code"]))
+            conn.execute("DELETE FROM monthly_shipments WHERE month=%s", (month,))
+
+            for item in shipments.values():
+                current = conn.execute("SELECT 1 FROM customers WHERE code=%s", (item["code"],)).fetchone()
+                column = bucket_columns[item["bucket"]]
+                if current:
+                    conn.execute(
+                        "UPDATE customers SET name=%s, biz_unit=%s,"
+                        " owner=CASE WHEN %s='' THEN owner ELSE %s END, period=%s,"
+                        " balance=balance+%s, normal_balance=normal_balance+%s,"
+                        " " + column + "=" + column + "+%s, source_month=%s,"
+                        " updated_at=" + db.NOW_SQL + " WHERE code=%s",
+                        (item["name"], item["biz_unit"], item["owner"], item["owner"],
+                         item["period"], item["amount"], item["amount"], item["amount"],
+                         month, item["code"]))
+                else:
+                    values = dict(current=0, next=0, later=0)
+                    values[item["bucket"]] = item["amount"]
+                    conn.execute(
+                        "INSERT INTO customers (code,name,biz_unit,status,owner,balance,normal_balance,"
+                        " normal_current_balance,normal_next_balance,normal_later_balance,period,source_month,note)"
+                        " VALUES (%s,%s,%s,'정상',%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                        (item["code"], item["name"], item["biz_unit"], item["owner"],
+                         item["amount"], item["amount"], values["current"], values["next"],
+                         values["later"], item["period"], month, item["note"]))
+                conn.execute(
+                    "INSERT INTO monthly_shipments (month,code,name,biz_unit,owner,collection_period,"
+                    " target_month,bucket,amount,balance,note) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (month, item["code"], item["name"], item["biz_unit"], item["owner"],
+                     item["period"], item["target_month"], item["bucket"], item["amount"],
+                     item["amount"], item["note"]))
+            conn.execute(
+                "INSERT INTO uploads (month,filename,row_count,uploaded_by,replaced,upload_type)"
+                " VALUES (%s,%s,%s,%s,%s,'shipment')",
+                (month, filename, len(shipments), request.user["username"], previous))
+            log(conn, request.user["username"], "shipment_upload",
+                "%s / %d행 (기존 %d행 교체)" % (month, len(shipments), previous))
+            customers = [x for x in conn.execute("SELECT * FROM customers ORDER BY balance DESC")]
+            uploads = [x for x in conn.execute("SELECT * FROM uploads ORDER BY id DESC LIMIT 200")]
+            return jsonify(inserted=len(shipments), replaced=previous,
+                           customers=customers, uploads=uploads)
 
         prev = conn.execute(
             "SELECT COUNT(*) AS c FROM customers WHERE source_month = %s", (month,)).fetchone()["c"]
@@ -423,6 +551,8 @@ def upload_rows():
             if status not in STATUSES:
                 status = "부실" if bad_balance else (
                     "연체" if overdue_balance or overdue > 0 else "정상")
+            period_raw = r.get("collection_period")
+            collection_period = -1 if period_raw in (None, "") else max(as_int(period_raw), 0)
             payload[code] = (
                 code, str(r.get("name") or "").strip() or code, unit, status,
                 str(r.get("owner") or "").strip(), balance,
@@ -436,7 +566,7 @@ def upload_rows():
                 as_int(r.get("overdue_collected")),
                 bad_balance,
                 as_int(r.get("advance")), overdue,
-                str(r.get("last_paid_at") or "").strip(), 1, month,
+                str(r.get("last_paid_at") or "").strip(), collection_period, month,
                 str(r.get("note") or "").strip(),
             )
         conn.executemany(
@@ -461,8 +591,8 @@ def upload_rows():
             " period=excluded.period, source_month=excluded.source_month, note=excluded.note",
             list(payload.values()))
         conn.execute(
-            "INSERT INTO uploads (month, filename, row_count, uploaded_by, replaced)"
-            " VALUES (%s,%s,%s,%s,%s)",
+            "INSERT INTO uploads (month, filename, row_count, uploaded_by, replaced, upload_type)"
+            " VALUES (%s,%s,%s,%s,%s,'snapshot')",
             (month, filename, len(payload), request.user["username"], prev))
         log(conn, request.user["username"], "upload",
             "%s / %d행 (기존 %d행 교체)" % (month, len(payload), prev))
