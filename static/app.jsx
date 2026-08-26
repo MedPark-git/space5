@@ -1094,7 +1094,6 @@ const COLUMN_ALIASES = {
   name: ["거래처명", "거래처", "업체명", "고객명", "고객", "name"],
   biz_unit: ["사업부", "사업부문", "부문", "대분류", "unit"],
   status: ["채권분류", "분류", "채권상태", "상태", "status"],
-  owner: ["담당자", "영업담당", "담당", "owner"],
   collection_period: ["회수기간(개월)", "회수기간", "collection_period"],
   shipment_amount: ["출고금액", "출고액", "합계액", "shipment_amount"],
   balance: ["미수잔액", "미수금액", "채권잔액", "잔액", "미수금", "balance"],
@@ -1206,7 +1205,7 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
             name,
             biz_unit: bizUnit,
             status: String(pick("status") || "").trim(),
-            owner: String(pick("owner") || "").trim(),
+            owner: "",
             collection_period: period,
             shipment_amount: pick("shipment_amount"),
             balance: pick("balance"),
@@ -1350,7 +1349,7 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
               <table>
                 <thead>
                   <tr><th>코드</th><th>거래처명</th><th>사업부</th>
-                    <th>{parsed.mode === "shipment" ? "회수기간" : "분류"}</th><th>담당자</th>
+                    <th>{parsed.mode === "shipment" ? "회수기간" : "분류"}</th>
                     <th className="r">{parsed.mode === "shipment" ? "출고금액" : "채권잔액"}</th></tr>
                 </thead>
                 <tbody>
@@ -1358,7 +1357,6 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
                     <tr key={i}>
                       <td className="num">{r.code}</td><td>{r.name}</td><td>{r.biz_unit || "–"}</td>
                       <td>{parsed.mode === "shipment" ? r.collection_period + "개월" : (r.status || "자동판정")}</td>
-                      <td>{r.owner || "–"}</td>
                       <td className="r num">{won(parsed.mode === "shipment" ? r.shipment_amount : r.balance)}</td>
                     </tr>
                   ))}
