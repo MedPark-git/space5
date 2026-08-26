@@ -1393,7 +1393,7 @@ function UploadTemplate() {
   );
 }
 
-/* ══════════════════ 자금수지 수금계획 ══════════════════ */
+/* ══════════════════ 수금계획 다운로드 ══════════════════ */
 
 function CashPlan({ data, notify }) {
   const planMonths = data.meta.cash_plan_months || [thisMonth()];
@@ -1615,7 +1615,7 @@ const SCREENS = [
   { key: "targets",   label: "수금목표 관리",     perm: "target_manage",       group: "수금" },
   { key: "template",  label: "출고데이터 업로드서식", perm: "upload_data",       group: "관리" },
   { key: "upload",    label: "출고 데이터 업로드", perm: "upload_data",        group: "관리" },
-  { key: "cashplan",  label: "자금수지 수금계획", perm: "data_export",          group: "관리" },
+  { key: "cashplan",  label: "수금계획 다운로드", perm: "data_export",          group: "관리" },
   { key: "users",     label: "계정·권한 관리",    perm: "user_manage",         group: "관리" },
 ];
 
@@ -1680,7 +1680,7 @@ function App() {
     <div className="shell">
       <nav className="side">
         <div className="side__top">
-          <div className="side__logo"><span>MP</span>미수채권 관리</div>
+          <div className="side__logo"><span>MP</span>채권관리</div>
         </div>
         <div className="side__nav">
           {groups.map((g) => (
