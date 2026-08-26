@@ -12,6 +12,7 @@ function short(n) {
 }
 
 const STATUS_STYLE = { 정상: "ok", 연체: "warn", 부실: "bad" };
+const STATUS_LABEL = { 정상: "정상채권", 연체: "미수채권", 부실: "부실채권" };
 const today = () => new Date().toISOString().slice(0, 10);
 const thisMonth = () => new Date().toISOString().slice(0, 7);
 const sum = (list, key) => list.reduce((a, x) => a + (Number(x[key]) || 0), 0);
@@ -51,7 +52,7 @@ function Empty({ title, children }) {
 }
 
 function Badge({ status }) {
-  return <span className={"badge badge--" + (STATUS_STYLE[status] || "mute")}>{status}</span>;
+  return <span className={"badge badge--" + (STATUS_STYLE[status] || "mute")}>{STATUS_LABEL[status] || status}</span>;
 }
 
 function Field({ label, children }) {
@@ -236,9 +237,9 @@ function Dashboard({ data, setScreen, setPreset }) {
       <div className="grid grid--2">
         <Card title="사업부별 채권 분류 현황"
           actions={<div className="legend">
-            <span><i style={{ background: "var(--ok)" }} />정상</span>
-            <span><i style={{ background: "var(--warn)" }} />연체</span>
-            <span><i style={{ background: "var(--bad)" }} />부실</span>
+            <span><i style={{ background: "var(--ok)" }} />정상채권</span>
+            <span><i style={{ background: "var(--warn)" }} />미수채권</span>
+            <span><i style={{ background: "var(--bad)" }} />부실채권</span>
           </div>}>
           <div className="signal">
             {byUnit.map((g) => (
@@ -248,7 +249,7 @@ function Dashboard({ data, setScreen, setPreset }) {
                   {["정상", "연체", "부실"].map((s) => g[s] > 0 && (
                     <button key={s} className={"signal__seg signal__seg--" + STATUS_STYLE[s]}
                       style={{ width: (g[s] / g.total) * 100 + "%" }}
-                      title={g.unit + " " + s + " " + won(g[s]) + "원"}
+                      title={g.unit + " " + STATUS_LABEL[s] + " " + won(g[s]) + "원"}
                       onClick={() => { setPreset({ status: s, unit: g.unit }); setScreen("customers"); }} />
                   ))}
                 </div>
@@ -358,9 +359,9 @@ function Dashboard({ data, setScreen, setPreset }) {
           <table>
             <thead>
               <tr>
-                <th>담당자</th><th className="r">거래처</th><th className="r">정상</th>
-                <th className="r">연체</th><th className="r">부실</th><th className="r">합계</th>
-                <th style={{ width: 130 }}>연체·부실 비중</th>
+                <th>담당자</th><th className="r">거래처</th><th className="r">정상채권</th>
+                <th className="r">미수채권</th><th className="r">부실채권</th><th className="r">합계</th>
+                <th style={{ width: 150 }}>미수·부실채권 비중</th>
               </tr>
             </thead>
             <tbody>
@@ -464,7 +465,7 @@ function Customers({ data, can, preset, notify, patchCustomer }) {
       </Card>
 
       <Card
-        title={sel.unit + " · " + sel.status + " (" + rows.length + "곳)"}
+        title={sel.unit + " · " + (STATUS_LABEL[sel.status] || sel.status) + " (" + rows.length + "곳)"}
         actions={<input className="input" style={{ width: 220 }} value={q} placeholder="거래처명·코드·담당자"
           onChange={(e) => setQ(e.target.value)} />}
         flush>
@@ -566,7 +567,7 @@ function Owners({ data }) {
             <div className="signal__bar">
               {["정상", "연체", "부실"].map((s) => o[s] > 0 && (
                 <div key={s} className={"signal__seg signal__seg--" + STATUS_STYLE[s]}
-                  style={{ width: (o[s] / o.total) * 100 + "%" }} title={s + " " + won(o[s])} />
+                  style={{ width: (o[s] / o.total) * 100 + "%" }} title={STATUS_LABEL[s] + " " + won(o[s])} />
               ))}
             </div>
           </Card>
