@@ -198,7 +198,7 @@ def bootstrap():
 def update_customer(code):
     data = body()
     fields, values = [], []
-    for key in ("note", "owner", "status"):
+    for key in ("note", "owner", "status", "collection_target_date"):
         if key in data:
             fields.append(key + " = %s")
             values.append(str(data[key]))
