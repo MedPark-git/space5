@@ -144,9 +144,7 @@ function Login({ onDone }) {
 
 function Dashboard({ data, setScreen, setPreset }) {
   const { collections, targets } = data;
-  const viewOptions = data.meta.dashboard_views || [{ key: "combined", label: data.meta.reflection_label }];
-  const [dataView, setDataView] = useState(viewOptions.some((v) => v.key === "combined") ? "combined" : viewOptions[0].key);
-  const customers = dataView === "closing" ? (data.dashboard_closing_customers || data.customers) : data.customers;
+  const customers = data.customers;
   const [unit, setUnit] = useState("전체");
   const [normalTopUnit, setNormalTopUnit] = useState("전체");
   const [overdueTopUnit, setOverdueTopUnit] = useState("전체");
@@ -241,12 +239,6 @@ function Dashboard({ data, setScreen, setPreset }) {
 
   return (
     <>
-      {viewOptions.length > 1 && <Card title="대시보드 조회기준">
-        <div className="chiprow" style={{ marginBottom: 0 }}>
-          {viewOptions.map((view) => <button key={view.key} className="chip"
-            aria-pressed={dataView === view.key} onClick={() => setDataView(view.key)}>{view.label}</button>)}
-        </div>
-      </Card>}
       <div className="chiprow">
         {["전체", ...data.meta.units].map((u) => (
           <button key={u} className="chip" aria-pressed={unit === u} onClick={() => setUnit(u)}>{u}</button>
@@ -1421,7 +1413,7 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
 
 /* ══════════════════ 수금계획 다운로드 ══════════════════ */
 
-function CashPlan({ data, notify }) {
+function CashPlan({ data, dataView, notify }) {
   const planMonths = data.meta.cash_plan_months || [thisMonth()];
   const [month, setMonth] = useState(planMonths[0]);
   const [asOfDate, setAsOfDate] = useState(data.meta.today);
@@ -1435,7 +1427,7 @@ function CashPlan({ data, notify }) {
       const res = await fetch("/api/cash-plan/export", {
         method: "POST", credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ month, as_of_date: asOfDate,
+        body: JSON.stringify({ month, as_of_date: asOfDate, data_view: dataView,
           include_overdue: includeOverdue, include_bad: includeBad }),
       });
       if (!res.ok) {
@@ -1643,6 +1635,7 @@ const SCREENS = [
   { key: "cashplan",  label: "수금계획 다운로드", perm: "data_export",          group: "관리" },
   { key: "users",     label: "계정·권한 관리",    perm: "user_manage",         group: "관리" },
 ];
+const REPORT_SCREENS = new Set(["dashboard", "summary", "customers", "owners", "targets", "cashplan"]);
 
 function App() {
   const [user, setUser] = useState(undefined);
@@ -1650,6 +1643,7 @@ function App() {
   const [screen, setScreen] = useState("dashboard");
   const [preset, setPreset] = useState(null);
   const [toast, setToast] = useState(null);
+  const [dataView, setDataView] = useState(() => localStorage.getItem("ar_data_view") || "combined");
 
   const notify = useCallback((message, bad) => {
     setToast({ message, bad });
@@ -1677,6 +1671,17 @@ function App() {
     if (visible.length && !visible.some((s) => s.key === screen)) setScreen(visible[0].key);
   }, [visible, screen]);
 
+  useEffect(() => {
+    if (!data) return;
+    const options = data.meta.dashboard_views || [];
+    if (!options.some((view) => view.key === dataView)) {
+      const fallback = options.some((view) => view.key === "combined") ? "combined" : (options[0] && options[0].key);
+      if (fallback) setDataView(fallback);
+    }
+  }, [data, dataView]);
+
+  useEffect(() => { localStorage.setItem("ar_data_view", dataView); }, [dataView]);
+
   if (user === undefined) {
     return <div className="boot"><div className="boot__mark">MP</div>
       <p className="boot__text">불러오는 중입니다.</p></div>;
@@ -1693,6 +1698,14 @@ function App() {
   }));
 
   const current = SCREENS.find((s) => s.key === screen) || SCREENS[0];
+  const viewOptions = data.meta.dashboard_views || [{ key: "combined", label: data.meta.reflection_label }];
+  const reportScreen = REPORT_SCREENS.has(screen);
+  const selectedView = viewOptions.find((view) => view.key === dataView) || viewOptions[0];
+  const effectiveView = selectedView.key;
+  const reportData = effectiveView === "closing"
+    ? { ...data, customers: data.dashboard_closing_customers || data.customers }
+    : data;
+  const screenData = reportScreen ? reportData : data;
   const groups = [...new Set(visible.map((s) => s.group))];
   const pendingCount = data.collections.filter((c) => c.state === "pending").length;
 
@@ -1728,10 +1741,16 @@ function App() {
         <header className="topbar">
           <div>
             <h1>{current.label}</h1>
-            <div className="sub">기준일 {data.meta.today} · {data.meta.reflection_label}</div>
-            <div className="sub">거래처 {data.customers.length}곳 · 전체 채권 {won(sum(data.customers, "balance"))}원</div>
+            <div className="sub">기준일 {data.meta.today} · {reportScreen ? selectedView.label : "현재 운영데이터 기준"}</div>
+            <div className="sub">거래처 {screenData.customers.length}곳 · 전체 채권 {won(sum(screenData.customers, "balance"))}원</div>
           </div>
           <div className="spacer" />
+          {reportScreen ? <label className="view-select">
+            <span>조회기준</span>
+            <select className="select" value={effectiveView} onChange={(e) => setDataView(e.target.value)}>
+              {viewOptions.map((view) => <option key={view.key} value={view.key}>{view.label}</option>)}
+            </select>
+          </label> : <span className="badge badge--brand">현재 운영데이터 기준</span>}
           <div className="who">
             <b>{user.name}{user.title && " " + user.title}</b>
             <span>{data.meta.roles[user.role].label} · {user.username}</span>
@@ -1740,16 +1759,16 @@ function App() {
         </header>
 
         <div className="page">
-          {screen === "dashboard" && <Dashboard data={data} setScreen={setScreen} setPreset={setPreset} />}
-          {screen === "summary" && <BondSummary data={data} />}
-          {screen === "customers" && <Customers data={data} can={can} preset={preset}
+          {screen === "dashboard" && <Dashboard data={reportData} setScreen={setScreen} setPreset={setPreset} />}
+          {screen === "summary" && <BondSummary data={reportData} />}
+          {screen === "customers" && <Customers data={reportData} can={can} preset={preset}
             notify={notify} patchCustomer={patchCustomer} />}
-          {screen === "owners" && <Owners data={data} />}
+          {screen === "owners" && <Owners data={reportData} />}
           {screen === "collections" && <Collections data={data} can={can} notify={notify} refresh={load} />}
-          {screen === "targets" && <Targets data={data} notify={notify} refresh={load} />}
+          {screen === "targets" && <Targets data={reportData} notify={notify} refresh={load} />}
           {screen === "upload" && <Upload data={data} can={can} notify={notify}
             applyUpload={applyUpload} refresh={load} />}
-          {screen === "cashplan" && <CashPlan data={data} notify={notify} />}
+          {screen === "cashplan" && <CashPlan data={reportData} dataView={effectiveView} notify={notify} />}
           {screen === "users" && <Users data={data} notify={notify} refresh={load} />}
         </div>
       </main>
