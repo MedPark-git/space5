@@ -190,7 +190,8 @@ def bootstrap():
             shipment = next((u for u in uploads
                              if u.get("upload_type") == "shipment" and u["month"] == next_month), None)
             if shipment:
-                uploaded_day = int(str(shipment["uploaded_at"])[8:10])
+                reflected_date = shipment.get("shipment_date") or str(shipment["uploaded_at"])[:10]
+                uploaded_day = int(reflected_date[8:10])
                 reflection_label += " + %d월 %d일 출고데이터 반영" % (
                     int(next_month[5:7]), uploaded_day)
         users = []
@@ -212,12 +213,22 @@ def bootstrap():
 # ─────────────────────────────── 거래처 ─────────────────────────────
 
 @app.patch("/api/customers/<code>")
-@requires("note_edit")
+@login_required
 def update_customer(code):
     data = body()
     fields, values = [], []
+    if "period" in data:
+        if "customer_info_edit" not in request.user["permissions"]:
+            return jsonify(error="'거래처 정보수정' 권한이 없습니다."), 403
+        period = as_int(data.get("period"), -1)
+        if period < 0:
+            return jsonify(error="회수기간은 0 이상의 개월 수로 입력하세요."), 400
+        fields.append("period = %s")
+        values.append(period)
     for key in ("note", "owner", "status", "collection_target_date"):
         if key in data:
+            if "note_edit" not in request.user["permissions"]:
+                return jsonify(error="'비고 편집' 권한이 없습니다."), 403
             fields.append(key + " = %s")
             values.append(str(data[key]))
     if not fields:
@@ -425,6 +436,7 @@ def upload_rows():
     month = (data.get("month") or "").strip()
     rows = data.get("rows") or []
     upload_type = data.get("mode") or "snapshot"
+    shipment_date = (data.get("shipment_date") or "").strip()
     filename = data.get("filename") or "unknown.xlsx"
     if len(month) != 7 or month[4] != "-":
         return jsonify(error="기준월 형식이 올바르지 않습니다. 예: 2026-08"), 400
@@ -437,6 +449,12 @@ def upload_rows():
             return jsonify(error="%s 은 마감 잠금 상태입니다. 잠금을 해제한 뒤 업로드하세요." % month), 423
 
         if upload_type == "shipment":
+            try:
+                parsed_shipment_date = datetime.strptime(shipment_date, "%Y-%m-%d").date()
+            except ValueError:
+                return jsonify(error="출고기준일을 입력하세요."), 400
+            if parsed_shipment_date.strftime("%Y-%m") != month:
+                return jsonify(error="출고기준일은 선택한 기준월 안의 날짜여야 합니다."), 400
             shipments = {}
             for r in rows:
                 code = str(r.get("code") or "").strip()
@@ -444,16 +462,14 @@ def upload_rows():
                     continue
                 if code.isdigit():
                     code = code.zfill(5)
+                existing = conn.execute("SELECT period FROM customers WHERE code=%s", (code,)).fetchone()
                 period_raw = r.get("collection_period")
-                if period_raw in (None, ""):
-                    return jsonify(error="%s 거래처의 회수기간이 없습니다." % code), 400
-                period = as_int(period_raw, -1)
+                period = (existing["period"] if period_raw in (None, "") and existing
+                          else as_int(period_raw, -1))
                 amount = as_int(r.get("shipment_amount"))
-                if period < 0:
-                    return jsonify(error="%s 거래처의 회수기간은 0 이상이어야 합니다." % code), 400
                 if amount < 0:
                     return jsonify(error="%s 거래처의 출고금액은 0 이상이어야 합니다." % code), 400
-                target_month = add_months(month, period)
+                target_month = add_months(month, period) if period >= 0 else ""
                 bucket = "current" if period == 0 else ("next" if period == 1 else "later")
                 shipments[code] = dict(
                     code=code, name=str(r.get("name") or "").strip() or code,
@@ -512,9 +528,9 @@ def upload_rows():
                      item["period"], item["target_month"], item["bucket"], item["amount"],
                      item["amount"], item["note"]))
             conn.execute(
-                "INSERT INTO uploads (month,filename,row_count,uploaded_by,replaced,upload_type)"
-                " VALUES (%s,%s,%s,%s,%s,'shipment')",
-                (month, filename, len(shipments), request.user["username"], previous))
+                "INSERT INTO uploads (month,filename,row_count,uploaded_by,replaced,upload_type,shipment_date)"
+                " VALUES (%s,%s,%s,%s,%s,'shipment',%s)",
+                (month, filename, len(shipments), request.user["username"], previous, shipment_date))
             log(conn, request.user["username"], "shipment_upload",
                 "%s / %d행 (기존 %d행 교체)" % (month, len(shipments), previous))
             customers = [x for x in conn.execute("SELECT * FROM customers ORDER BY balance DESC")]
