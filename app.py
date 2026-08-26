@@ -1,5 +1,5 @@
 """
-MedPark 미수채권 관리 — Flask 백엔드.
+MedPark 채권관리 — Flask 백엔드.
 
 실행:
     개발  python app.py
@@ -730,7 +730,7 @@ def upload_rows():
                    customers=customers, uploads=uploads)
 
 
-# ───────────────────────── 자금수지 수금계획 ──────────────────────
+# ───────────────────────── 수금계획 다운로드 ──────────────────────
 
 @app.post("/api/cash-plan/export")
 @requires("data_export")
