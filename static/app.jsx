@@ -227,8 +227,9 @@ function Dashboard({ data, setScreen, setPreset }) {
     { key: "연체", label: "미수채권(11개월 내) 잔액", value: totals.by.연체, count: totals.cnt.연체, color: "var(--warn)" },
     { key: "부실", label: "부실채권(12개월 이상)", value: totals.by.부실, count: totals.cnt.부실, color: "var(--bad)" },
   ];
-  const yesterdayDate = new Date(data.meta.today + "T00:00:00");
-  yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+  // 정오 UTC를 기준으로 계산하면 한국 브라우저에서도 날짜가 하루 더 밀리지 않는다.
+  const yesterdayDate = new Date(data.meta.today + "T12:00:00Z");
+  yesterdayDate.setUTCDate(yesterdayDate.getUTCDate() - 1);
   const yesterday = yesterdayDate.toISOString().slice(0, 10);
   const customerUnit = Object.fromEntries(customers.map((c) => [c.code, c.biz_unit]));
   const yesterdayCollections = approved.filter((c) => c.paid_at === yesterday);
