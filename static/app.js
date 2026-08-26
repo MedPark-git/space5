@@ -1584,12 +1584,12 @@ function Targets({
 
 const COLUMN_ALIASES = {
   code: ["거래처코드", "코드", "거래처 코드", "고객코드", "code"],
-  name: ["거래처명", "거래처", "업체명", "고객명", "name"],
-  biz_unit: ["사업부", "사업부문", "부문", "unit"],
+  name: ["거래처명", "거래처", "업체명", "고객명", "고객", "name"],
+  biz_unit: ["사업부", "사업부문", "부문", "대분류", "unit"],
   status: ["채권분류", "분류", "채권상태", "상태", "status"],
   owner: ["담당자", "영업담당", "담당", "owner"],
   collection_period: ["회수기간(개월)", "회수기간", "collection_period"],
-  shipment_amount: ["출고금액", "출고액", "shipment_amount"],
+  shipment_amount: ["출고금액", "출고액", "합계액", "shipment_amount"],
   balance: ["미수잔액", "미수금액", "채권잔액", "잔액", "미수금", "balance"],
   normal_balance: ["정상채권잔액", "정상채권", "normal_balance"],
   normal_later_balance: ["차차월이후정상채권", "차차월이후", "10월이후수금대상", "정상채권10월이후", "normal_later_balance"],
@@ -1664,6 +1664,8 @@ function Upload({
           return;
         }
         const shipmentMode = map.shipment_amount !== undefined;
+        const cleanHeaders = (grid[headerRow] || []).map(h => String(h || "").replace(/\s/g, ""));
+        const amaranthMode = ["고객코드", "고객", "대분류", "합계액"].every(header => cleanHeaders.includes(header));
         const required = shipmentMode ? ["code", "name", "biz_unit"] : ["code", "name", "biz_unit", "normal_balance", "overdue_balance", "bad_balance"];
         const missing = required.filter(field => map[field] === undefined);
         if (missing.length) {
@@ -1681,6 +1683,11 @@ function Upload({
         }
         const rows = [],
           issues = [];
+        const unitMap = {
+          "제품_덴탈_국내": "덴탈",
+          "제품_메디컬_국내": "메디컬",
+          "제품_에스테틱_국내": "에스테틱"
+        };
         for (let i = headerRow + 1; i < grid.length; i++) {
           const raw = grid[i] || [];
           const pick = f => map[f] === undefined ? "" : raw[map[f]];
@@ -1688,7 +1695,8 @@ function Upload({
           if (!code || /^#REF|^#N\/A/.test(code)) continue;
           const normalizedCode = /^\d+$/.test(code) ? code.padStart(5, "0") : code;
           const name = String(pick("name") || "").trim();
-          const bizUnit = String(pick("biz_unit") || "").trim();
+          const rawBizUnit = String(pick("biz_unit") || "").trim();
+          const bizUnit = amaranthMode ? unitMap[rawBizUnit] || "" : rawBizUnit;
           if (!name) issues.push(i + 1 + "행: 거래처명 누락");
           if (!data.meta.units.includes(bizUnit)) issues.push(i + 1 + "행: 사업부 오류");
           const period = pick("collection_period");
@@ -1719,18 +1727,43 @@ function Upload({
             note: String(pick("note") || "").trim()
           });
         }
+        let preparedRows = rows;
+        let multiUnitCodes = [];
+        if (amaranthMode) {
+          const grouped = new Map();
+          rows.forEach(r => {
+            const key = r.code + "|" + r.biz_unit;
+            const current = grouped.get(key);
+            if (current) current.shipment_amount = Number(current.shipment_amount || 0) + Number(r.shipment_amount || 0);else grouped.set(key, {
+              ...r,
+              shipment_amount: Number(r.shipment_amount || 0)
+            });
+          });
+          preparedRows = Array.from(grouped.values());
+          const unitsByCode = new Map();
+          preparedRows.forEach(r => {
+            if (!unitsByCode.has(r.code)) unitsByCode.set(r.code, new Set());
+            unitsByCode.get(r.code).add(r.biz_unit);
+          });
+          multiUnitCodes = Array.from(unitsByCode.entries()).filter(([, units]) => units.size > 1).map(([code]) => code);
+          if (multiUnitCodes.length) {
+            issues.push("복수 사업부 거래처 " + multiUnitCodes.join(", ") + ": 사업부별 채권 원장 기능 확정 후 업로드할 수 있습니다.");
+          }
+        }
         const seen = new Set(),
           dupes = [];
-        rows.forEach(r => {
+        preparedRows.forEach(r => {
           if (seen.has(r.code)) dupes.push(r.code);
           seen.add(r.code);
         });
         setParsed({
           filename: file.name,
-          rows,
+          rows: preparedRows,
           dupes,
           issues,
           mapped: Object.keys(map),
+          amaranthMode,
+          multiUnitCodes,
           mode: shipmentMode ? "shipment" : "snapshot"
         });
       } catch (err) {
@@ -1742,6 +1775,11 @@ function Upload({
   async function send() {
     setBusy(true);
     try {
+      if (parsed.multiUnitCodes && parsed.multiUnitCodes.length) {
+        notify("복수 사업부 거래처의 채권 원장 설계가 확정되기 전에는 업로드할 수 없습니다.", true);
+        setBusy(false);
+        return;
+      }
       const res = await api("/api/uploads", {
         method: "POST",
         body: {
@@ -1848,7 +1886,7 @@ function Upload({
     }
   }, /*#__PURE__*/React.createElement("div", {
     className: "alert alert--info"
-  }, /*#__PURE__*/React.createElement("b", null, parsed.filename), " — 유효한 ", parsed.rows.length, "행을 읽었습니다. 인식한 열: ", parsed.mapped.length, "개.", parsed.dupes.length > 0 && " 중복 코드 " + parsed.dupes.length + "건이 있습니다."), (parsed.dupes.length > 0 || parsed.issues.length > 0) && /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("b", null, parsed.filename), " — 유효한 ", parsed.rows.length, "행을 읽었습니다.", parsed.amaranthMode && " 아마란스10 원본 서식으로 인식했습니다.", "인식한 열: ", parsed.mapped.length, "개.", parsed.dupes.length > 0 && " 중복 코드 " + parsed.dupes.length + "건이 있습니다."), (parsed.dupes.length > 0 || parsed.issues.length > 0) && /*#__PURE__*/React.createElement("div", {
     className: "alert alert--bad",
     style: {
       marginTop: 10
