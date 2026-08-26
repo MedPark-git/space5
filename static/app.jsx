@@ -589,12 +589,15 @@ function Customers({ data, can, preset, notify, patchCustomer }) {
       <Card title={(STATUS_LABEL[type] || type) + " · 거래처 " + distinctCustomers + "곳 / 채권 " + rows.length + "건"} flush>
         {rows.length === 0 ? <Empty title="조건에 맞는 채권이 없습니다.">상단 필터나 검색어를 바꿔보세요.</Empty> : (
           <div className="tablewrap customer-table"><table>
-            <thead><tr><th>코드</th><th>거래처명</th><th>사업부</th><th>채권유형</th><th>담당자</th>
+            <thead><tr><th>코드</th><th>거래처명</th><th>사업부</th><th>채권유형</th><th>회수기간</th><th>담당자</th>
               <th>수금목표일</th><th className="r">채권잔액</th><th className="r">선수금</th>
               <th className="r">연체기간(개월)</th><th>최종수금일</th><th style={{ minWidth: 180 }}>비고</th></tr></thead>
-            <tbody>{rows.map((c) => <tr key={c.rowKey}>
+            <tbody>{rows.map((c) => <tr key={c.rowKey}
+              className={c.period == null || Number(c.period) < 0 ? "customer-row--missing-period" : ""}>
               <td className="num t-muted">{code5(c.code)}</td><td className="t-strong">{c.name}</td>
               <td>{c.biz_unit}</td><td><Badge status={c.status} /></td>
+              <td className="num">{c.period == null || Number(c.period) < 0 ? "미입력" :
+                Number(c.period) === 0 ? "0개월 (당월)" : Number(c.period) === 1 ? "1개월 (익월)" : c.period + "개월"}</td>
               <td><InlineEdit value={c.owner} placeholder="클릭해 입력" canEdit={can("note_edit")}
                 onSave={(owner) => updateCustomer(c.code, { owner }, "담당자를 저장했습니다.")} /></td>
               <td><InlineEdit value={c.collection_target_date} placeholder="날짜 선택" type="date" canEdit={can("note_edit")}
@@ -611,7 +614,7 @@ function Customers({ data, can, preset, notify, patchCustomer }) {
                 onClick={() => { setEditingNote(c.rowKey); setDraftNote(c.note || ""); }}>
                 {c.note || <span className="t-muted">클릭해 입력</span>}</button>}</td>
             </tr>)}</tbody>
-            <tfoot><tr><td colSpan={6}>합계 · 거래처 {distinctCustomers}곳 / 채권 {rows.length}건</td>
+            <tfoot><tr><td colSpan={7}>합계 · 거래처 {distinctCustomers}곳 / 채권 {rows.length}건</td>
               <td className="r num">{won(sum(rows, "balance"))}</td><td className="r num">{won(sum(rows, "advance"))}</td>
               <td colSpan={3} /></tr></tfoot>
           </table></div>
@@ -1012,6 +1015,8 @@ const COLUMN_ALIASES = {
   biz_unit: ["사업부", "사업부문", "부문", "unit"],
   status: ["채권분류", "분류", "채권상태", "상태", "status"],
   owner: ["담당자", "영업담당", "담당", "owner"],
+  collection_period: ["회수기간(개월)", "회수기간", "collection_period"],
+  shipment_amount: ["출고금액", "출고액", "shipment_amount"],
   balance: ["미수잔액", "미수금액", "채권잔액", "잔액", "미수금", "balance"],
   normal_balance: ["정상채권잔액", "정상채권", "normal_balance"],
   normal_later_balance: ["차차월이후정상채권", "차차월이후", "10월이후수금대상", "정상채권10월이후", "normal_later_balance"],
@@ -1073,12 +1078,16 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
           setError("머리글 행을 찾지 못했습니다. '거래처코드'와 '거래처명' 열이 있는지 확인하세요.");
           return;
         }
-        const required = ["code", "name", "biz_unit", "normal_balance", "overdue_balance", "bad_balance"];
+        const shipmentMode = map.shipment_amount !== undefined;
+        const required = shipmentMode
+          ? ["code", "name", "biz_unit", "collection_period", "shipment_amount"]
+          : ["code", "name", "biz_unit", "normal_balance", "overdue_balance", "bad_balance"];
         const missing = required.filter((field) => map[field] === undefined);
         if (missing.length) {
           setError("필수 열이 없습니다: " + missing.map((field) => ({
             code: "거래처코드", name: "거래처명", biz_unit: "사업부", normal_balance: "정상채권잔액",
             overdue_balance: "미수채권(11개월 내)", bad_balance: "부실채권(12개월 이상)",
+            collection_period: "회수기간(개월)", shipment_amount: "출고금액",
           })[field]).join(", "));
           return;
         }
@@ -1093,12 +1102,18 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
           const bizUnit = String(pick("biz_unit") || "").trim();
           if (!name) issues.push((i + 1) + "행: 거래처명 누락");
           if (!data.meta.units.includes(bizUnit)) issues.push((i + 1) + "행: 사업부 오류");
+          const period = pick("collection_period");
+          if (shipmentMode && (period === "" || Number(period) < 0 || !Number.isFinite(Number(period)))) {
+            issues.push((i + 1) + "행: 회수기간 오류");
+          }
           rows.push({
             code: normalizedCode,
             name,
             biz_unit: bizUnit,
             status: String(pick("status") || "").trim(),
             owner: String(pick("owner") || "").trim(),
+            collection_period: period,
+            shipment_amount: pick("shipment_amount"),
             balance: pick("balance"),
             normal_balance: pick("normal_balance"),
             normal_later_balance: pick("normal_later_balance"),
@@ -1118,7 +1133,8 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
         }
         const seen = new Set(), dupes = [];
         rows.forEach((r) => { if (seen.has(r.code)) dupes.push(r.code); seen.add(r.code); });
-        setParsed({ filename: file.name, rows, dupes, issues, mapped: Object.keys(map) });
+        setParsed({ filename: file.name, rows, dupes, issues, mapped: Object.keys(map),
+          mode: shipmentMode ? "shipment" : "snapshot" });
       } catch (err) {
         setError("파일을 읽지 못했습니다: " + err.message);
       }
@@ -1131,7 +1147,7 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
     try {
       const res = await api("/api/uploads", {
         method: "POST",
-        body: { month, filename: parsed.filename, rows: parsed.rows },
+        body: { month, filename: parsed.filename, rows: parsed.rows, mode: parsed.mode },
       });
       applyUpload(res);
       notify(res.inserted + "행을 반영했습니다. 기존 " + res.replaced + "행은 교체되었습니다.");
@@ -1174,8 +1190,7 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
           <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv"
             onChange={(e) => e.target.files[0] && readFile(e.target.files[0])} />
           <p className="t-sm t-muted" style={{ margin: "12px 0 0" }}>
-            첫 번째 시트를 읽습니다. 인식하는 열: 거래처코드 · 거래처명 · 사업부 · 채권분류 ·
-            담당자 · 채권잔액 · 선수금 · 연체기간(개월) · 최종수금일 · 비고
+            월별 출고 최소 서식: 거래처코드 · 거래처명 · 사업부 · 담당자 · 회수기간(개월) · 출고금액 · 비고
           </p>
         </div>
 
@@ -1201,20 +1216,24 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
               </div>
             )}
             <p className="t-sm t-muted">
-              {month} 의 기존 데이터를 이 파일로 교체합니다. 다른 월 데이터는 그대로 유지됩니다.
+              {parsed.mode === "shipment"
+                ? month + " 출고분만 재설정하며 회수기간에 따라 수금대상월을 자동 산출합니다."
+                : month + " 의 기존 확정 채권 데이터를 교체합니다."} 다른 월 데이터는 그대로 유지됩니다.
             </p>
             <div className="tablewrap" style={{ maxHeight: 260, overflowY: "auto", marginBottom: 12 }}>
               <table>
                 <thead>
-                  <tr><th>코드</th><th>거래처명</th><th>사업부</th><th>분류</th><th>담당자</th>
-                    <th className="r">채권잔액</th></tr>
+                  <tr><th>코드</th><th>거래처명</th><th>사업부</th>
+                    <th>{parsed.mode === "shipment" ? "회수기간" : "분류"}</th><th>담당자</th>
+                    <th className="r">{parsed.mode === "shipment" ? "출고금액" : "채권잔액"}</th></tr>
                 </thead>
                 <tbody>
                   {parsed.rows.slice(0, 12).map((r, i) => (
                     <tr key={i}>
                       <td className="num">{r.code}</td><td>{r.name}</td><td>{r.biz_unit || "–"}</td>
-                      <td>{r.status || "자동판정"}</td><td>{r.owner || "–"}</td>
-                      <td className="r num">{won(r.balance)}</td>
+                      <td>{parsed.mode === "shipment" ? r.collection_period + "개월" : (r.status || "자동판정")}</td>
+                      <td>{r.owner || "–"}</td>
+                      <td className="r num">{won(parsed.mode === "shipment" ? r.shipment_amount : r.balance)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1500,7 +1519,8 @@ function App() {
         <header className="topbar">
           <div>
             <h1>{current.label}</h1>
-            <div className="sub">거래처 {data.customers.length}곳 · 미수 합계 {won(sum(data.customers, "balance"))}원</div>
+            <div className="sub">기준일 {data.meta.today} · {data.meta.reflection_label}</div>
+            <div className="sub">거래처 {data.customers.length}곳 · 전체 채권 {won(sum(data.customers, "balance"))}원</div>
           </div>
           <div className="spacer" />
           <div className="who">
