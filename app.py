@@ -411,7 +411,14 @@ def upload_rows():
             payload[code] = (
                 code, str(r.get("name") or "").strip() or code, unit, status,
                 str(r.get("owner") or "").strip(), as_int(r.get("balance")),
-                as_int(r.get("normal_balance")), as_int(r.get("overdue_balance")),
+                as_int(r.get("normal_balance")),
+                as_int(r.get("normal_later_balance")),
+                as_int(r.get("normal_next_balance")),
+                as_int(r.get("normal_current_balance")),
+                as_int(r.get("normal_collected")),
+                as_int(r.get("overdue_balance")),
+                as_int(r.get("overdue_source_balance") or r.get("overdue_balance")),
+                as_int(r.get("overdue_collected")),
                 as_int(r.get("bad_balance")),
                 as_int(r.get("advance")), overdue,
                 str(r.get("last_paid_at") or "").strip(), 1, month,
@@ -419,14 +426,22 @@ def upload_rows():
             )
         conn.executemany(
             "INSERT INTO customers (code, name, biz_unit, status, owner, balance,"
-            " normal_balance, overdue_balance, bad_balance, advance, overdue_days,"
+            " normal_balance, normal_later_balance, normal_next_balance,"
+            " normal_current_balance, normal_collected, overdue_balance,"
+            " overdue_source_balance, overdue_collected, bad_balance, advance, overdue_days,"
             " last_paid_at, period, source_month, note)"
-            " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
+            " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
             " ON CONFLICT (code) DO UPDATE SET"
             " name=excluded.name, biz_unit=excluded.biz_unit, status=excluded.status,"
             " owner=excluded.owner, balance=excluded.balance, advance=excluded.advance,"
             " normal_balance=excluded.normal_balance,"
+            " normal_later_balance=excluded.normal_later_balance,"
+            " normal_next_balance=excluded.normal_next_balance,"
+            " normal_current_balance=excluded.normal_current_balance,"
+            " normal_collected=excluded.normal_collected,"
             " overdue_balance=excluded.overdue_balance, bad_balance=excluded.bad_balance,"
+            " overdue_source_balance=excluded.overdue_source_balance,"
+            " overdue_collected=excluded.overdue_collected,"
             " overdue_days=excluded.overdue_days, last_paid_at=excluded.last_paid_at,"
             " period=excluded.period, source_month=excluded.source_month, note=excluded.note",
             list(payload.values()))
