@@ -742,7 +742,8 @@ function InlineEdit({
   type = "text",
   placeholder,
   canEdit,
-  onSave
+  onSave,
+  formatValue
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value || "");
@@ -759,7 +760,7 @@ function InlineEdit({
     className: "inline-edit",
     disabled: !canEdit,
     onClick: () => canEdit && setEditing(true)
-  }, value || /*#__PURE__*/React.createElement("span", {
+  }, value !== "" && value != null ? formatValue ? formatValue(value) : value : /*#__PURE__*/React.createElement("span", {
     className: "t-muted"
   }, placeholder));
   return /*#__PURE__*/React.createElement("input", {
@@ -893,8 +894,7 @@ function Customers({
       minWidth: 180
     }
   }, "\uBE44\uACE0"))), /*#__PURE__*/React.createElement("tbody", null, rows.map(c => /*#__PURE__*/React.createElement("tr", {
-    key: c.rowKey,
-    className: c.period == null || Number(c.period) < 0 ? "customer-row--missing-period" : ""
+    key: c.rowKey
   }, /*#__PURE__*/React.createElement("td", {
     className: "num t-muted"
   }, code5(c.code)), /*#__PURE__*/React.createElement("td", {
@@ -902,8 +902,17 @@ function Customers({
   }, c.name), /*#__PURE__*/React.createElement("td", null, c.biz_unit), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement(Badge, {
     status: c.status
   })), /*#__PURE__*/React.createElement("td", {
-    className: "num"
-  }, c.period == null || Number(c.period) < 0 ? "미입력" : Number(c.period) === 0 ? "0개월 (당월)" : Number(c.period) === 1 ? "1개월 (익월)" : c.period + "개월"), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement(InlineEdit, {
+    className: "num" + (c.period == null || Number(c.period) < 0 ? " customer-period--missing" : "")
+  }, /*#__PURE__*/React.createElement(InlineEdit, {
+    value: c.period == null || Number(c.period) < 0 ? "" : String(c.period),
+    placeholder: "미입력",
+    type: "number",
+    canEdit: can("customer_info_edit"),
+    formatValue: value => Number(value) === 0 ? "0개월 (당월)" : Number(value) === 1 ? "1개월 (익월)" : value + "개월",
+    onSave: period => updateCustomer(c.code, {
+      period
+    }, "회수기간을 저장했습니다.")
+  })), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement(InlineEdit, {
     value: c.owner,
     placeholder: "\uD074\uB9AD\uD574 \uC785\uB825",
     canEdit: can("note_edit"),
@@ -1516,6 +1525,7 @@ function Upload({
   refresh
 }) {
   const [month, setMonth] = useState(thisMonth());
+  const [shipmentDate, setShipmentDate] = useState(data.meta.today);
   const [parsed, setParsed] = useState(null);
   const [error, setError] = useState("");
   const [over, setOver] = useState(false);
@@ -1552,7 +1562,7 @@ function Upload({
           return;
         }
         const shipmentMode = map.shipment_amount !== undefined;
-        const required = shipmentMode ? ["code", "name", "biz_unit", "collection_period", "shipment_amount"] : ["code", "name", "biz_unit", "normal_balance", "overdue_balance", "bad_balance"];
+        const required = shipmentMode ? ["code", "name", "biz_unit"] : ["code", "name", "biz_unit", "normal_balance", "overdue_balance", "bad_balance"];
         const missing = required.filter(field => map[field] === undefined);
         if (missing.length) {
           setError("필수 열이 없습니다: " + missing.map(field => ({
@@ -1580,7 +1590,7 @@ function Upload({
           if (!name) issues.push(i + 1 + "행: 거래처명 누락");
           if (!data.meta.units.includes(bizUnit)) issues.push(i + 1 + "행: 사업부 오류");
           const period = pick("collection_period");
-          if (shipmentMode && (period === "" || Number(period) < 0 || !Number.isFinite(Number(period)))) {
+          if (shipmentMode && period !== "" && (Number(period) < 0 || !Number.isFinite(Number(period)))) {
             issues.push(i + 1 + "행: 회수기간 오류");
           }
           rows.push({
@@ -1634,6 +1644,7 @@ function Upload({
         method: "POST",
         body: {
           month,
+          shipment_date: shipmentDate,
           filename: parsed.filename,
           rows: parsed.rows,
           mode: parsed.mode
@@ -1673,6 +1684,13 @@ function Upload({
     type: "month",
     value: month,
     onChange: e => setMonth(e.target.value)
+  })), /*#__PURE__*/React.createElement(Field, {
+    label: "출고기준일"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "input",
+    type: "date",
+    value: shipmentDate,
+    onChange: e => setShipmentDate(e.target.value)
   })), /*#__PURE__*/React.createElement(Field, {
     label: "\uB9C8\uAC10 \uC0C1\uD0DC"
   }, /*#__PURE__*/React.createElement("div", {
@@ -1755,7 +1773,7 @@ function Upload({
   }, /*#__PURE__*/React.createElement("button", {
     className: "btn btn--primary",
     onClick: send,
-    disabled: busy || locked || parsed.dupes.length > 0 || parsed.issues.length > 0
+    disabled: busy || locked || !shipmentDate || parsed.dupes.length > 0 || parsed.issues.length > 0
   }, month, " \uB370\uC774\uD130\uB85C \uBC18\uC601"), /*#__PURE__*/React.createElement("button", {
     className: "btn",
     onClick: () => setParsed(null)
@@ -1764,7 +1782,7 @@ function Upload({
     flush: true
   }, /*#__PURE__*/React.createElement("div", {
     className: "tablewrap"
-  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "\uC77C\uC2DC"), /*#__PURE__*/React.createElement("th", null, "\uAE30\uC900\uC6D4"), /*#__PURE__*/React.createElement("th", null, "\uD30C\uC77C\uBA85"), /*#__PURE__*/React.createElement("th", {
+  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "업로드 일시"), /*#__PURE__*/React.createElement("th", null, "출고기준일"), /*#__PURE__*/React.createElement("th", null, "\uAE30\uC900\uC6D4"), /*#__PURE__*/React.createElement("th", null, "\uD30C\uC77C\uBA85"), /*#__PURE__*/React.createElement("th", {
     className: "r"
   }, "\uBC18\uC601 \uD589"), /*#__PURE__*/React.createElement("th", {
     className: "r"
@@ -1775,6 +1793,8 @@ function Upload({
     }, /*#__PURE__*/React.createElement("td", {
       className: "num t-sm"
     }, u.uploaded_at), /*#__PURE__*/React.createElement("td", {
+      className: "num t-sm"
+    }, u.shipment_date || "–"), /*#__PURE__*/React.createElement("td", {
       className: "num t-strong"
     }, u.month), /*#__PURE__*/React.createElement("td", null, u.filename), /*#__PURE__*/React.createElement("td", {
       className: "r num"
@@ -1797,7 +1817,7 @@ function UploadTemplate() {
       }));
       const link = document.createElement("a");
       link.href = url;
-      link.download = "MedPark_채권데이터_업로드서식.xlsx";
+      link.download = "MedPark_출고데이터_업로드서식.xlsx";
       link.click();
       URL.revokeObjectURL(url);
     } catch (e) {
@@ -1805,17 +1825,17 @@ function UploadTemplate() {
     }
   }
   return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Card, {
-    title: "\uCC44\uAD8C \uB370\uC774\uD130 \uC5D1\uC140 \uC5C5\uB85C\uB4DC \uC11C\uC2DD"
+    title: "출고데이터 업로드서식"
   }, /*#__PURE__*/React.createElement("p", {
     style: {
       marginTop: 0
     }
-  }, "\uC6D4\uBCC4 \uCC44\uAD8C \uB370\uC774\uD130\uB97C \uC815\uD655\uD558\uAC8C \uB4F1\uB85D\uD560 \uC218 \uC788\uB294 \uD45C\uC900 \uC11C\uC2DD\uC785\uB2C8\uB2E4."), /*#__PURE__*/React.createElement("div", {
+  }, "월별 출고데이터를 등록하는 표준 서식입니다."), /*#__PURE__*/React.createElement("div", {
     className: "alert alert--info",
     style: {
       marginBottom: 14
     }
-  }, "\uD544\uC218 \uD56D\uBAA9: \uAC70\uB798\uCC98\uCF54\uB4DC \xB7 \uAC70\uB798\uCC98\uBA85 \xB7 \uC0AC\uC5C5\uBD80 \xB7 \uC815\uC0C1\uCC44\uAD8C\uC794\uC561 \xB7 \uBBF8\uC218\uCC44\uAD8C(11\uAC1C\uC6D4 \uB0B4) \xB7 \uBD80\uC2E4\uCC44\uAD8C(12\uAC1C\uC6D4 \uC774\uC0C1)"), /*#__PURE__*/React.createElement("button", {
+  }, "필수 항목: 거래처코드 · 거래처명 · 사업부"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn--primary",
     onClick: downloadTemplate
   }, "\uC5D1\uC140 \uC5C5\uB85C\uB4DC \uC11C\uC2DD \uB2E4\uC6B4\uB85C\uB4DC")), /*#__PURE__*/React.createElement(Card, {
@@ -1993,7 +2013,7 @@ const SCREENS = [{
   group: "수금"
 }, {
   key: "template",
-  label: "엑셀 업로드 서식",
+  label: "출고데이터 업로드서식",
   perm: "upload_data",
   group: "관리"
 }, {
