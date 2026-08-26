@@ -37,6 +37,8 @@ const STATUS_LABEL = {
 const today = () => new Date().toISOString().slice(0, 10);
 const thisMonth = () => new Date().toISOString().slice(0, 7);
 const sum = (list, key) => list.reduce((a, x) => a + (Number(x[key]) || 0), 0);
+const code5 = code => String(code || "").padStart(5, "0");
+const overdueMonths = days => Math.ceil(Math.max(0, Number(days) || 0) / 30);
 async function api(path, options = {}) {
   const res = await fetch(path, {
     credentials: "same-origin",
@@ -500,7 +502,7 @@ function Dashboard({
     className: "t-strong"
   }, c.name), /*#__PURE__*/React.createElement("td", {
     className: "num t-sm t-muted"
-  }, c.overdue_days, "\uC77C"), /*#__PURE__*/React.createElement("td", {
+  }, overdueMonths(c.overdue_days), "\uAC1C\uC6D4"), /*#__PURE__*/React.createElement("td", {
     className: "r num"
   }, won(c.overdue_balance)))), overdueTop5.length === 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
     className: "t-muted"
@@ -762,7 +764,7 @@ function Customers({
   const rows = useMemo(() => data.customers.filter(c => {
     if (sel.unit !== "전체" && c.biz_unit !== sel.unit) return false;
     if (sel.status !== "전체" && c.status !== sel.status) return false;
-    if (q && !(c.name.includes(q) || c.code.includes(q) || (c.owner || "").includes(q))) return false;
+    if (q && !(c.name.includes(q) || c.code.includes(q) || code5(c.code).includes(q) || (c.owner || "").includes(q))) return false;
     return true;
   }), [data.customers, sel, q]);
   const countOf = (unit, status) => data.customers.filter(c => (unit === "전체" || c.biz_unit === unit) && (status === "전체" || c.status === status)).length;
@@ -859,11 +861,11 @@ function Customers({
     className: "tablewrap"
   }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "\uCF54\uB4DC"), /*#__PURE__*/React.createElement("th", null, "\uAC70\uB798\uCC98\uBA85"), /*#__PURE__*/React.createElement("th", null, "\uC0AC\uC5C5\uBD80"), /*#__PURE__*/React.createElement("th", null, "\uBD84\uB958"), /*#__PURE__*/React.createElement("th", null, "\uB2F4\uB2F9\uC790"), /*#__PURE__*/React.createElement("th", {
     className: "r"
-  }, "\uBBF8\uC218\uC794\uC561"), /*#__PURE__*/React.createElement("th", {
+  }, "\uCC44\uAD8C\uC794\uC561"), /*#__PURE__*/React.createElement("th", {
     className: "r"
   }, "\uC120\uC218\uAE08"), /*#__PURE__*/React.createElement("th", {
     className: "r"
-  }, "\uACBD\uACFC\uC77C"), /*#__PURE__*/React.createElement("th", null, "\uCD5C\uC885\uC218\uAE08\uC77C"), /*#__PURE__*/React.createElement("th", {
+  }, "\uC5F0\uCCB4\uAE30\uAC04(\uAC1C\uC6D4)"), /*#__PURE__*/React.createElement("th", null, "\uCD5C\uC885\uC218\uAE08\uC77C"), /*#__PURE__*/React.createElement("th", {
     style: {
       minWidth: 200
     }
@@ -871,7 +873,7 @@ function Customers({
     key: c.code
   }, /*#__PURE__*/React.createElement("td", {
     className: "num t-muted"
-  }, c.code), /*#__PURE__*/React.createElement("td", {
+  }, code5(c.code)), /*#__PURE__*/React.createElement("td", {
     className: "t-strong"
   }, c.name), /*#__PURE__*/React.createElement("td", null, c.biz_unit), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement(Badge, {
     status: c.status
@@ -883,7 +885,7 @@ function Customers({
     className: "r num"
   }, c.advance ? won(c.advance) : "–"), /*#__PURE__*/React.createElement("td", {
     className: "r num"
-  }, c.overdue_days || "–"), /*#__PURE__*/React.createElement("td", {
+  }, overdueMonths(c.overdue_days), "\uAC1C\uC6D4"), /*#__PURE__*/React.createElement("td", {
     className: "num t-muted t-sm"
   }, c.last_paid_at || "–"), /*#__PURE__*/React.createElement("td", {
     style: {
@@ -995,13 +997,13 @@ function Owners({
     className: "tablewrap"
   }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "\uCF54\uB4DC"), /*#__PURE__*/React.createElement("th", null, "\uAC70\uB798\uCC98\uBA85"), /*#__PURE__*/React.createElement("th", null, "\uC0AC\uC5C5\uBD80"), /*#__PURE__*/React.createElement("th", null, "\uBD84\uB958"), /*#__PURE__*/React.createElement("th", {
     className: "r"
-  }, "\uBBF8\uC218\uC794\uC561"), /*#__PURE__*/React.createElement("th", {
+  }, "\uCC44\uAD8C\uC794\uC561"), /*#__PURE__*/React.createElement("th", {
     className: "r"
-  }, "\uACBD\uACFC\uC77C"), /*#__PURE__*/React.createElement("th", null, "\uBE44\uACE0"))), /*#__PURE__*/React.createElement("tbody", null, [...active.rows].sort((a, b) => b.balance - a.balance).map(c => /*#__PURE__*/React.createElement("tr", {
+  }, "\uC5F0\uCCB4\uAE30\uAC04(\uAC1C\uC6D4)"), /*#__PURE__*/React.createElement("th", null, "\uBE44\uACE0"))), /*#__PURE__*/React.createElement("tbody", null, [...active.rows].sort((a, b) => b.balance - a.balance).map(c => /*#__PURE__*/React.createElement("tr", {
     key: c.code
   }, /*#__PURE__*/React.createElement("td", {
     className: "num t-muted"
-  }, c.code), /*#__PURE__*/React.createElement("td", {
+  }, code5(c.code)), /*#__PURE__*/React.createElement("td", {
     className: "t-strong"
   }, c.name), /*#__PURE__*/React.createElement("td", null, c.biz_unit), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement(Badge, {
     status: c.status
@@ -1009,7 +1011,7 @@ function Owners({
     className: "r num t-strong"
   }, won(c.balance)), /*#__PURE__*/React.createElement("td", {
     className: "r num"
-  }, c.overdue_days || "–"), /*#__PURE__*/React.createElement("td", {
+  }, overdueMonths(c.overdue_days), "\uAC1C\uC6D4"), /*#__PURE__*/React.createElement("td", {
     className: "t-sm t-muted",
     style: {
       whiteSpace: "normal"
@@ -1035,7 +1037,7 @@ function CustomerSearch({
   const [open, setOpen] = useState(false);
   const matches = useMemo(() => {
     const keyword = query.trim().toLowerCase();
-    return customers.filter(c => !keyword || c.name.toLowerCase().includes(keyword) || String(c.code).toLowerCase().includes(keyword)).slice(0, 12);
+    return customers.filter(c => !keyword || c.name.toLowerCase().includes(keyword) || String(c.code).toLowerCase().includes(keyword) || code5(c.code).includes(keyword)).slice(0, 12);
   }, [customers, query]);
   useEffect(() => {
     if (!value) setQuery("");
@@ -1071,7 +1073,7 @@ function CustomerSearch({
     className: "customer-search__option",
     onMouseDown: e => e.preventDefault(),
     onClick: () => choose(c)
-  }, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("b", null, c.name), /*#__PURE__*/React.createElement("small", null, c.code, " \xB7 ", c.biz_unit)), /*#__PURE__*/React.createElement("strong", {
+  }, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("b", null, c.name), /*#__PURE__*/React.createElement("small", null, code5(c.code), " \xB7 ", c.biz_unit)), /*#__PURE__*/React.createElement("strong", {
     className: "num"
   }, won(c.balance), "\uC6D0"))), matches.length === 0 && /*#__PURE__*/React.createElement("div", {
     className: "customer-search__empty"
@@ -1641,7 +1643,7 @@ function Upload({
     style: {
       margin: "12px 0 0"
     }
-  }, "\uCCAB \uBC88\uC9F8 \uC2DC\uD2B8\uB97C \uC77D\uC2B5\uB2C8\uB2E4. \uC778\uC2DD\uD558\uB294 \uC5F4: \uAC70\uB798\uCC98\uCF54\uB4DC \xB7 \uAC70\uB798\uCC98\uBA85 \xB7 \uC0AC\uC5C5\uBD80 \xB7 \uCC44\uAD8C\uBD84\uB958 \xB7 \uB2F4\uB2F9\uC790 \xB7 \uBBF8\uC218\uC794\uC561 \xB7 \uC120\uC218\uAE08 \xB7 \uACBD\uACFC\uC77C \xB7 \uCD5C\uC885\uC218\uAE08\uC77C \xB7 \uBE44\uACE0")), error && /*#__PURE__*/React.createElement("div", {
+  }, "\uCCAB \uBC88\uC9F8 \uC2DC\uD2B8\uB97C \uC77D\uC2B5\uB2C8\uB2E4. \uC778\uC2DD\uD558\uB294 \uC5F4: \uAC70\uB798\uCC98\uCF54\uB4DC \xB7 \uAC70\uB798\uCC98\uBA85 \xB7 \uC0AC\uC5C5\uBD80 \xB7 \uCC44\uAD8C\uBD84\uB958 \xB7 \uB2F4\uB2F9\uC790 \xB7 \uCC44\uAD8C\uC794\uC561 \xB7 \uC120\uC218\uAE08 \xB7 \uC5F0\uCCB4\uAE30\uAC04(\uAC1C\uC6D4) \xB7 \uCD5C\uC885\uC218\uAE08\uC77C \xB7 \uBE44\uACE0")), error && /*#__PURE__*/React.createElement("div", {
     className: "alert alert--bad",
     style: {
       marginTop: 12
@@ -1668,7 +1670,7 @@ function Upload({
     }
   }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "\uCF54\uB4DC"), /*#__PURE__*/React.createElement("th", null, "\uAC70\uB798\uCC98\uBA85"), /*#__PURE__*/React.createElement("th", null, "\uC0AC\uC5C5\uBD80"), /*#__PURE__*/React.createElement("th", null, "\uBD84\uB958"), /*#__PURE__*/React.createElement("th", null, "\uB2F4\uB2F9\uC790"), /*#__PURE__*/React.createElement("th", {
     className: "r"
-  }, "\uBBF8\uC218\uC794\uC561"))), /*#__PURE__*/React.createElement("tbody", null, parsed.rows.slice(0, 12).map((r, i) => /*#__PURE__*/React.createElement("tr", {
+  }, "\uCC44\uAD8C\uC794\uC561"))), /*#__PURE__*/React.createElement("tbody", null, parsed.rows.slice(0, 12).map((r, i) => /*#__PURE__*/React.createElement("tr", {
     key: i
   }, /*#__PURE__*/React.createElement("td", {
     className: "num"
