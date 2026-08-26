@@ -1,3 +1,4 @@
+import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
 const {
   useState,
   useEffect,
@@ -64,38 +65,50 @@ function Card({
   children,
   flush
 }) {
-  return /*#__PURE__*/React.createElement("section", {
-    className: "card"
-  }, (title || actions) && /*#__PURE__*/React.createElement("header", {
-    className: "card__head"
-  }, /*#__PURE__*/React.createElement("h3", null, title), /*#__PURE__*/React.createElement("div", {
-    className: "spacer"
-  }), actions), /*#__PURE__*/React.createElement("div", {
-    className: "card__body" + (flush ? " card__body--flush" : "")
-  }, children));
+  return /*#__PURE__*/_jsxs("section", {
+    className: "card",
+    children: [(title || actions) && /*#__PURE__*/_jsxs("header", {
+      className: "card__head",
+      children: [/*#__PURE__*/_jsx("h3", {
+        children: title
+      }), /*#__PURE__*/_jsx("div", {
+        className: "spacer"
+      }), actions]
+    }), /*#__PURE__*/_jsx("div", {
+      className: "card__body" + (flush ? " card__body--flush" : ""),
+      children: children
+    })]
+  });
 }
 function Empty({
   title,
   children
 }) {
-  return /*#__PURE__*/React.createElement("div", {
-    className: "empty"
-  }, /*#__PURE__*/React.createElement("b", null, title), children);
+  return /*#__PURE__*/_jsxs("div", {
+    className: "empty",
+    children: [/*#__PURE__*/_jsx("b", {
+      children: title
+    }), children]
+  });
 }
 function Badge({
   status
 }) {
-  return /*#__PURE__*/React.createElement("span", {
-    className: "badge badge--" + (STATUS_STYLE[status] || "mute")
-  }, STATUS_LABEL[status] || status);
+  return /*#__PURE__*/_jsx("span", {
+    className: "badge badge--" + (STATUS_STYLE[status] || "mute"),
+    children: STATUS_LABEL[status] || status
+  });
 }
 function Field({
   label,
   children
 }) {
-  return /*#__PURE__*/React.createElement("div", {
-    className: "field"
-  }, /*#__PURE__*/React.createElement("label", null, label), children);
+  return /*#__PURE__*/_jsxs("div", {
+    className: "field",
+    children: [/*#__PURE__*/_jsx("label", {
+      children: label
+    }), children]
+  });
 }
 
 /* ══════════════════ 로그인 ══════════════════ */
@@ -134,63 +147,93 @@ function Login({
       setBusy(false);
     }
   }
-  return /*#__PURE__*/React.createElement("div", {
-    className: "login"
-  }, /*#__PURE__*/React.createElement("aside", {
-    className: "login__aside"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "login__brand"
-  }, "MEDPARK"), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h1", {
-    className: "login__head"
-  }, "\uBBF8\uC218\uCC44\uAD8C", /*#__PURE__*/React.createElement("br", null), "\uAD00\uB9AC \uC2DC\uC2A4\uD15C"), /*#__PURE__*/React.createElement("p", {
-    className: "login__sub"
-  }, "\uB374\uD0C8\xB7\uBA54\uB514\uCEEC\xB7\uC5D0\uC2A4\uD14C\uD2F1 \uC138 \uC0AC\uC5C5\uBD80\uC758 \uCC44\uAD8C \uC794\uC561\uACFC \uC218\uAE08 \uC9C4\uD589\uC744 \uD55C \uD654\uBA74\uC5D0\uC11C \uBD05\uB2C8\uB2E4."), /*#__PURE__*/React.createElement("div", {
-    className: "login__stat"
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("b", null, "3"), "\uC0AC\uC5C5\uBD80"), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("b", null, "9"), "\uCC44\uAD8C \uBD84\uB958"), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("b", null, "11"), "\uAD8C\uD55C \uAD6C\uBD84"))), /*#__PURE__*/React.createElement("div", {
-    className: "login__brand",
-    style: {
-      opacity: .55
-    }
-  }, "\uB0B4\uBD80 \uC5C5\uBB34\uC6A9 \xB7 \uC678\uBD80 \uACF5\uC720 \uAE08\uC9C0")), /*#__PURE__*/React.createElement("div", {
-    className: "login__panel"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "login__form"
-  }, /*#__PURE__*/React.createElement("h2", null, "\uB85C\uADF8\uC778"), /*#__PURE__*/React.createElement("p", {
-    className: "hint"
-  }, "\uD68C\uC0AC\uC5D0\uC11C \uBC1C\uAE09\uBC1B\uC740 \uACC4\uC815\uC73C\uB85C \uC811\uC18D\uD558\uC138\uC694."), error && /*#__PURE__*/React.createElement("div", {
-    className: "alert alert--bad"
-  }, error), /*#__PURE__*/React.createElement(Field, {
-    label: "\uC544\uC774\uB514"
-  }, /*#__PURE__*/React.createElement("input", {
-    ref: usernameRef,
-    className: "input",
-    value: username,
-    autoFocus: true,
-    autoComplete: "username",
-    onChange: e => setUsername(e.target.value),
-    onInput: e => setUsername(e.target.value),
-    onKeyDown: e => e.key === "Enter" && submit(),
-    placeholder: "Medpark0"
-  })), /*#__PURE__*/React.createElement(Field, {
-    label: "\uBE44\uBC00\uBC88\uD638"
-  }, /*#__PURE__*/React.createElement("input", {
-    ref: passwordRef,
-    className: "input",
-    type: "password",
-    value: password,
-    autoComplete: "current-password",
-    onChange: e => setPassword(e.target.value),
-    onInput: e => setPassword(e.target.value),
-    onKeyDown: e => e.key === "Enter" && submit()
-  })), /*#__PURE__*/React.createElement("button", {
-    className: "btn btn--primary",
-    style: {
-      width: "100%",
-      marginTop: 6
-    },
-    onClick: submit,
-    disabled: busy
-  }, busy ? "확인하는 중" : "로그인"))));
+  return /*#__PURE__*/_jsxs("div", {
+    className: "login",
+    children: [/*#__PURE__*/_jsxs("aside", {
+      className: "login__aside",
+      children: [/*#__PURE__*/_jsx("div", {
+        className: "login__brand",
+        children: "MEDPARK"
+      }), /*#__PURE__*/_jsxs("div", {
+        children: [/*#__PURE__*/_jsxs("h1", {
+          className: "login__head",
+          children: ["미수채권", /*#__PURE__*/_jsx("br", {}), "관리 시스템"]
+        }), /*#__PURE__*/_jsx("p", {
+          className: "login__sub",
+          children: "덴탈·메디컬·에스테틱 세 사업부의 채권 잔액과 수금 진행을 한 화면에서 봅니다."
+        }), /*#__PURE__*/_jsxs("div", {
+          className: "login__stat",
+          children: [/*#__PURE__*/_jsxs("div", {
+            children: [/*#__PURE__*/_jsx("b", {
+              children: "3"
+            }), "사업부"]
+          }), /*#__PURE__*/_jsxs("div", {
+            children: [/*#__PURE__*/_jsx("b", {
+              children: "9"
+            }), "채권 분류"]
+          }), /*#__PURE__*/_jsxs("div", {
+            children: [/*#__PURE__*/_jsx("b", {
+              children: "11"
+            }), "권한 구분"]
+          })]
+        })]
+      }), /*#__PURE__*/_jsx("div", {
+        className: "login__brand",
+        style: {
+          opacity: .55
+        },
+        children: "내부 업무용 · 외부 공유 금지"
+      })]
+    }), /*#__PURE__*/_jsx("div", {
+      className: "login__panel",
+      children: /*#__PURE__*/_jsxs("div", {
+        className: "login__form",
+        children: [/*#__PURE__*/_jsx("h2", {
+          children: "로그인"
+        }), /*#__PURE__*/_jsx("p", {
+          className: "hint",
+          children: "회사에서 발급받은 계정으로 접속하세요."
+        }), error && /*#__PURE__*/_jsx("div", {
+          className: "alert alert--bad",
+          children: error
+        }), /*#__PURE__*/_jsx(Field, {
+          label: "아이디",
+          children: /*#__PURE__*/_jsx("input", {
+            ref: usernameRef,
+            className: "input",
+            value: username,
+            autoFocus: true,
+            autoComplete: "username",
+            onChange: e => setUsername(e.target.value),
+            onInput: e => setUsername(e.target.value),
+            onKeyDown: e => e.key === "Enter" && submit(),
+            placeholder: "Medpark0"
+          })
+        }), /*#__PURE__*/_jsx(Field, {
+          label: "비밀번호",
+          children: /*#__PURE__*/_jsx("input", {
+            ref: passwordRef,
+            className: "input",
+            type: "password",
+            value: password,
+            autoComplete: "current-password",
+            onChange: e => setPassword(e.target.value),
+            onInput: e => setPassword(e.target.value),
+            onKeyDown: e => e.key === "Enter" && submit()
+          })
+        }), /*#__PURE__*/_jsx("button", {
+          className: "btn btn--primary",
+          style: {
+            width: "100%",
+            marginTop: 6
+          },
+          onClick: submit,
+          disabled: busy,
+          children: busy ? "확인하는 중" : "로그인"
+        })]
+      })
+    })]
+  });
 }
 
 /* ══════════════════ 대시보드 ══════════════════ */
@@ -261,7 +304,7 @@ function Dashboard({
   }, [approved]);
   const normalTop5 = customers.filter(c => (normalTopUnit === "전체" || c.biz_unit === normalTopUnit) && c.normal_balance > 0).sort((a, b) => b.normal_balance - a.normal_balance).slice(0, 5);
   const overdueTop5 = customers.filter(c => (overdueTopUnit === "전체" || c.biz_unit === overdueTopUnit) && c.overdue_balance > 0).sort((a, b) => b.overdue_balance - a.overdue_balance).slice(0, 5);
-  const topUnitSelect = (value, setter, label) => /*#__PURE__*/React.createElement("select", {
+  const topUnitSelect = (value, setter, label) => /*#__PURE__*/_jsx("select", {
     className: "select",
     style: {
       width: 110,
@@ -269,11 +312,12 @@ function Dashboard({
     },
     value: value,
     onChange: e => setter(e.target.value),
-    "aria-label": label
-  }, ["전체", ...data.meta.units].map(u => /*#__PURE__*/React.createElement("option", {
-    key: u,
-    value: u
-  }, u)));
+    "aria-label": label,
+    children: ["전체", ...data.meta.units].map(u => /*#__PURE__*/_jsx("option", {
+      value: u,
+      children: u
+    }, u))
+  });
   const todayStr = today();
   const weekEnd = new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10);
   const openTargets = targets.filter(t => t.state !== "done");
@@ -333,231 +377,420 @@ function Dashboard({
     count: totals.cnt.부실,
     color: "var(--bad)"
   }];
-  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-    className: "chiprow"
-  }, ["전체", ...data.meta.units].map(u => /*#__PURE__*/React.createElement("button", {
-    key: u,
-    className: "chip",
-    "aria-pressed": unit === u,
-    onClick: () => setUnit(u)
-  }, u))), /*#__PURE__*/React.createElement("div", {
-    className: "grid grid--kpi"
-  }, kpis.map(k => {
-    const s = short(k.value);
-    return /*#__PURE__*/React.createElement("button", {
-      key: k.key,
-      className: "kpi",
-      onClick: () => k.key !== "전체" && jump(k.key)
-    }, /*#__PURE__*/React.createElement("div", {
-      className: "kpi__label"
-    }, /*#__PURE__*/React.createElement("i", {
-      className: "kpi__dot",
-      style: {
-        background: k.color
-      }
-    }), k.label), /*#__PURE__*/React.createElement("div", {
-      className: "kpi__value num"
-    }, s.value, /*#__PURE__*/React.createElement("em", null, s.unit)), /*#__PURE__*/React.createElement("div", {
-      className: "kpi__meta num"
-    }, "\uAC70\uB798\uCC98 ", k.count, "\uACF3 \xB7 ", won(k.value), "\uC6D0"));
-  })), /*#__PURE__*/React.createElement("div", {
-    className: "grid grid--2"
-  }, /*#__PURE__*/React.createElement(Card, {
-    title: "\uC0AC\uC5C5\uBD80\uBCC4 \uCC44\uAD8C \uBD84\uB958 \uD604\uD669",
-    actions: /*#__PURE__*/React.createElement("div", {
-      className: "legend"
-    }, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("i", {
-      style: {
-        background: "var(--ok)"
-      }
-    }), "\uC815\uC0C1\uCC44\uAD8C"), /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("i", {
-      style: {
-        background: "var(--warn)"
-      }
-    }), "\uBBF8\uC218\uCC44\uAD8C"), /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("i", {
-      style: {
-        background: "var(--bad)"
-      }
-    }), "\uBD80\uC2E4\uCC44\uAD8C"))
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "signal"
-  }, byUnit.map(g => /*#__PURE__*/React.createElement("div", {
-    className: "signal__row",
-    key: g.unit
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "signal__unit"
-  }, g.unit), /*#__PURE__*/React.createElement("div", {
-    className: "signal__bar",
-    style: {
-      width: Math.max(8, g.total / maxUnit * 100) + "%"
-    }
-  }, ["정상", "연체", "부실"].map(s => g[s] > 0 && /*#__PURE__*/React.createElement("button", {
-    key: s,
-    className: "signal__seg signal__seg--" + STATUS_STYLE[s],
-    style: {
-      width: g[s] / g.total * 100 + "%"
-    },
-    title: g.unit + " " + STATUS_LABEL[s] + " " + won(g[s]) + "원",
-    onClick: () => {
-      setPreset({
-        status: s,
-        unit: g.unit
-      });
-      setScreen("customers");
-    }
-  }))), /*#__PURE__*/React.createElement("div", {
-    className: "signal__total num"
-  }, short(g.total).value, short(g.total).unit)))), /*#__PURE__*/React.createElement("p", {
-    className: "t-sm t-muted",
-    style: {
-      margin: "14px 0 0"
-    }
-  }, "\uB9C9\uB300\uB97C \uB204\uB974\uBA74 \uD574\uB2F9 \uC0AC\uC5C5\uBD80\xB7\uBD84\uB958\uC758 \uAC70\uB798\uCC98 \uBAA9\uB85D\uC73C\uB85C \uC774\uB3D9\uD569\uB2C8\uB2E4.")), /*#__PURE__*/React.createElement(Card, {
-    title: "\uC6D4\uBCC4 \uC218\uAE08 \uC2E4\uC801",
-    flush: true
-  }, monthly.length === 0 ? /*#__PURE__*/React.createElement(Empty, {
-    title: "\uC2B9\uC778\uB41C \uC218\uAE08 \uB0B4\uC5ED\uC774 \uC544\uC9C1 \uC5C6\uC2B5\uB2C8\uB2E4."
-  }, "\uC218\uAE08 \uB4F1\uB85D \uD654\uBA74\uC5D0\uC11C \uC785\uB825\uD558\uACE0 \uC7AC\uBB34\uB2F4\uB2F9\uC774 \uC2B9\uC778\uD558\uBA74 \uC5EC\uAE30\uC5D0 \uC9D1\uACC4\uB429\uB2C8\uB2E4.") : /*#__PURE__*/React.createElement("div", {
-    className: "tablewrap"
-  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "\uAE30\uC900\uC6D4"), /*#__PURE__*/React.createElement("th", {
-    className: "r"
-  }, "\uAC74\uC218"), /*#__PURE__*/React.createElement("th", {
-    className: "r"
-  }, "\uC218\uAE08\uC561 (\uC6D0)"))), /*#__PURE__*/React.createElement("tbody", null, monthly.map(m => /*#__PURE__*/React.createElement("tr", {
-    key: m.month
-  }, /*#__PURE__*/React.createElement("td", {
-    className: "t-strong num"
-  }, m.month), /*#__PURE__*/React.createElement("td", {
-    className: "r num"
-  }, m.count), /*#__PURE__*/React.createElement("td", {
-    className: "r num t-strong"
-  }, won(m.amount))))), /*#__PURE__*/React.createElement("tfoot", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", null, "\uD569\uACC4"), /*#__PURE__*/React.createElement("td", {
-    className: "r num"
-  }, sum(monthly, "count")), /*#__PURE__*/React.createElement("td", {
-    className: "r num"
-  }, won(sum(monthly, "amount"))))))))), /*#__PURE__*/React.createElement("div", {
-    className: "grid grid--3"
-  }, /*#__PURE__*/React.createElement(Card, {
-    title: "\uC218\uAE08\uBAA9\uD45C \uC694\uC57D"
-  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "\uAD6C\uBD84"), /*#__PURE__*/React.createElement("th", {
-    className: "r"
-  }, "\uAC74\uC218"), /*#__PURE__*/React.createElement("th", {
-    className: "r"
-  }, "\uBAA9\uD45C\uAE08\uC561 (\uC6D0)"))), /*#__PURE__*/React.createElement("tbody", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", null, "\uC624\uB298 \uBAA9\uD45C"), /*#__PURE__*/React.createElement("td", {
-    className: "r num t-strong"
-  }, dueToday.length), /*#__PURE__*/React.createElement("td", {
-    className: "r num"
-  }, won(sum(dueToday, "amount")))), /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", null, "\uC774\uBC88 \uC8FC \uBAA9\uD45C"), /*#__PURE__*/React.createElement("td", {
-    className: "r num t-strong"
-  }, dueWeek.length), /*#__PURE__*/React.createElement("td", {
-    className: "r num"
-  }, won(sum(dueWeek, "amount")))), /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", null, "\uAE30\uD55C \uCD08\uACFC"), /*#__PURE__*/React.createElement("td", {
-    className: "r num t-strong",
-    style: {
-      color: overdueTargets.length ? "var(--bad)" : "inherit"
-    }
-  }, overdueTargets.length), /*#__PURE__*/React.createElement("td", {
-    className: "r num"
-  }, won(sum(overdueTargets, "amount")))))), /*#__PURE__*/React.createElement("button", {
-    className: "btn btn--sm",
-    style: {
-      marginTop: 12
-    },
-    onClick: () => setScreen("targets")
-  }, "\uC218\uAE08\uBAA9\uD45C \uAD00\uB9AC\uB85C \uC774\uB3D9")), /*#__PURE__*/React.createElement(Card, {
-    title: "\uC815\uC0C1\uCC44\uAD8C TOP 5",
-    actions: topUnitSelect(normalTopUnit, setNormalTopUnit, "정상채권 사업부 선택"),
-    flush: true
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "tablewrap"
-  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("tbody", null, normalTop5.map((c, i) => /*#__PURE__*/React.createElement("tr", {
-    key: c.code
-  }, /*#__PURE__*/React.createElement("td", {
-    className: "t-muted num",
-    style: {
-      width: 26
-    }
-  }, i + 1), /*#__PURE__*/React.createElement("td", {
-    className: "t-strong"
-  }, c.name), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement(Badge, {
-    status: "\uC815\uC0C1"
-  })), /*#__PURE__*/React.createElement("td", {
-    className: "r num"
-  }, won(c.normal_balance)))), normalTop5.length === 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
-    className: "t-muted"
-  }, "\uC815\uC0C1\uCC44\uAD8C \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.")))))), /*#__PURE__*/React.createElement(Card, {
-    title: "\uBBF8\uC218\uCC44\uAD8C TOP 5",
-    actions: topUnitSelect(overdueTopUnit, setOverdueTopUnit, "미수채권 사업부 선택"),
-    flush: true
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "tablewrap"
-  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("tbody", null, overdueTop5.map((c, i) => /*#__PURE__*/React.createElement("tr", {
-    key: c.code
-  }, /*#__PURE__*/React.createElement("td", {
-    className: "t-muted num",
-    style: {
-      width: 26
-    }
-  }, i + 1), /*#__PURE__*/React.createElement("td", {
-    className: "t-strong"
-  }, c.name), /*#__PURE__*/React.createElement("td", {
-    className: "num t-sm t-muted"
-  }, overdueMonths(c.overdue_days), "\uAC1C\uC6D4"), /*#__PURE__*/React.createElement("td", {
-    className: "r num"
-  }, won(c.overdue_balance)))), overdueTop5.length === 0 && /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
-    className: "t-muted"
-  }, "\uBBF8\uC218\uCC44\uAD8C \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4."))))))), /*#__PURE__*/React.createElement(Card, {
-    title: "\uB2F4\uB2F9\uC790\uBCC4 \uCC44\uAD8C \uD604\uD669",
-    flush: true
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "tablewrap"
-  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "\uB2F4\uB2F9\uC790"), /*#__PURE__*/React.createElement("th", {
-    className: "r"
-  }, "\uAC70\uB798\uCC98"), /*#__PURE__*/React.createElement("th", {
-    className: "r"
-  }, "\uC815\uC0C1\uCC44\uAD8C"), /*#__PURE__*/React.createElement("th", {
-    className: "r"
-  }, "\uBBF8\uC218\uCC44\uAD8C"), /*#__PURE__*/React.createElement("th", {
-    className: "r"
-  }, "\uBD80\uC2E4\uCC44\uAD8C"), /*#__PURE__*/React.createElement("th", {
-    className: "r"
-  }, "\uD569\uACC4"), /*#__PURE__*/React.createElement("th", {
-    style: {
-      width: 150
-    }
-  }, "\uBBF8\uC218\xB7\uBD80\uC2E4\uCC44\uAD8C \uBE44\uC911"))), /*#__PURE__*/React.createElement("tbody", null, owners.map(o => {
-    const risk = o.total ? (o.연체 + o.부실) / o.total * 100 : 0;
-    return /*#__PURE__*/React.createElement("tr", {
-      key: o.owner
-    }, /*#__PURE__*/React.createElement("td", {
-      className: "t-strong"
-    }, o.owner), /*#__PURE__*/React.createElement("td", {
-      className: "r num"
-    }, o.count), /*#__PURE__*/React.createElement("td", {
-      className: "r num"
-    }, won(o.정상)), /*#__PURE__*/React.createElement("td", {
-      className: "r num"
-    }, won(o.연체)), /*#__PURE__*/React.createElement("td", {
-      className: "r num"
-    }, won(o.부실)), /*#__PURE__*/React.createElement("td", {
-      className: "r num t-strong"
-    }, won(o.total)), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("div", {
-      style: {
-        display: "flex",
-        alignItems: "center",
-        gap: 8
-      }
-    }, /*#__PURE__*/React.createElement("div", {
-      className: "bar"
-    }, /*#__PURE__*/React.createElement("i", {
-      style: {
-        width: risk + "%",
-        background: risk > 40 ? "var(--bad)" : risk > 15 ? "var(--warn)" : "var(--ok)"
-      }
-    })), /*#__PURE__*/React.createElement("span", {
-      className: "t-sm num t-muted"
-    }, risk.toFixed(0), "%"))));
-  }))))));
+  const yesterdayDate = new Date(data.meta.today + "T00:00:00");
+  yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+  const yesterday = yesterdayDate.toISOString().slice(0, 10);
+  const customerUnit = Object.fromEntries(customers.map(c => [c.code, c.biz_unit]));
+  const yesterdayCollections = approved.filter(c => c.paid_at === yesterday);
+  const yesterdayByUnit = data.meta.units.map(u => ({
+    unit: u,
+    amount: sum(yesterdayCollections.filter(c => customerUnit[c.customer_code] === u), "amount")
+  }));
+  return /*#__PURE__*/_jsxs(_Fragment, {
+    children: [/*#__PURE__*/_jsx("div", {
+      className: "chiprow",
+      children: ["전체", ...data.meta.units].map(u => /*#__PURE__*/_jsx("button", {
+        className: "chip",
+        "aria-pressed": unit === u,
+        onClick: () => setUnit(u),
+        children: u
+      }, u))
+    }), /*#__PURE__*/_jsx("div", {
+      className: "grid grid--kpi",
+      children: kpis.map(k => {
+        const s = short(k.value);
+        return /*#__PURE__*/_jsxs("button", {
+          className: "kpi",
+          onClick: () => k.key !== "전체" && jump(k.key),
+          children: [/*#__PURE__*/_jsxs("div", {
+            className: "kpi__label",
+            children: [/*#__PURE__*/_jsx("i", {
+              className: "kpi__dot",
+              style: {
+                background: k.color
+              }
+            }), k.label]
+          }), /*#__PURE__*/_jsxs("div", {
+            className: "kpi__value num",
+            children: [s.value, /*#__PURE__*/_jsx("em", {
+              children: s.unit
+            })]
+          }), /*#__PURE__*/_jsxs("div", {
+            className: "kpi__meta num",
+            children: ["거래처 ", k.count, "곳 · ", won(k.value), "원"]
+          })]
+        }, k.key);
+      })
+    }), /*#__PURE__*/_jsx(Card, {
+      title: "전일 수금현황 요약 · " + yesterday,
+      children: /*#__PURE__*/_jsxs("div", {
+        className: "grid grid--3",
+        children: [/*#__PURE__*/_jsxs("div", {
+          children: [/*#__PURE__*/_jsx("div", {
+            className: "kpi__label",
+            children: "승인 수금 합계"
+          }), /*#__PURE__*/_jsxs("div", {
+            className: "kpi__value num",
+            children: [won(sum(yesterdayCollections, "amount")), /*#__PURE__*/_jsx("em", {
+              children: "원"
+            })]
+          })]
+        }), /*#__PURE__*/_jsxs("div", {
+          children: [/*#__PURE__*/_jsx("div", {
+            className: "kpi__label",
+            children: "승인 건수"
+          }), /*#__PURE__*/_jsxs("div", {
+            className: "kpi__value num",
+            children: [yesterdayCollections.length, /*#__PURE__*/_jsx("em", {
+              children: "건"
+            })]
+          })]
+        }), /*#__PURE__*/_jsxs("div", {
+          children: [/*#__PURE__*/_jsx("div", {
+            className: "kpi__label",
+            children: "사업부별 수금"
+          }), /*#__PURE__*/_jsx("div", {
+            className: "t-sm",
+            children: yesterdayByUnit.map(r => /*#__PURE__*/_jsxs("span", {
+              style: {
+                display: "block",
+                marginTop: 3
+              },
+              children: [r.unit, " · ", /*#__PURE__*/_jsxs("b", {
+                className: "num",
+                children: [won(r.amount), "원"]
+              })]
+            }, r.unit))
+          })]
+        })]
+      })
+    }), /*#__PURE__*/_jsxs("div", {
+      className: "grid grid--2",
+      children: [/*#__PURE__*/_jsxs(Card, {
+        title: "사업부별 채권 분류 현황",
+        actions: /*#__PURE__*/_jsxs("div", {
+          className: "legend",
+          children: [/*#__PURE__*/_jsxs("span", {
+            children: [/*#__PURE__*/_jsx("i", {
+              style: {
+                background: "var(--ok)"
+              }
+            }), "정상채권"]
+          }), /*#__PURE__*/_jsxs("span", {
+            children: [/*#__PURE__*/_jsx("i", {
+              style: {
+                background: "var(--warn)"
+              }
+            }), "미수채권"]
+          }), /*#__PURE__*/_jsxs("span", {
+            children: [/*#__PURE__*/_jsx("i", {
+              style: {
+                background: "var(--bad)"
+              }
+            }), "부실채권"]
+          })]
+        }),
+        children: [/*#__PURE__*/_jsx("div", {
+          className: "signal",
+          children: byUnit.map(g => /*#__PURE__*/_jsxs("div", {
+            className: "signal__row",
+            children: [/*#__PURE__*/_jsx("div", {
+              className: "signal__unit",
+              children: g.unit
+            }), /*#__PURE__*/_jsx("div", {
+              className: "signal__bar",
+              style: {
+                width: Math.max(8, g.total / maxUnit * 100) + "%"
+              },
+              children: ["정상", "연체", "부실"].map(s => g[s] > 0 && /*#__PURE__*/_jsx("button", {
+                className: "signal__seg signal__seg--" + STATUS_STYLE[s],
+                style: {
+                  width: g[s] / g.total * 100 + "%"
+                },
+                title: g.unit + " " + STATUS_LABEL[s] + " " + won(g[s]) + "원",
+                onClick: () => {
+                  setPreset({
+                    status: s,
+                    unit: g.unit
+                  });
+                  setScreen("customers");
+                }
+              }, s))
+            }), /*#__PURE__*/_jsxs("div", {
+              className: "signal__total num",
+              children: [short(g.total).value, short(g.total).unit]
+            })]
+          }, g.unit))
+        }), /*#__PURE__*/_jsx("p", {
+          className: "t-sm t-muted",
+          style: {
+            margin: "14px 0 0"
+          },
+          children: "막대를 누르면 해당 사업부·분류의 거래처 목록으로 이동합니다."
+        })]
+      }), /*#__PURE__*/_jsx(Card, {
+        title: "월별 수금 실적",
+        flush: true,
+        children: monthly.length === 0 ? /*#__PURE__*/_jsx(Empty, {
+          title: "승인된 수금 내역이 아직 없습니다.",
+          children: "수금 등록 화면에서 입력하고 재무담당이 승인하면 여기에 집계됩니다."
+        }) : /*#__PURE__*/_jsx("div", {
+          className: "tablewrap",
+          children: /*#__PURE__*/_jsxs("table", {
+            children: [/*#__PURE__*/_jsx("thead", {
+              children: /*#__PURE__*/_jsxs("tr", {
+                children: [/*#__PURE__*/_jsx("th", {
+                  children: "기준월"
+                }), /*#__PURE__*/_jsx("th", {
+                  className: "r",
+                  children: "건수"
+                }), /*#__PURE__*/_jsx("th", {
+                  className: "r",
+                  children: "수금액 (원)"
+                })]
+              })
+            }), /*#__PURE__*/_jsx("tbody", {
+              children: monthly.map(m => /*#__PURE__*/_jsxs("tr", {
+                children: [/*#__PURE__*/_jsx("td", {
+                  className: "t-strong num",
+                  children: m.month
+                }), /*#__PURE__*/_jsx("td", {
+                  className: "r num",
+                  children: m.count
+                }), /*#__PURE__*/_jsx("td", {
+                  className: "r num t-strong",
+                  children: won(m.amount)
+                })]
+              }, m.month))
+            }), /*#__PURE__*/_jsx("tfoot", {
+              children: /*#__PURE__*/_jsxs("tr", {
+                children: [/*#__PURE__*/_jsx("td", {
+                  children: "합계"
+                }), /*#__PURE__*/_jsx("td", {
+                  className: "r num",
+                  children: sum(monthly, "count")
+                }), /*#__PURE__*/_jsx("td", {
+                  className: "r num",
+                  children: won(sum(monthly, "amount"))
+                })]
+              })
+            })]
+          })
+        })
+      })]
+    }), /*#__PURE__*/_jsxs("div", {
+      className: "grid grid--3",
+      children: [/*#__PURE__*/_jsxs(Card, {
+        title: "수금목표 요약",
+        children: [/*#__PURE__*/_jsxs("table", {
+          children: [/*#__PURE__*/_jsx("thead", {
+            children: /*#__PURE__*/_jsxs("tr", {
+              children: [/*#__PURE__*/_jsx("th", {
+                children: "구분"
+              }), /*#__PURE__*/_jsx("th", {
+                className: "r",
+                children: "건수"
+              }), /*#__PURE__*/_jsx("th", {
+                className: "r",
+                children: "목표금액 (원)"
+              })]
+            })
+          }), /*#__PURE__*/_jsxs("tbody", {
+            children: [/*#__PURE__*/_jsxs("tr", {
+              children: [/*#__PURE__*/_jsx("td", {
+                children: "오늘 목표"
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num t-strong",
+                children: dueToday.length
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num",
+                children: won(sum(dueToday, "amount"))
+              })]
+            }), /*#__PURE__*/_jsxs("tr", {
+              children: [/*#__PURE__*/_jsx("td", {
+                children: "이번 주 목표"
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num t-strong",
+                children: dueWeek.length
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num",
+                children: won(sum(dueWeek, "amount"))
+              })]
+            }), /*#__PURE__*/_jsxs("tr", {
+              children: [/*#__PURE__*/_jsx("td", {
+                children: "기한 초과"
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num t-strong",
+                style: {
+                  color: overdueTargets.length ? "var(--bad)" : "inherit"
+                },
+                children: overdueTargets.length
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num",
+                children: won(sum(overdueTargets, "amount"))
+              })]
+            })]
+          })]
+        }), /*#__PURE__*/_jsx("button", {
+          className: "btn btn--sm",
+          style: {
+            marginTop: 12
+          },
+          onClick: () => setScreen("targets"),
+          children: "수금목표 관리로 이동"
+        })]
+      }), /*#__PURE__*/_jsx(Card, {
+        title: "정상채권 TOP 5",
+        actions: topUnitSelect(normalTopUnit, setNormalTopUnit, "정상채권 사업부 선택"),
+        flush: true,
+        children: /*#__PURE__*/_jsx("div", {
+          className: "tablewrap",
+          children: /*#__PURE__*/_jsx("table", {
+            children: /*#__PURE__*/_jsxs("tbody", {
+              children: [normalTop5.map((c, i) => /*#__PURE__*/_jsxs("tr", {
+                children: [/*#__PURE__*/_jsx("td", {
+                  className: "t-muted num",
+                  style: {
+                    width: 26
+                  },
+                  children: i + 1
+                }), /*#__PURE__*/_jsx("td", {
+                  className: "t-strong",
+                  children: c.name
+                }), /*#__PURE__*/_jsx("td", {
+                  children: /*#__PURE__*/_jsx(Badge, {
+                    status: "정상"
+                  })
+                }), /*#__PURE__*/_jsx("td", {
+                  className: "r num",
+                  children: won(c.normal_balance)
+                })]
+              }, c.code)), normalTop5.length === 0 && /*#__PURE__*/_jsx("tr", {
+                children: /*#__PURE__*/_jsx("td", {
+                  className: "t-muted",
+                  children: "정상채권 데이터가 없습니다."
+                })
+              })]
+            })
+          })
+        })
+      }), /*#__PURE__*/_jsx(Card, {
+        title: "미수채권 TOP 5",
+        actions: topUnitSelect(overdueTopUnit, setOverdueTopUnit, "미수채권 사업부 선택"),
+        flush: true,
+        children: /*#__PURE__*/_jsx("div", {
+          className: "tablewrap",
+          children: /*#__PURE__*/_jsx("table", {
+            children: /*#__PURE__*/_jsxs("tbody", {
+              children: [overdueTop5.map((c, i) => /*#__PURE__*/_jsxs("tr", {
+                children: [/*#__PURE__*/_jsx("td", {
+                  className: "t-muted num",
+                  style: {
+                    width: 26
+                  },
+                  children: i + 1
+                }), /*#__PURE__*/_jsx("td", {
+                  className: "t-strong",
+                  children: c.name
+                }), /*#__PURE__*/_jsxs("td", {
+                  className: "num t-sm t-muted",
+                  children: [overdueMonths(c.overdue_days), "개월"]
+                }), /*#__PURE__*/_jsx("td", {
+                  className: "r num",
+                  children: won(c.overdue_balance)
+                })]
+              }, c.code)), overdueTop5.length === 0 && /*#__PURE__*/_jsx("tr", {
+                children: /*#__PURE__*/_jsx("td", {
+                  className: "t-muted",
+                  children: "미수채권 데이터가 없습니다."
+                })
+              })]
+            })
+          })
+        })
+      })]
+    }), /*#__PURE__*/_jsx(Card, {
+      title: "담당자별 채권 현황",
+      flush: true,
+      children: /*#__PURE__*/_jsx("div", {
+        className: "tablewrap",
+        children: /*#__PURE__*/_jsxs("table", {
+          children: [/*#__PURE__*/_jsx("thead", {
+            children: /*#__PURE__*/_jsxs("tr", {
+              children: [/*#__PURE__*/_jsx("th", {
+                children: "담당자"
+              }), /*#__PURE__*/_jsx("th", {
+                className: "r",
+                children: "거래처"
+              }), /*#__PURE__*/_jsx("th", {
+                className: "r",
+                children: "정상채권"
+              }), /*#__PURE__*/_jsx("th", {
+                className: "r",
+                children: "미수채권"
+              }), /*#__PURE__*/_jsx("th", {
+                className: "r",
+                children: "부실채권"
+              }), /*#__PURE__*/_jsx("th", {
+                className: "r",
+                children: "합계"
+              }), /*#__PURE__*/_jsx("th", {
+                style: {
+                  width: 150
+                },
+                children: "미수·부실채권 비중"
+              })]
+            })
+          }), /*#__PURE__*/_jsx("tbody", {
+            children: owners.map(o => {
+              const risk = o.total ? (o.연체 + o.부실) / o.total * 100 : 0;
+              return /*#__PURE__*/_jsxs("tr", {
+                children: [/*#__PURE__*/_jsx("td", {
+                  className: "t-strong",
+                  children: o.owner
+                }), /*#__PURE__*/_jsx("td", {
+                  className: "r num",
+                  children: o.count
+                }), /*#__PURE__*/_jsx("td", {
+                  className: "r num",
+                  children: won(o.정상)
+                }), /*#__PURE__*/_jsx("td", {
+                  className: "r num",
+                  children: won(o.연체)
+                }), /*#__PURE__*/_jsx("td", {
+                  className: "r num",
+                  children: won(o.부실)
+                }), /*#__PURE__*/_jsx("td", {
+                  className: "r num t-strong",
+                  children: won(o.total)
+                }), /*#__PURE__*/_jsx("td", {
+                  children: /*#__PURE__*/_jsxs("div", {
+                    style: {
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8
+                    },
+                    children: [/*#__PURE__*/_jsx("div", {
+                      className: "bar",
+                      children: /*#__PURE__*/_jsx("i", {
+                        style: {
+                          width: risk + "%",
+                          background: risk > 40 ? "var(--bad)" : risk > 15 ? "var(--warn)" : "var(--ok)"
+                        }
+                      })
+                    }), /*#__PURE__*/_jsxs("span", {
+                      className: "t-sm num t-muted",
+                      children: [risk.toFixed(0), "%"]
+                    })]
+                  })
+                })]
+              }, o.owner);
+            })
+          })]
+        })
+      })
+    })]
+  });
 }
 
 /* ══════════════════ 채권요약현황 ══════════════════ */
@@ -619,120 +852,226 @@ function BondSummary({
   const total = key => sum(summary, key);
   const rate = (value, base) => base ? (value / base * 100).toFixed(1) + "%" : "0.0%";
   const sourceMonth = data.uploads[0] && data.uploads[0].month || thisMonth();
-  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Card, {
-    title: "1. 사업부별 채권 분류 현황 (" + sourceMonth + " 기준)",
-    flush: true
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "tablewrap summary-table"
-  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
-    rowSpan: "2"
-  }, "\uC0AC\uC5C5\uBD80"), /*#__PURE__*/React.createElement("th", {
-    colSpan: "4",
-    className: "summary-head summary-head--normal"
-  }, "\uC815\uC0C1\uCC44\uAD8C"), /*#__PURE__*/React.createElement("th", {
-    rowSpan: "2",
-    className: "summary-head summary-head--overdue"
-  }, "\uBBF8\uC218\uCC44\uAD8C"), /*#__PURE__*/React.createElement("th", {
-    rowSpan: "2",
-    className: "summary-head summary-head--bad"
-  }, "\uBD80\uC2E4\uCC44\uAD8C"), /*#__PURE__*/React.createElement("th", {
-    rowSpan: "2",
-    className: "summary-head summary-head--total"
-  }, "\uD569\uACC4"), /*#__PURE__*/React.createElement("th", {
-    rowSpan: "2",
-    className: "summary-head summary-head--total"
-  }, "\uBBF8\uC218\uCC44\uAD8C \uBE44\uC911")), /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "10\uC6D4 \uC774\uD6C4"), /*#__PURE__*/React.createElement("th", null, "9\uC6D4 \uBD84"), /*#__PURE__*/React.createElement("th", null, "8\uC6D4 \uBD84(\uB2F9\uC6D4)"), /*#__PURE__*/React.createElement("th", null, "[\uC18C\uACC4]"))), /*#__PURE__*/React.createElement("tbody", null, summary.map(r => /*#__PURE__*/React.createElement("tr", {
-    key: r.unit
-  }, /*#__PURE__*/React.createElement("td", {
-    className: "t-strong"
-  }, unitNames[r.unit]), /*#__PURE__*/React.createElement("td", {
-    className: "r num summary-normal"
-  }, won(r.later)), /*#__PURE__*/React.createElement("td", {
-    className: "r num summary-normal"
-  }, won(r.next)), /*#__PURE__*/React.createElement("td", {
-    className: "r num summary-normal"
-  }, won(r.current)), /*#__PURE__*/React.createElement("td", {
-    className: "r num summary-subtotal"
-  }, won(r.normal)), /*#__PURE__*/React.createElement("td", {
-    className: "r num summary-overdue"
-  }, won(r.overdue)), /*#__PURE__*/React.createElement("td", {
-    className: "r num summary-bad"
-  }, won(r.bad)), /*#__PURE__*/React.createElement("td", {
-    className: "r num t-strong"
-  }, won(r.total)), /*#__PURE__*/React.createElement("td", {
-    className: "r num t-strong"
-  }, rate(r.overdue, r.total))))), /*#__PURE__*/React.createElement("tfoot", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", null, "\uD569\uACC4"), /*#__PURE__*/React.createElement("td", {
-    className: "r num"
-  }, won(total("later"))), /*#__PURE__*/React.createElement("td", {
-    className: "r num"
-  }, won(total("next"))), /*#__PURE__*/React.createElement("td", {
-    className: "r num"
-  }, won(total("current"))), /*#__PURE__*/React.createElement("td", {
-    className: "r num summary-subtotal"
-  }, won(total("normal"))), /*#__PURE__*/React.createElement("td", {
-    className: "r num summary-overdue"
-  }, won(total("overdue"))), /*#__PURE__*/React.createElement("td", {
-    className: "r num"
-  }, won(total("bad"))), /*#__PURE__*/React.createElement("td", {
-    className: "r num"
-  }, won(total("total"))), /*#__PURE__*/React.createElement("td", {
-    className: "r num"
-  }, rate(total("overdue"), total("total"))))))), /*#__PURE__*/React.createElement("div", {
-    className: "summary-note"
-  }, "\uD604\uC7AC \uC6B4\uC601 \uAE30\uCD08\uC790\uB8CC ", data.customers.length, "\uAC1C \uAC70\uB798\uCC98 \uAE30\uC900 \xB7 \uAE08\uC561 \uB2E8\uC704: \uC6D0")), /*#__PURE__*/React.createElement(Card, {
-    title: "2. " + Number(sourceMonth.slice(5, 7)) + "월 수금실적",
-    flush: true
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "tablewrap summary-table"
-  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
-    rowSpan: "2"
-  }, "\uC0AC\uC5C5\uBD80"), /*#__PURE__*/React.createElement("th", {
-    colSpan: "4",
-    className: "summary-head summary-head--normal"
-  }, "\uC815\uC0C1\uCC44\uAD8C (\uB2F9\uC6D4\uBD84)"), /*#__PURE__*/React.createElement("th", {
-    colSpan: "4",
-    className: "summary-head summary-head--overdue"
-  }, "\uBBF8\uC218\uCC44\uAD8C (\uBD80\uC2E4\uCC44\uAD8C \uC81C\uC678)")), /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "\uAE30\uCD08"), /*#__PURE__*/React.createElement("th", null, "\uC218\uAE08\uC561"), /*#__PURE__*/React.createElement("th", null, "\uC794\uC561"), /*#__PURE__*/React.createElement("th", null, "\uD68C\uC218\uC728"), /*#__PURE__*/React.createElement("th", null, "\uAE30\uCD08"), /*#__PURE__*/React.createElement("th", null, "\uC218\uAE08\uC561"), /*#__PURE__*/React.createElement("th", null, "\uC794\uC561"), /*#__PURE__*/React.createElement("th", null, "\uD68C\uC218\uC728"))), /*#__PURE__*/React.createElement("tbody", null, summary.map(r => {
-    const normalOpening = r.current + r.normalCollected;
-    const overdueOpening = r.overdue + r.overdueCollected;
-    return /*#__PURE__*/React.createElement("tr", {
-      key: r.unit
-    }, /*#__PURE__*/React.createElement("td", {
-      className: "t-strong"
-    }, unitNames[r.unit]), /*#__PURE__*/React.createElement("td", {
-      className: "r num"
-    }, won(normalOpening)), /*#__PURE__*/React.createElement("td", {
-      className: "r num summary-normal"
-    }, won(r.normalCollected)), /*#__PURE__*/React.createElement("td", {
-      className: "r num summary-subtotal"
-    }, won(r.current)), /*#__PURE__*/React.createElement("td", {
-      className: "r num t-strong"
-    }, rate(r.normalCollected, normalOpening)), /*#__PURE__*/React.createElement("td", {
-      className: "r num"
-    }, won(overdueOpening)), /*#__PURE__*/React.createElement("td", {
-      className: "r num summary-overdue"
-    }, won(r.overdueCollected)), /*#__PURE__*/React.createElement("td", {
-      className: "r num summary-subtotal"
-    }, won(r.overdue)), /*#__PURE__*/React.createElement("td", {
-      className: "r num t-strong"
-    }, rate(r.overdueCollected, overdueOpening)));
-  })), /*#__PURE__*/React.createElement("tfoot", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", null, "\uD569\uACC4"), /*#__PURE__*/React.createElement("td", {
-    className: "r num"
-  }, won(total("current") + total("normalCollected"))), /*#__PURE__*/React.createElement("td", {
-    className: "r num"
-  }, won(total("normalCollected"))), /*#__PURE__*/React.createElement("td", {
-    className: "r num"
-  }, won(total("current"))), /*#__PURE__*/React.createElement("td", {
-    className: "r num"
-  }, rate(total("normalCollected"), total("current") + total("normalCollected"))), /*#__PURE__*/React.createElement("td", {
-    className: "r num"
-  }, won(total("overdue") + total("overdueCollected"))), /*#__PURE__*/React.createElement("td", {
-    className: "r num"
-  }, won(total("overdueCollected"))), /*#__PURE__*/React.createElement("td", {
-    className: "r num"
-  }, won(total("overdue"))), /*#__PURE__*/React.createElement("td", {
-    className: "r num"
-  }, rate(total("overdueCollected"), total("overdue") + total("overdueCollected")))))))));
+  return /*#__PURE__*/_jsxs(_Fragment, {
+    children: [/*#__PURE__*/_jsxs(Card, {
+      title: "1. 사업부별 채권 분류 현황 (" + sourceMonth + " 기준)",
+      flush: true,
+      children: [/*#__PURE__*/_jsx("div", {
+        className: "tablewrap summary-table",
+        children: /*#__PURE__*/_jsxs("table", {
+          children: [/*#__PURE__*/_jsxs("thead", {
+            children: [/*#__PURE__*/_jsxs("tr", {
+              children: [/*#__PURE__*/_jsx("th", {
+                rowSpan: "2",
+                children: "사업부"
+              }), /*#__PURE__*/_jsx("th", {
+                colSpan: "4",
+                className: "summary-head summary-head--normal",
+                children: "정상채권"
+              }), /*#__PURE__*/_jsx("th", {
+                rowSpan: "2",
+                className: "summary-head summary-head--overdue",
+                children: "미수채권"
+              }), /*#__PURE__*/_jsx("th", {
+                rowSpan: "2",
+                className: "summary-head summary-head--bad",
+                children: "부실채권"
+              }), /*#__PURE__*/_jsx("th", {
+                rowSpan: "2",
+                className: "summary-head summary-head--total",
+                children: "합계"
+              }), /*#__PURE__*/_jsx("th", {
+                rowSpan: "2",
+                className: "summary-head summary-head--total",
+                children: "미수채권 비중"
+              })]
+            }), /*#__PURE__*/_jsxs("tr", {
+              children: [/*#__PURE__*/_jsx("th", {
+                children: "10월 이후"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "9월 분"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "8월 분(당월)"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "[소계]"
+              })]
+            })]
+          }), /*#__PURE__*/_jsx("tbody", {
+            children: summary.map(r => /*#__PURE__*/_jsxs("tr", {
+              children: [/*#__PURE__*/_jsx("td", {
+                className: "t-strong",
+                children: unitNames[r.unit]
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num summary-normal",
+                children: won(r.later)
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num summary-normal",
+                children: won(r.next)
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num summary-normal",
+                children: won(r.current)
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num summary-subtotal",
+                children: won(r.normal)
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num summary-overdue",
+                children: won(r.overdue)
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num summary-bad",
+                children: won(r.bad)
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num t-strong",
+                children: won(r.total)
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num t-strong",
+                children: rate(r.overdue, r.total)
+              })]
+            }, r.unit))
+          }), /*#__PURE__*/_jsx("tfoot", {
+            children: /*#__PURE__*/_jsxs("tr", {
+              children: [/*#__PURE__*/_jsx("td", {
+                children: "합계"
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num",
+                children: won(total("later"))
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num",
+                children: won(total("next"))
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num",
+                children: won(total("current"))
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num summary-subtotal",
+                children: won(total("normal"))
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num summary-overdue",
+                children: won(total("overdue"))
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num",
+                children: won(total("bad"))
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num",
+                children: won(total("total"))
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num",
+                children: rate(total("overdue"), total("total"))
+              })]
+            })
+          })]
+        })
+      }), /*#__PURE__*/_jsxs("div", {
+        className: "summary-note",
+        children: ["현재 운영 기초자료 ", data.customers.length, "개 거래처 기준 · 금액 단위: 원"]
+      })]
+    }), /*#__PURE__*/_jsx(Card, {
+      title: "2. " + Number(sourceMonth.slice(5, 7)) + "월 수금실적",
+      flush: true,
+      children: /*#__PURE__*/_jsx("div", {
+        className: "tablewrap summary-table",
+        children: /*#__PURE__*/_jsxs("table", {
+          children: [/*#__PURE__*/_jsxs("thead", {
+            children: [/*#__PURE__*/_jsxs("tr", {
+              children: [/*#__PURE__*/_jsx("th", {
+                rowSpan: "2",
+                children: "사업부"
+              }), /*#__PURE__*/_jsx("th", {
+                colSpan: "4",
+                className: "summary-head summary-head--normal",
+                children: "정상채권 (당월분)"
+              }), /*#__PURE__*/_jsx("th", {
+                colSpan: "4",
+                className: "summary-head summary-head--overdue",
+                children: "미수채권 (부실채권 제외)"
+              })]
+            }), /*#__PURE__*/_jsxs("tr", {
+              children: [/*#__PURE__*/_jsx("th", {
+                children: "기초"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "수금액"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "잔액"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "회수율"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "기초"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "수금액"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "잔액"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "회수율"
+              })]
+            })]
+          }), /*#__PURE__*/_jsx("tbody", {
+            children: summary.map(r => {
+              const normalOpening = r.current + r.normalCollected;
+              const overdueOpening = r.overdue + r.overdueCollected;
+              return /*#__PURE__*/_jsxs("tr", {
+                children: [/*#__PURE__*/_jsx("td", {
+                  className: "t-strong",
+                  children: unitNames[r.unit]
+                }), /*#__PURE__*/_jsx("td", {
+                  className: "r num",
+                  children: won(normalOpening)
+                }), /*#__PURE__*/_jsx("td", {
+                  className: "r num summary-normal",
+                  children: won(r.normalCollected)
+                }), /*#__PURE__*/_jsx("td", {
+                  className: "r num summary-subtotal",
+                  children: won(r.current)
+                }), /*#__PURE__*/_jsx("td", {
+                  className: "r num t-strong",
+                  children: rate(r.normalCollected, normalOpening)
+                }), /*#__PURE__*/_jsx("td", {
+                  className: "r num",
+                  children: won(overdueOpening)
+                }), /*#__PURE__*/_jsx("td", {
+                  className: "r num summary-overdue",
+                  children: won(r.overdueCollected)
+                }), /*#__PURE__*/_jsx("td", {
+                  className: "r num summary-subtotal",
+                  children: won(r.overdue)
+                }), /*#__PURE__*/_jsx("td", {
+                  className: "r num t-strong",
+                  children: rate(r.overdueCollected, overdueOpening)
+                })]
+              }, r.unit);
+            })
+          }), /*#__PURE__*/_jsx("tfoot", {
+            children: /*#__PURE__*/_jsxs("tr", {
+              children: [/*#__PURE__*/_jsx("td", {
+                children: "합계"
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num",
+                children: won(total("current") + total("normalCollected"))
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num",
+                children: won(total("normalCollected"))
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num",
+                children: won(total("current"))
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num",
+                children: rate(total("normalCollected"), total("current") + total("normalCollected"))
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num",
+                children: won(total("overdue") + total("overdueCollected"))
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num",
+                children: won(total("overdueCollected"))
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num",
+                children: won(total("overdue"))
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num",
+                children: rate(total("overdueCollected"), total("overdue") + total("overdueCollected"))
+              })]
+            })
+          })]
+        })
+      })
+    })]
+  });
 }
 
 /* ══════════════════ 거래처별 현황 ══════════════════ */
@@ -755,15 +1094,17 @@ function InlineEdit({
     if (draft === (value || "")) return;
     await onSave(draft);
   }
-  if (!editing) return /*#__PURE__*/React.createElement("button", {
+  if (!editing) return /*#__PURE__*/_jsx("button", {
     type: "button",
     className: "inline-edit",
     disabled: !canEdit,
-    onClick: () => canEdit && setEditing(true)
-  }, value !== "" && value != null ? formatValue ? formatValue(value) : value : /*#__PURE__*/React.createElement("span", {
-    className: "t-muted"
-  }, placeholder));
-  return /*#__PURE__*/React.createElement("input", {
+    onClick: () => canEdit && setEditing(true),
+    children: value !== "" && value != null ? formatValue ? formatValue(value) : value : /*#__PURE__*/_jsx("span", {
+      className: "t-muted",
+      children: placeholder
+    })
+  });
+  return /*#__PURE__*/_jsx("input", {
     className: "input input--compact",
     type: type,
     value: draft,
@@ -841,137 +1182,210 @@ function Customers({
     setEditingNote(null);
   }
   const distinctCustomers = new Set(rows.map(r => r.code)).size;
-  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Card, {
-    title: "\uC870\uD68C \uC870\uAC74"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "customer-filters"
-  }, /*#__PURE__*/React.createElement(Field, {
-    label: "\uC0AC\uC5C5\uBD80\uBCC4 \uD544\uD130"
-  }, /*#__PURE__*/React.createElement("select", {
-    className: "select",
-    value: unit,
-    onChange: e => setUnit(e.target.value)
-  }, /*#__PURE__*/React.createElement("option", null, "\uC804\uCCB4"), data.meta.units.map(u => /*#__PURE__*/React.createElement("option", {
-    key: u
-  }, u)))), /*#__PURE__*/React.createElement(Field, {
-    label: "\uCC44\uAD8C\uC720\uD615\uBCC4 \uD544\uD130"
-  }, /*#__PURE__*/React.createElement("select", {
-    className: "select",
-    value: type,
-    onChange: e => setType(e.target.value)
-  }, /*#__PURE__*/React.createElement("option", null, "\uC804\uCCB4"), data.meta.statuses.map(s => /*#__PURE__*/React.createElement("option", {
-    key: s,
-    value: s
-  }, STATUS_LABEL[s])))), /*#__PURE__*/React.createElement(Field, {
-    label: "\uAC70\uB798\uCC98 \uAC80\uC0C9"
-  }, /*#__PURE__*/React.createElement("input", {
-    className: "input",
-    value: q,
-    placeholder: "\uAC70\uB798\uCC98\uBA85\xB7\uCF54\uB4DC\xB7\uB2F4\uB2F9\uC790",
-    onChange: e => setQ(e.target.value)
-  })), /*#__PURE__*/React.createElement("button", {
-    className: "btn btn--sm",
-    onClick: () => {
-      setUnit("전체");
-      setType("전체");
-      setQ("");
-    }
-  }, "\uCD08\uAE30\uD654"))), /*#__PURE__*/React.createElement(Card, {
-    title: (STATUS_LABEL[type] || type) + " · 거래처 " + distinctCustomers + "곳 / 채권 " + rows.length + "건",
-    flush: true
-  }, rows.length === 0 ? /*#__PURE__*/React.createElement(Empty, {
-    title: "\uC870\uAC74\uC5D0 \uB9DE\uB294 \uCC44\uAD8C\uC774 \uC5C6\uC2B5\uB2C8\uB2E4."
-  }, "\uC0C1\uB2E8 \uD544\uD130\uB098 \uAC80\uC0C9\uC5B4\uB97C \uBC14\uAFD4\uBCF4\uC138\uC694.") : /*#__PURE__*/React.createElement("div", {
-    className: "tablewrap customer-table"
-  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "\uCF54\uB4DC"), /*#__PURE__*/React.createElement("th", null, "\uAC70\uB798\uCC98\uBA85"), /*#__PURE__*/React.createElement("th", null, "\uC0AC\uC5C5\uBD80"), /*#__PURE__*/React.createElement("th", null, "\uCC44\uAD8C\uC720\uD615"), /*#__PURE__*/React.createElement("th", null, "\uD68C\uC218\uAE30\uAC04"), /*#__PURE__*/React.createElement("th", null, "\uB2F4\uB2F9\uC790"), /*#__PURE__*/React.createElement("th", null, "\uC218\uAE08\uBAA9\uD45C\uC77C"), /*#__PURE__*/React.createElement("th", {
-    className: "r"
-  }, "\uCC44\uAD8C\uC794\uC561"), /*#__PURE__*/React.createElement("th", {
-    className: "r"
-  }, "\uC120\uC218\uAE08"), /*#__PURE__*/React.createElement("th", {
-    className: "r"
-  }, "\uC5F0\uCCB4\uAE30\uAC04(\uAC1C\uC6D4)"), /*#__PURE__*/React.createElement("th", null, "\uCD5C\uC885\uC218\uAE08\uC77C"), /*#__PURE__*/React.createElement("th", {
-    style: {
-      minWidth: 180
-    }
-  }, "\uBE44\uACE0"))), /*#__PURE__*/React.createElement("tbody", null, rows.map(c => /*#__PURE__*/React.createElement("tr", {
-    key: c.rowKey
-  }, /*#__PURE__*/React.createElement("td", {
-    className: "num t-muted"
-  }, code5(c.code)), /*#__PURE__*/React.createElement("td", {
-    className: "t-strong"
-  }, c.name), /*#__PURE__*/React.createElement("td", null, c.biz_unit), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement(Badge, {
-    status: c.status
-  })), /*#__PURE__*/React.createElement("td", {
-    className: "num" + (c.period == null || Number(c.period) < 0 ? " customer-period--missing" : "")
-  }, /*#__PURE__*/React.createElement(InlineEdit, {
-    value: c.period == null || Number(c.period) < 0 ? "" : String(c.period),
-    placeholder: "미입력",
-    type: "number",
-    canEdit: can("customer_info_edit"),
-    formatValue: value => Number(value) === 0 ? "0개월 (당월)" : Number(value) === 1 ? "1개월 (익월)" : value + "개월",
-    onSave: period => updateCustomer(c.code, {
-      period
-    }, "회수기간을 저장했습니다.")
-  })), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement(InlineEdit, {
-    value: c.owner,
-    placeholder: "\uD074\uB9AD\uD574 \uC785\uB825",
-    canEdit: can("note_edit"),
-    onSave: owner => updateCustomer(c.code, {
-      owner
-    }, "담당자를 저장했습니다.")
-  })), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement(InlineEdit, {
-    value: c.collection_target_date,
-    placeholder: "\uB0A0\uC9DC \uC120\uD0DD",
-    type: "date",
-    canEdit: can("note_edit"),
-    onSave: collection_target_date => updateCustomer(c.code, {
-      collection_target_date
-    }, "수금목표일을 저장했습니다.")
-  })), /*#__PURE__*/React.createElement("td", {
-    className: "r num t-strong"
-  }, won(c.balance)), /*#__PURE__*/React.createElement("td", {
-    className: "r num"
-  }, c.advance ? won(c.advance) : "–"), /*#__PURE__*/React.createElement("td", {
-    className: "r num"
-  }, c.months, "\uAC1C\uC6D4"), /*#__PURE__*/React.createElement("td", {
-    className: "num t-muted t-sm"
-  }, c.last_paid_at || "–"), /*#__PURE__*/React.createElement("td", {
-    style: {
-      whiteSpace: "normal"
-    }
-  }, editingNote === c.rowKey ? /*#__PURE__*/React.createElement("div", {
-    className: "inline-note"
-  }, /*#__PURE__*/React.createElement("input", {
-    className: "input",
-    value: draftNote,
-    autoFocus: true,
-    onChange: e => setDraftNote(e.target.value),
-    onKeyDown: e => e.key === "Enter" && saveNote(c.code)
-  }), /*#__PURE__*/React.createElement("button", {
-    className: "btn btn--sm btn--primary",
-    onClick: () => saveNote(c.code)
-  }, "\uC800\uC7A5"), /*#__PURE__*/React.createElement("button", {
-    className: "btn btn--sm",
-    onClick: () => setEditingNote(null)
-  }, "\uCDE8\uC18C")) : /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    className: "inline-edit",
-    disabled: !can("note_edit"),
-    onClick: () => {
-      setEditingNote(c.rowKey);
-      setDraftNote(c.note || "");
-    }
-  }, c.note || /*#__PURE__*/React.createElement("span", {
-    className: "t-muted"
-  }, "\uD074\uB9AD\uD574 \uC785\uB825")))))), /*#__PURE__*/React.createElement("tfoot", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
-    colSpan: 7
-  }, "\uD569\uACC4 \xB7 \uAC70\uB798\uCC98 ", distinctCustomers, "\uACF3 / \uCC44\uAD8C ", rows.length, "\uAC74"), /*#__PURE__*/React.createElement("td", {
-    className: "r num"
-  }, won(sum(rows, "balance"))), /*#__PURE__*/React.createElement("td", {
-    className: "r num"
-  }, won(sum(rows, "advance"))), /*#__PURE__*/React.createElement("td", {
-    colSpan: 3
-  })))))));
+  return /*#__PURE__*/_jsxs(_Fragment, {
+    children: [/*#__PURE__*/_jsx(Card, {
+      title: "조회 조건",
+      children: /*#__PURE__*/_jsxs("div", {
+        className: "customer-filters",
+        children: [/*#__PURE__*/_jsx(Field, {
+          label: "사업부별 필터",
+          children: /*#__PURE__*/_jsxs("select", {
+            className: "select",
+            value: unit,
+            onChange: e => setUnit(e.target.value),
+            children: [/*#__PURE__*/_jsx("option", {
+              children: "전체"
+            }), data.meta.units.map(u => /*#__PURE__*/_jsx("option", {
+              children: u
+            }, u))]
+          })
+        }), /*#__PURE__*/_jsx(Field, {
+          label: "채권유형별 필터",
+          children: /*#__PURE__*/_jsxs("select", {
+            className: "select",
+            value: type,
+            onChange: e => setType(e.target.value),
+            children: [/*#__PURE__*/_jsx("option", {
+              children: "전체"
+            }), data.meta.statuses.map(s => /*#__PURE__*/_jsx("option", {
+              value: s,
+              children: STATUS_LABEL[s]
+            }, s))]
+          })
+        }), /*#__PURE__*/_jsx(Field, {
+          label: "거래처 검색",
+          children: /*#__PURE__*/_jsx("input", {
+            className: "input",
+            value: q,
+            placeholder: "거래처명·코드·담당자",
+            onChange: e => setQ(e.target.value)
+          })
+        }), /*#__PURE__*/_jsx("button", {
+          className: "btn btn--sm",
+          onClick: () => {
+            setUnit("전체");
+            setType("전체");
+            setQ("");
+          },
+          children: "초기화"
+        })]
+      })
+    }), /*#__PURE__*/_jsx(Card, {
+      title: (STATUS_LABEL[type] || type) + " · 거래처 " + distinctCustomers + "곳 / 채권 " + rows.length + "건",
+      flush: true,
+      children: rows.length === 0 ? /*#__PURE__*/_jsx(Empty, {
+        title: "조건에 맞는 채권이 없습니다.",
+        children: "상단 필터나 검색어를 바꿔보세요."
+      }) : /*#__PURE__*/_jsx("div", {
+        className: "tablewrap customer-table",
+        children: /*#__PURE__*/_jsxs("table", {
+          children: [/*#__PURE__*/_jsx("thead", {
+            children: /*#__PURE__*/_jsxs("tr", {
+              children: [/*#__PURE__*/_jsx("th", {
+                children: "코드"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "거래처명"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "사업부"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "채권유형"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "회수기간"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "담당자"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "수금목표일"
+              }), /*#__PURE__*/_jsx("th", {
+                className: "r",
+                children: "채권잔액"
+              }), /*#__PURE__*/_jsx("th", {
+                className: "r",
+                children: "선수금"
+              }), /*#__PURE__*/_jsx("th", {
+                className: "r",
+                children: "연체기간(개월)"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "최종수금일"
+              }), /*#__PURE__*/_jsx("th", {
+                style: {
+                  minWidth: 180
+                },
+                children: "비고"
+              })]
+            })
+          }), /*#__PURE__*/_jsx("tbody", {
+            children: rows.map(c => /*#__PURE__*/_jsxs("tr", {
+              children: [/*#__PURE__*/_jsx("td", {
+                className: "num t-muted",
+                children: code5(c.code)
+              }), /*#__PURE__*/_jsx("td", {
+                className: "t-strong",
+                children: c.name
+              }), /*#__PURE__*/_jsx("td", {
+                children: c.biz_unit
+              }), /*#__PURE__*/_jsx("td", {
+                children: /*#__PURE__*/_jsx(Badge, {
+                  status: c.status
+                })
+              }), /*#__PURE__*/_jsx("td", {
+                className: "num" + (c.period == null || Number(c.period) < 0 ? " customer-period--missing" : ""),
+                children: /*#__PURE__*/_jsx(InlineEdit, {
+                  value: c.period == null || Number(c.period) < 0 ? "" : String(c.period),
+                  placeholder: "미입력",
+                  type: "number",
+                  canEdit: can("customer_info_edit"),
+                  formatValue: value => Number(value) === 0 ? "0개월 (당월)" : Number(value) === 1 ? "1개월 (익월)" : value + "개월",
+                  onSave: period => updateCustomer(c.code, {
+                    period
+                  }, "회수기간을 저장했습니다.")
+                })
+              }), /*#__PURE__*/_jsx("td", {
+                children: /*#__PURE__*/_jsx(InlineEdit, {
+                  value: c.owner,
+                  placeholder: "클릭해 입력",
+                  canEdit: can("note_edit"),
+                  onSave: owner => updateCustomer(c.code, {
+                    owner
+                  }, "담당자를 저장했습니다.")
+                })
+              }), /*#__PURE__*/_jsx("td", {
+                children: /*#__PURE__*/_jsx(InlineEdit, {
+                  value: c.collection_target_date,
+                  placeholder: "날짜 선택",
+                  type: "date",
+                  canEdit: can("note_edit"),
+                  onSave: collection_target_date => updateCustomer(c.code, {
+                    collection_target_date
+                  }, "수금목표일을 저장했습니다.")
+                })
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num t-strong",
+                children: won(c.balance)
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num",
+                children: c.advance ? won(c.advance) : "–"
+              }), /*#__PURE__*/_jsxs("td", {
+                className: "r num",
+                children: [c.months, "개월"]
+              }), /*#__PURE__*/_jsx("td", {
+                className: "num t-muted t-sm",
+                children: c.last_paid_at || "–"
+              }), /*#__PURE__*/_jsx("td", {
+                style: {
+                  whiteSpace: "normal"
+                },
+                children: editingNote === c.rowKey ? /*#__PURE__*/_jsxs("div", {
+                  className: "inline-note",
+                  children: [/*#__PURE__*/_jsx("input", {
+                    className: "input",
+                    value: draftNote,
+                    autoFocus: true,
+                    onChange: e => setDraftNote(e.target.value),
+                    onKeyDown: e => e.key === "Enter" && saveNote(c.code)
+                  }), /*#__PURE__*/_jsx("button", {
+                    className: "btn btn--sm btn--primary",
+                    onClick: () => saveNote(c.code),
+                    children: "저장"
+                  }), /*#__PURE__*/_jsx("button", {
+                    className: "btn btn--sm",
+                    onClick: () => setEditingNote(null),
+                    children: "취소"
+                  })]
+                }) : /*#__PURE__*/_jsx("button", {
+                  type: "button",
+                  className: "inline-edit",
+                  disabled: !can("note_edit"),
+                  onClick: () => {
+                    setEditingNote(c.rowKey);
+                    setDraftNote(c.note || "");
+                  },
+                  children: c.note || /*#__PURE__*/_jsx("span", {
+                    className: "t-muted",
+                    children: "클릭해 입력"
+                  })
+                })
+              })]
+            }, c.rowKey))
+          }), /*#__PURE__*/_jsx("tfoot", {
+            children: /*#__PURE__*/_jsxs("tr", {
+              children: [/*#__PURE__*/_jsxs("td", {
+                colSpan: 7,
+                children: ["합계 · 거래처 ", distinctCustomers, "곳 / 채권 ", rows.length, "건"]
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num",
+                children: won(sum(rows, "balance"))
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num",
+                children: won(sum(rows, "advance"))
+              }), /*#__PURE__*/_jsx("td", {
+                colSpan: 3
+              })]
+            })
+          })]
+        })
+      })
+    })]
+  });
 }
 
 /* ══════════════════ 담당자별 채권현황 ══════════════════ */
@@ -999,74 +1413,120 @@ function Owners({
     return Object.values(map).sort((a, b) => b.total - a.total);
   }, [data.customers]);
   const active = owner === "전체" ? null : list.find(o => o.owner === owner);
-  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-    className: "chiprow"
-  }, /*#__PURE__*/React.createElement("button", {
-    className: "chip",
-    "aria-pressed": owner === "전체",
-    onClick: () => setOwner("전체")
-  }, "\uC804\uCCB4"), list.map(o => /*#__PURE__*/React.createElement("button", {
-    key: o.owner,
-    className: "chip",
-    "aria-pressed": owner === o.owner,
-    onClick: () => setOwner(o.owner)
-  }, o.owner, " (", o.rows.length, ")"))), /*#__PURE__*/React.createElement("div", {
-    className: "grid grid--3"
-  }, (active ? [active] : list).map(o => /*#__PURE__*/React.createElement(Card, {
-    key: o.owner,
-    title: o.owner
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "kpi__value num",
-    style: {
-      marginTop: 0
-    }
-  }, short(o.total).value, /*#__PURE__*/React.createElement("em", null, short(o.total).unit)), /*#__PURE__*/React.createElement("div", {
-    className: "kpi__meta num",
-    style: {
-      marginBottom: 12
-    }
-  }, "\uAC70\uB798\uCC98 ", o.rows.length, "\uACF3 \xB7 ", won(o.total), "\uC6D0"), /*#__PURE__*/React.createElement("div", {
-    className: "signal__bar"
-  }, ["정상", "연체", "부실"].map(s => o[s] > 0 && /*#__PURE__*/React.createElement("div", {
-    key: s,
-    className: "signal__seg signal__seg--" + STATUS_STYLE[s],
-    style: {
-      width: o[s] / o.total * 100 + "%"
-    },
-    title: STATUS_LABEL[s] + " " + won(o[s])
-  })))))), active && /*#__PURE__*/React.createElement(Card, {
-    title: active.owner + " 담당 거래처",
-    flush: true
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "tablewrap"
-  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "\uCF54\uB4DC"), /*#__PURE__*/React.createElement("th", null, "\uAC70\uB798\uCC98\uBA85"), /*#__PURE__*/React.createElement("th", null, "\uC0AC\uC5C5\uBD80"), /*#__PURE__*/React.createElement("th", null, "\uBD84\uB958"), /*#__PURE__*/React.createElement("th", {
-    className: "r"
-  }, "\uCC44\uAD8C\uC794\uC561"), /*#__PURE__*/React.createElement("th", {
-    className: "r"
-  }, "\uC5F0\uCCB4\uAE30\uAC04(\uAC1C\uC6D4)"), /*#__PURE__*/React.createElement("th", null, "\uBE44\uACE0"))), /*#__PURE__*/React.createElement("tbody", null, [...active.rows].sort((a, b) => b.balance - a.balance).map(c => /*#__PURE__*/React.createElement("tr", {
-    key: c.code
-  }, /*#__PURE__*/React.createElement("td", {
-    className: "num t-muted"
-  }, code5(c.code)), /*#__PURE__*/React.createElement("td", {
-    className: "t-strong"
-  }, c.name), /*#__PURE__*/React.createElement("td", null, c.biz_unit), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement(Badge, {
-    status: c.status
-  })), /*#__PURE__*/React.createElement("td", {
-    className: "r num t-strong"
-  }, won(c.balance)), /*#__PURE__*/React.createElement("td", {
-    className: "r num"
-  }, overdueMonths(c.overdue_days), "\uAC1C\uC6D4"), /*#__PURE__*/React.createElement("td", {
-    className: "t-sm t-muted",
-    style: {
-      whiteSpace: "normal"
-    }
-  }, c.note || "–")))), /*#__PURE__*/React.createElement("tfoot", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
-    colSpan: 4
-  }, "\uD569\uACC4"), /*#__PURE__*/React.createElement("td", {
-    className: "r num"
-  }, won(active.total)), /*#__PURE__*/React.createElement("td", {
-    colSpan: 2
-  })))))));
+  return /*#__PURE__*/_jsxs(_Fragment, {
+    children: [/*#__PURE__*/_jsxs("div", {
+      className: "chiprow",
+      children: [/*#__PURE__*/_jsx("button", {
+        className: "chip",
+        "aria-pressed": owner === "전체",
+        onClick: () => setOwner("전체"),
+        children: "전체"
+      }), list.map(o => /*#__PURE__*/_jsxs("button", {
+        className: "chip",
+        "aria-pressed": owner === o.owner,
+        onClick: () => setOwner(o.owner),
+        children: [o.owner, " (", o.rows.length, ")"]
+      }, o.owner))]
+    }), /*#__PURE__*/_jsx("div", {
+      className: "grid grid--3",
+      children: (active ? [active] : list).map(o => /*#__PURE__*/_jsxs(Card, {
+        title: o.owner,
+        children: [/*#__PURE__*/_jsxs("div", {
+          className: "kpi__value num",
+          style: {
+            marginTop: 0
+          },
+          children: [short(o.total).value, /*#__PURE__*/_jsx("em", {
+            children: short(o.total).unit
+          })]
+        }), /*#__PURE__*/_jsxs("div", {
+          className: "kpi__meta num",
+          style: {
+            marginBottom: 12
+          },
+          children: ["거래처 ", o.rows.length, "곳 · ", won(o.total), "원"]
+        }), /*#__PURE__*/_jsx("div", {
+          className: "signal__bar",
+          children: ["정상", "연체", "부실"].map(s => o[s] > 0 && /*#__PURE__*/_jsx("div", {
+            className: "signal__seg signal__seg--" + STATUS_STYLE[s],
+            style: {
+              width: o[s] / o.total * 100 + "%"
+            },
+            title: STATUS_LABEL[s] + " " + won(o[s])
+          }, s))
+        })]
+      }, o.owner))
+    }), active && /*#__PURE__*/_jsx(Card, {
+      title: active.owner + " 담당 거래처",
+      flush: true,
+      children: /*#__PURE__*/_jsx("div", {
+        className: "tablewrap",
+        children: /*#__PURE__*/_jsxs("table", {
+          children: [/*#__PURE__*/_jsx("thead", {
+            children: /*#__PURE__*/_jsxs("tr", {
+              children: [/*#__PURE__*/_jsx("th", {
+                children: "코드"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "거래처명"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "사업부"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "분류"
+              }), /*#__PURE__*/_jsx("th", {
+                className: "r",
+                children: "채권잔액"
+              }), /*#__PURE__*/_jsx("th", {
+                className: "r",
+                children: "연체기간(개월)"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "비고"
+              })]
+            })
+          }), /*#__PURE__*/_jsx("tbody", {
+            children: [...active.rows].sort((a, b) => b.balance - a.balance).map(c => /*#__PURE__*/_jsxs("tr", {
+              children: [/*#__PURE__*/_jsx("td", {
+                className: "num t-muted",
+                children: code5(c.code)
+              }), /*#__PURE__*/_jsx("td", {
+                className: "t-strong",
+                children: c.name
+              }), /*#__PURE__*/_jsx("td", {
+                children: c.biz_unit
+              }), /*#__PURE__*/_jsx("td", {
+                children: /*#__PURE__*/_jsx(Badge, {
+                  status: c.status
+                })
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num t-strong",
+                children: won(c.balance)
+              }), /*#__PURE__*/_jsxs("td", {
+                className: "r num",
+                children: [overdueMonths(c.overdue_days), "개월"]
+              }), /*#__PURE__*/_jsx("td", {
+                className: "t-sm t-muted",
+                style: {
+                  whiteSpace: "normal"
+                },
+                children: c.note || "–"
+              })]
+            }, c.code))
+          }), /*#__PURE__*/_jsx("tfoot", {
+            children: /*#__PURE__*/_jsxs("tr", {
+              children: [/*#__PURE__*/_jsx("td", {
+                colSpan: 4,
+                children: "합계"
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num",
+                children: won(active.total)
+              }), /*#__PURE__*/_jsx("td", {
+                colSpan: 2
+              })]
+            })
+          })]
+        })
+      })
+    })]
+  });
 }
 
 /* ══════════════════ 수금 등록 ══════════════════ */
@@ -1091,37 +1551,47 @@ function CustomerSearch({
     setQuery(customer.name);
     setOpen(false);
   }
-  return /*#__PURE__*/React.createElement("div", {
-    className: "customer-search"
-  }, /*#__PURE__*/React.createElement("input", {
-    className: "input",
-    value: query,
-    placeholder: "\uAC70\uB798\uCC98\uBA85 \uB610\uB294 \uCF54\uB4DC \uAC80\uC0C9",
-    role: "combobox",
-    "aria-expanded": open,
-    "aria-autocomplete": "list",
-    onFocus: () => setOpen(true),
-    onBlur: () => setTimeout(() => setOpen(false), 150),
-    onChange: e => {
-      setQuery(e.target.value);
-      onChange("");
-      setOpen(true);
-    }
-  }), open && /*#__PURE__*/React.createElement("div", {
-    className: "customer-search__menu",
-    role: "listbox"
-  }, matches.map(c => /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    role: "option",
-    key: c.code,
-    className: "customer-search__option",
-    onMouseDown: e => e.preventDefault(),
-    onClick: () => choose(c)
-  }, /*#__PURE__*/React.createElement("span", null, /*#__PURE__*/React.createElement("b", null, c.name), /*#__PURE__*/React.createElement("small", null, code5(c.code), " \xB7 ", c.biz_unit)), /*#__PURE__*/React.createElement("strong", {
-    className: "num"
-  }, won(c.balance), "\uC6D0"))), matches.length === 0 && /*#__PURE__*/React.createElement("div", {
-    className: "customer-search__empty"
-  }, "\uAC80\uC0C9 \uACB0\uACFC\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.")));
+  return /*#__PURE__*/_jsxs("div", {
+    className: "customer-search",
+    children: [/*#__PURE__*/_jsx("input", {
+      className: "input",
+      value: query,
+      placeholder: "거래처명 또는 코드 검색",
+      role: "combobox",
+      "aria-expanded": open,
+      "aria-autocomplete": "list",
+      onFocus: () => setOpen(true),
+      onBlur: () => setTimeout(() => setOpen(false), 150),
+      onChange: e => {
+        setQuery(e.target.value);
+        onChange("");
+        setOpen(true);
+      }
+    }), open && /*#__PURE__*/_jsxs("div", {
+      className: "customer-search__menu",
+      role: "listbox",
+      children: [matches.map(c => /*#__PURE__*/_jsxs("button", {
+        type: "button",
+        role: "option",
+        className: "customer-search__option",
+        onMouseDown: e => e.preventDefault(),
+        onClick: () => choose(c),
+        children: [/*#__PURE__*/_jsxs("span", {
+          children: [/*#__PURE__*/_jsx("b", {
+            children: c.name
+          }), /*#__PURE__*/_jsxs("small", {
+            children: [code5(c.code), " · ", c.biz_unit]
+          })]
+        }), /*#__PURE__*/_jsxs("strong", {
+          className: "num",
+          children: [won(c.balance), "원"]
+        })]
+      }, c.code)), matches.length === 0 && /*#__PURE__*/_jsx("div", {
+        className: "customer-search__empty",
+        children: "검색 결과가 없습니다."
+      })]
+    })]
+  });
 }
 function Collections({
   data,
@@ -1179,125 +1649,219 @@ function Collections({
       notify(e.message, true);
     }
   }
-  return /*#__PURE__*/React.createElement(React.Fragment, null, can("collection_register") && /*#__PURE__*/React.createElement(Card, {
-    title: "\uC218\uAE08 \uB4F1\uB85D"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "formrow"
-  }, /*#__PURE__*/React.createElement(Field, {
-    label: "\uAC70\uB798\uCC98"
-  }, /*#__PURE__*/React.createElement(CustomerSearch, {
-    customers: data.customers,
-    value: form.customer_code,
-    onChange: code => setForm({
-      ...form,
-      customer_code: code
-    })
-  })), /*#__PURE__*/React.createElement(Field, {
-    label: "\uC218\uAE08\uC561 (\uC6D0)"
-  }, /*#__PURE__*/React.createElement("input", {
-    className: "input num",
-    inputMode: "numeric",
-    value: form.amount,
-    onChange: set("amount"),
-    placeholder: "0"
-  })), /*#__PURE__*/React.createElement(Field, {
-    label: "\uC218\uAE08\uBC29\uBC95"
-  }, /*#__PURE__*/React.createElement("select", {
-    className: "select",
-    value: form.method,
-    onChange: set("method")
-  }, data.meta.methods.map(m => /*#__PURE__*/React.createElement("option", {
-    key: m
-  }, m)))), /*#__PURE__*/React.createElement(Field, {
-    label: "\uC218\uAE08\uC77C"
-  }, /*#__PURE__*/React.createElement("input", {
-    className: "input",
-    type: "date",
-    value: form.paid_at,
-    onChange: set("paid_at")
-  }))), /*#__PURE__*/React.createElement(Field, {
-    label: "\uBE44\uACE0"
-  }, /*#__PURE__*/React.createElement("input", {
-    className: "input",
-    value: form.note,
-    onChange: set("note"),
-    placeholder: "\uC785\uAE08\uC790\uBA85, \uBD84\uD560 \uD68C\uCC28 \uB4F1"
-  })), target && Number(form.amount) > target.balance && /*#__PURE__*/React.createElement("div", {
-    className: "alert alert--warn"
-  }, "\uC785\uB825\uD55C \uC218\uAE08\uC561\uC774 \uD604\uC7AC \uBBF8\uC218\uC794\uC561(", won(target.balance), "\uC6D0)\uBCF4\uB2E4 \uD07D\uB2C8\uB2E4. \uAE08\uC561\uC744 \uD655\uC778\uD558\uC138\uC694."), /*#__PURE__*/React.createElement("button", {
-    className: "btn btn--primary",
-    onClick: register,
-    disabled: busy || !form.customer_code || !form.amount
-  }, "\uC2B9\uC778 \uC694\uCCAD\uC73C\uB85C \uB4F1\uB85D")), /*#__PURE__*/React.createElement(Card, {
-    title: "승인 대기 " + pending.length + "건",
-    flush: true
-  }, pending.length === 0 ? /*#__PURE__*/React.createElement(Empty, {
-    title: "\uB300\uAE30 \uC911\uC778 \uC218\uAE08 \uAC74\uC774 \uC5C6\uC2B5\uB2C8\uB2E4."
-  }, "\uC601\uC5C5\uB2F4\uB2F9\uC774 \uB4F1\uB85D\uD558\uBA74 \uC774\uACF3\uC5D0 \uD45C\uC2DC\uB429\uB2C8\uB2E4.") : /*#__PURE__*/React.createElement("div", {
-    className: "tablewrap"
-  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "\uB4F1\uB85D\uC77C"), /*#__PURE__*/React.createElement("th", null, "\uAC70\uB798\uCC98"), /*#__PURE__*/React.createElement("th", {
-    className: "r"
-  }, "\uC218\uAE08\uC561"), /*#__PURE__*/React.createElement("th", null, "\uBC29\uBC95"), /*#__PURE__*/React.createElement("th", null, "\uC218\uAE08\uC77C"), /*#__PURE__*/React.createElement("th", null, "\uB4F1\uB85D\uC790"), /*#__PURE__*/React.createElement("th", null, "\uBE44\uACE0"), /*#__PURE__*/React.createElement("th", null))), /*#__PURE__*/React.createElement("tbody", null, pending.map(c => /*#__PURE__*/React.createElement("tr", {
-    key: c.id
-  }, /*#__PURE__*/React.createElement("td", {
-    className: "t-sm t-muted num"
-  }, (c.created_at || "").slice(0, 10)), /*#__PURE__*/React.createElement("td", {
-    className: "t-strong"
-  }, c.customer_name), /*#__PURE__*/React.createElement("td", {
-    className: "r num t-strong"
-  }, won(c.amount)), /*#__PURE__*/React.createElement("td", null, c.method), /*#__PURE__*/React.createElement("td", {
-    className: "num"
-  }, c.paid_at), /*#__PURE__*/React.createElement("td", null, c.registered_by), /*#__PURE__*/React.createElement("td", {
-    className: "t-sm t-muted",
-    style: {
-      whiteSpace: "normal"
-    }
-  }, c.note || "–"), /*#__PURE__*/React.createElement("td", {
-    className: "r"
-  }, can("collection_approve") ? /*#__PURE__*/React.createElement("div", {
-    className: "btnrow",
-    style: {
-      justifyContent: "flex-end"
-    }
-  }, /*#__PURE__*/React.createElement("button", {
-    className: "btn btn--sm btn--ok",
-    onClick: () => decide(c.id, "approve")
-  }, "\uC2B9\uC778"), /*#__PURE__*/React.createElement("button", {
-    className: "btn btn--sm btn--danger",
-    onClick: () => decide(c.id, "reject")
-  }, "\uBC18\uB824")) : /*#__PURE__*/React.createElement("span", {
-    className: "badge badge--mute"
-  }, "\uC2B9\uC778 \uB300\uAE30"))))), /*#__PURE__*/React.createElement("tfoot", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
-    colSpan: 2
-  }, "\uB300\uAE30 \uD569\uACC4"), /*#__PURE__*/React.createElement("td", {
-    className: "r num"
-  }, won(sum(pending, "amount"))), /*#__PURE__*/React.createElement("td", {
-    colSpan: 5
-  })))))), /*#__PURE__*/React.createElement(Card, {
-    title: "\uCC98\uB9AC \uB0B4\uC5ED",
-    flush: true
-  }, decided.length === 0 ? /*#__PURE__*/React.createElement(Empty, {
-    title: "\uCC98\uB9AC\uB41C \uB0B4\uC5ED\uC774 \uC5C6\uC2B5\uB2C8\uB2E4."
-  }) : /*#__PURE__*/React.createElement("div", {
-    className: "tablewrap"
-  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "\uC0C1\uD0DC"), /*#__PURE__*/React.createElement("th", null, "\uAC70\uB798\uCC98"), /*#__PURE__*/React.createElement("th", {
-    className: "r"
-  }, "\uC218\uAE08\uC561"), /*#__PURE__*/React.createElement("th", null, "\uBC29\uBC95"), /*#__PURE__*/React.createElement("th", null, "\uC218\uAE08\uC77C"), /*#__PURE__*/React.createElement("th", null, "\uB4F1\uB85D\uC790"), /*#__PURE__*/React.createElement("th", null, "\uCC98\uB9AC\uC790"), /*#__PURE__*/React.createElement("th", null, "\uC0AC\uC720\xB7\uBE44\uACE0"))), /*#__PURE__*/React.createElement("tbody", null, decided.map(c => /*#__PURE__*/React.createElement("tr", {
-    key: c.id
-  }, /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("span", {
-    className: "badge badge--" + (c.state === "approved" ? "ok" : "bad")
-  }, c.state === "approved" ? "승인" : "반려")), /*#__PURE__*/React.createElement("td", {
-    className: "t-strong"
-  }, c.customer_name), /*#__PURE__*/React.createElement("td", {
-    className: "r num"
-  }, won(c.amount)), /*#__PURE__*/React.createElement("td", null, c.method), /*#__PURE__*/React.createElement("td", {
-    className: "num"
-  }, c.paid_at), /*#__PURE__*/React.createElement("td", null, c.registered_by), /*#__PURE__*/React.createElement("td", null, c.approved_by), /*#__PURE__*/React.createElement("td", {
-    className: "t-sm t-muted",
-    style: {
-      whiteSpace: "normal"
-    }
-  }, c.reject_reason || c.note || "–"))))))));
+  return /*#__PURE__*/_jsxs(_Fragment, {
+    children: [can("collection_register") && /*#__PURE__*/_jsxs(Card, {
+      title: "수금 등록",
+      children: [/*#__PURE__*/_jsxs("div", {
+        className: "formrow",
+        children: [/*#__PURE__*/_jsx(Field, {
+          label: "거래처",
+          children: /*#__PURE__*/_jsx(CustomerSearch, {
+            customers: data.customers,
+            value: form.customer_code,
+            onChange: code => setForm({
+              ...form,
+              customer_code: code
+            })
+          })
+        }), /*#__PURE__*/_jsx(Field, {
+          label: "수금액 (원)",
+          children: /*#__PURE__*/_jsx("input", {
+            className: "input num",
+            inputMode: "numeric",
+            value: form.amount,
+            onChange: set("amount"),
+            placeholder: "0"
+          })
+        }), /*#__PURE__*/_jsx(Field, {
+          label: "수금방법",
+          children: /*#__PURE__*/_jsx("select", {
+            className: "select",
+            value: form.method,
+            onChange: set("method"),
+            children: data.meta.methods.map(m => /*#__PURE__*/_jsx("option", {
+              children: m
+            }, m))
+          })
+        }), /*#__PURE__*/_jsx(Field, {
+          label: "수금일",
+          children: /*#__PURE__*/_jsx("input", {
+            className: "input",
+            type: "date",
+            value: form.paid_at,
+            onChange: set("paid_at")
+          })
+        })]
+      }), /*#__PURE__*/_jsx(Field, {
+        label: "비고",
+        children: /*#__PURE__*/_jsx("input", {
+          className: "input",
+          value: form.note,
+          onChange: set("note"),
+          placeholder: "입금자명, 분할 회차 등"
+        })
+      }), target && Number(form.amount) > target.balance && /*#__PURE__*/_jsxs("div", {
+        className: "alert alert--warn",
+        children: ["입력한 수금액이 현재 미수잔액(", won(target.balance), "원)보다 큽니다. 금액을 확인하세요."]
+      }), /*#__PURE__*/_jsx("button", {
+        className: "btn btn--primary",
+        onClick: register,
+        disabled: busy || !form.customer_code || !form.amount,
+        children: "승인 요청으로 등록"
+      })]
+    }), /*#__PURE__*/_jsx(Card, {
+      title: "승인 대기 " + pending.length + "건",
+      flush: true,
+      children: pending.length === 0 ? /*#__PURE__*/_jsx(Empty, {
+        title: "대기 중인 수금 건이 없습니다.",
+        children: "영업담당이 등록하면 이곳에 표시됩니다."
+      }) : /*#__PURE__*/_jsx("div", {
+        className: "tablewrap",
+        children: /*#__PURE__*/_jsxs("table", {
+          children: [/*#__PURE__*/_jsx("thead", {
+            children: /*#__PURE__*/_jsxs("tr", {
+              children: [/*#__PURE__*/_jsx("th", {
+                children: "등록일"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "거래처"
+              }), /*#__PURE__*/_jsx("th", {
+                className: "r",
+                children: "수금액"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "방법"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "수금일"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "등록자"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "비고"
+              }), /*#__PURE__*/_jsx("th", {})]
+            })
+          }), /*#__PURE__*/_jsx("tbody", {
+            children: pending.map(c => /*#__PURE__*/_jsxs("tr", {
+              children: [/*#__PURE__*/_jsx("td", {
+                className: "t-sm t-muted num",
+                children: (c.created_at || "").slice(0, 10)
+              }), /*#__PURE__*/_jsx("td", {
+                className: "t-strong",
+                children: c.customer_name
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num t-strong",
+                children: won(c.amount)
+              }), /*#__PURE__*/_jsx("td", {
+                children: c.method
+              }), /*#__PURE__*/_jsx("td", {
+                className: "num",
+                children: c.paid_at
+              }), /*#__PURE__*/_jsx("td", {
+                children: c.registered_by
+              }), /*#__PURE__*/_jsx("td", {
+                className: "t-sm t-muted",
+                style: {
+                  whiteSpace: "normal"
+                },
+                children: c.note || "–"
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r",
+                children: can("collection_approve") ? /*#__PURE__*/_jsxs("div", {
+                  className: "btnrow",
+                  style: {
+                    justifyContent: "flex-end"
+                  },
+                  children: [/*#__PURE__*/_jsx("button", {
+                    className: "btn btn--sm btn--ok",
+                    onClick: () => decide(c.id, "approve"),
+                    children: "승인"
+                  }), /*#__PURE__*/_jsx("button", {
+                    className: "btn btn--sm btn--danger",
+                    onClick: () => decide(c.id, "reject"),
+                    children: "반려"
+                  })]
+                }) : /*#__PURE__*/_jsx("span", {
+                  className: "badge badge--mute",
+                  children: "승인 대기"
+                })
+              })]
+            }, c.id))
+          }), /*#__PURE__*/_jsx("tfoot", {
+            children: /*#__PURE__*/_jsxs("tr", {
+              children: [/*#__PURE__*/_jsx("td", {
+                colSpan: 2,
+                children: "대기 합계"
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num",
+                children: won(sum(pending, "amount"))
+              }), /*#__PURE__*/_jsx("td", {
+                colSpan: 5
+              })]
+            })
+          })]
+        })
+      })
+    }), /*#__PURE__*/_jsx(Card, {
+      title: "처리 내역",
+      flush: true,
+      children: decided.length === 0 ? /*#__PURE__*/_jsx(Empty, {
+        title: "처리된 내역이 없습니다."
+      }) : /*#__PURE__*/_jsx("div", {
+        className: "tablewrap",
+        children: /*#__PURE__*/_jsxs("table", {
+          children: [/*#__PURE__*/_jsx("thead", {
+            children: /*#__PURE__*/_jsxs("tr", {
+              children: [/*#__PURE__*/_jsx("th", {
+                children: "상태"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "거래처"
+              }), /*#__PURE__*/_jsx("th", {
+                className: "r",
+                children: "수금액"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "방법"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "수금일"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "등록자"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "처리자"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "사유·비고"
+              })]
+            })
+          }), /*#__PURE__*/_jsx("tbody", {
+            children: decided.map(c => /*#__PURE__*/_jsxs("tr", {
+              children: [/*#__PURE__*/_jsx("td", {
+                children: /*#__PURE__*/_jsx("span", {
+                  className: "badge badge--" + (c.state === "approved" ? "ok" : "bad"),
+                  children: c.state === "approved" ? "승인" : "반려"
+                })
+              }), /*#__PURE__*/_jsx("td", {
+                className: "t-strong",
+                children: c.customer_name
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num",
+                children: won(c.amount)
+              }), /*#__PURE__*/_jsx("td", {
+                children: c.method
+              }), /*#__PURE__*/_jsx("td", {
+                className: "num",
+                children: c.paid_at
+              }), /*#__PURE__*/_jsx("td", {
+                children: c.registered_by
+              }), /*#__PURE__*/_jsx("td", {
+                children: c.approved_by
+              }), /*#__PURE__*/_jsx("td", {
+                className: "t-sm t-muted",
+                style: {
+                  whiteSpace: "normal"
+                },
+                children: c.reject_reason || c.note || "–"
+              })]
+            }, c.id))
+          })]
+        })
+      })
+    })]
+  });
 }
 
 /* ══════════════════ 수금목표 관리 ══════════════════ */
@@ -1358,124 +1922,179 @@ function Targets({
       notify(e.message, true);
     }
   }
-  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Card, {
-    title: "\uC218\uAE08\uBAA9\uD45C \uCD94\uAC00"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "formrow"
-  }, /*#__PURE__*/React.createElement(Field, {
-    label: "\uAC70\uB798\uCC98"
-  }, /*#__PURE__*/React.createElement(CustomerSearch, {
-    customers: data.customers,
-    value: form.customer_code,
-    onChange: code => setForm({
-      ...form,
-      customer_code: code
-    })
-  })), /*#__PURE__*/React.createElement(Field, {
-    label: "\uBAA9\uD45C\uAE08\uC561 (\uC6D0)"
-  }, /*#__PURE__*/React.createElement("input", {
-    className: "input num",
-    inputMode: "numeric",
-    value: form.amount,
-    onChange: set("amount")
-  })), /*#__PURE__*/React.createElement(Field, {
-    label: "\uBAA9\uD45C\uC77C"
-  }, /*#__PURE__*/React.createElement("input", {
-    className: "input",
-    type: "date",
-    value: form.target_date,
-    onChange: set("target_date")
-  })), /*#__PURE__*/React.createElement(Field, {
-    label: "\uC218\uAE08\uBC29\uBC95"
-  }, /*#__PURE__*/React.createElement("select", {
-    className: "select",
-    value: form.method,
-    onChange: set("method")
-  }, data.meta.methods.map(m => /*#__PURE__*/React.createElement("option", {
-    key: m
-  }, m)))), /*#__PURE__*/React.createElement(Field, {
-    label: "\uB2F4\uB2F9\uC790"
-  }, /*#__PURE__*/React.createElement("input", {
-    className: "input",
-    value: form.assignee,
-    onChange: set("assignee"),
-    placeholder: "\uC774\uB984"
-  }))), /*#__PURE__*/React.createElement(Field, {
-    label: "\uBE44\uACE0"
-  }, /*#__PURE__*/React.createElement("input", {
-    className: "input",
-    value: form.note,
-    onChange: set("note"),
-    placeholder: "\uC57D\uC18D \uB0B4\uC6A9, \uC5F0\uB77D \uACB0\uACFC \uB4F1"
-  })), /*#__PURE__*/React.createElement("button", {
-    className: "btn btn--primary",
-    onClick: create,
-    disabled: !form.customer_code || !form.target_date
-  }, "\uBAA9\uD45C \uCD94\uAC00")), /*#__PURE__*/React.createElement(Card, {
-    title: "수금목표 " + rows.length + "건",
-    flush: true,
-    actions: /*#__PURE__*/React.createElement("div", {
-      className: "chiprow"
-    }, ["진행", "완료", "전체"].map(f => /*#__PURE__*/React.createElement("button", {
-      key: f,
-      className: "chip",
-      "aria-pressed": filter === f,
-      onClick: () => setFilter(f)
-    }, f)))
-  }, rows.length === 0 ? /*#__PURE__*/React.createElement(Empty, {
-    title: "\uB4F1\uB85D\uB41C \uBAA9\uD45C\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4."
-  }, "\uC704\uC5D0\uC11C \uCCAB \uBAA9\uD45C\uB97C \uCD94\uAC00\uD558\uC138\uC694.") : /*#__PURE__*/React.createElement("div", {
-    className: "tablewrap"
-  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "\uBAA9\uD45C\uC77C"), /*#__PURE__*/React.createElement("th", null, "\uAC70\uB798\uCC98"), /*#__PURE__*/React.createElement("th", {
-    className: "r"
-  }, "\uBAA9\uD45C\uAE08\uC561"), /*#__PURE__*/React.createElement("th", null, "\uC218\uAE08\uBC29\uBC95"), /*#__PURE__*/React.createElement("th", null, "\uB2F4\uB2F9\uC790"), /*#__PURE__*/React.createElement("th", null, "\uC644\uB8CC\uC77C"), /*#__PURE__*/React.createElement("th", null, "\uBE44\uACE0"), /*#__PURE__*/React.createElement("th", null))), /*#__PURE__*/React.createElement("tbody", null, rows.map(t => {
-    const late = t.state !== "done" && t.target_date < today();
-    return /*#__PURE__*/React.createElement("tr", {
-      key: t.id
-    }, /*#__PURE__*/React.createElement("td", {
-      className: "num",
-      style: {
-        color: late ? "var(--bad)" : "inherit",
-        fontWeight: late ? 600 : 400
-      }
-    }, t.target_date, late && " ⚠"), /*#__PURE__*/React.createElement("td", {
-      className: "t-strong"
-    }, t.customer_name), /*#__PURE__*/React.createElement("td", {
-      className: "r num"
-    }, won(t.amount)), /*#__PURE__*/React.createElement("td", null, t.method || "–"), /*#__PURE__*/React.createElement("td", null, t.assignee || "–"), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("input", {
-      className: "input num",
-      type: "date",
-      style: {
-        width: 148
-      },
-      value: t.done_date || "",
-      onChange: e => patch(t.id, {
-        done_date: e.target.value
+  return /*#__PURE__*/_jsxs(_Fragment, {
+    children: [/*#__PURE__*/_jsxs(Card, {
+      title: "수금목표 추가",
+      children: [/*#__PURE__*/_jsxs("div", {
+        className: "formrow",
+        children: [/*#__PURE__*/_jsx(Field, {
+          label: "거래처",
+          children: /*#__PURE__*/_jsx(CustomerSearch, {
+            customers: data.customers,
+            value: form.customer_code,
+            onChange: code => setForm({
+              ...form,
+              customer_code: code
+            })
+          })
+        }), /*#__PURE__*/_jsx(Field, {
+          label: "목표금액 (원)",
+          children: /*#__PURE__*/_jsx("input", {
+            className: "input num",
+            inputMode: "numeric",
+            value: form.amount,
+            onChange: set("amount")
+          })
+        }), /*#__PURE__*/_jsx(Field, {
+          label: "목표일",
+          children: /*#__PURE__*/_jsx("input", {
+            className: "input",
+            type: "date",
+            value: form.target_date,
+            onChange: set("target_date")
+          })
+        }), /*#__PURE__*/_jsx(Field, {
+          label: "수금방법",
+          children: /*#__PURE__*/_jsx("select", {
+            className: "select",
+            value: form.method,
+            onChange: set("method"),
+            children: data.meta.methods.map(m => /*#__PURE__*/_jsx("option", {
+              children: m
+            }, m))
+          })
+        }), /*#__PURE__*/_jsx(Field, {
+          label: "담당자",
+          children: /*#__PURE__*/_jsx("input", {
+            className: "input",
+            value: form.assignee,
+            onChange: set("assignee"),
+            placeholder: "이름"
+          })
+        })]
+      }), /*#__PURE__*/_jsx(Field, {
+        label: "비고",
+        children: /*#__PURE__*/_jsx("input", {
+          className: "input",
+          value: form.note,
+          onChange: set("note"),
+          placeholder: "약속 내용, 연락 결과 등"
+        })
+      }), /*#__PURE__*/_jsx("button", {
+        className: "btn btn--primary",
+        onClick: create,
+        disabled: !form.customer_code || !form.target_date,
+        children: "목표 추가"
+      })]
+    }), /*#__PURE__*/_jsx(Card, {
+      title: "수금목표 " + rows.length + "건",
+      flush: true,
+      actions: /*#__PURE__*/_jsx("div", {
+        className: "chiprow",
+        children: ["진행", "완료", "전체"].map(f => /*#__PURE__*/_jsx("button", {
+          className: "chip",
+          "aria-pressed": filter === f,
+          onClick: () => setFilter(f),
+          children: f
+        }, f))
+      }),
+      children: rows.length === 0 ? /*#__PURE__*/_jsx(Empty, {
+        title: "등록된 목표가 없습니다.",
+        children: "위에서 첫 목표를 추가하세요."
+      }) : /*#__PURE__*/_jsx("div", {
+        className: "tablewrap",
+        children: /*#__PURE__*/_jsxs("table", {
+          children: [/*#__PURE__*/_jsx("thead", {
+            children: /*#__PURE__*/_jsxs("tr", {
+              children: [/*#__PURE__*/_jsx("th", {
+                children: "목표일"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "거래처"
+              }), /*#__PURE__*/_jsx("th", {
+                className: "r",
+                children: "목표금액"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "수금방법"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "담당자"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "완료일"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "비고"
+              }), /*#__PURE__*/_jsx("th", {})]
+            })
+          }), /*#__PURE__*/_jsx("tbody", {
+            children: rows.map(t => {
+              const late = t.state !== "done" && t.target_date < today();
+              return /*#__PURE__*/_jsxs("tr", {
+                children: [/*#__PURE__*/_jsxs("td", {
+                  className: "num",
+                  style: {
+                    color: late ? "var(--bad)" : "inherit",
+                    fontWeight: late ? 600 : 400
+                  },
+                  children: [t.target_date, late && " ⚠"]
+                }), /*#__PURE__*/_jsx("td", {
+                  className: "t-strong",
+                  children: t.customer_name
+                }), /*#__PURE__*/_jsx("td", {
+                  className: "r num",
+                  children: won(t.amount)
+                }), /*#__PURE__*/_jsx("td", {
+                  children: t.method || "–"
+                }), /*#__PURE__*/_jsx("td", {
+                  children: t.assignee || "–"
+                }), /*#__PURE__*/_jsx("td", {
+                  children: /*#__PURE__*/_jsx("input", {
+                    className: "input num",
+                    type: "date",
+                    style: {
+                      width: 148
+                    },
+                    value: t.done_date || "",
+                    onChange: e => patch(t.id, {
+                      done_date: e.target.value
+                    })
+                  })
+                }), /*#__PURE__*/_jsx("td", {
+                  style: {
+                    whiteSpace: "normal",
+                    minWidth: 180
+                  },
+                  children: /*#__PURE__*/_jsx("input", {
+                    className: "input",
+                    defaultValue: t.note,
+                    onBlur: e => e.target.value !== t.note && patch(t.id, {
+                      note: e.target.value
+                    })
+                  })
+                }), /*#__PURE__*/_jsx("td", {
+                  className: "r",
+                  children: /*#__PURE__*/_jsx("button", {
+                    className: "btn btn--sm btn--danger",
+                    onClick: () => remove(t.id),
+                    children: "삭제"
+                  })
+                })]
+              }, t.id);
+            })
+          }), /*#__PURE__*/_jsx("tfoot", {
+            children: /*#__PURE__*/_jsxs("tr", {
+              children: [/*#__PURE__*/_jsx("td", {
+                colSpan: 2,
+                children: "합계"
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r num",
+                children: won(sum(rows, "amount"))
+              }), /*#__PURE__*/_jsx("td", {
+                colSpan: 5
+              })]
+            })
+          })]
+        })
       })
-    })), /*#__PURE__*/React.createElement("td", {
-      style: {
-        whiteSpace: "normal",
-        minWidth: 180
-      }
-    }, /*#__PURE__*/React.createElement("input", {
-      className: "input",
-      defaultValue: t.note,
-      onBlur: e => e.target.value !== t.note && patch(t.id, {
-        note: e.target.value
-      })
-    })), /*#__PURE__*/React.createElement("td", {
-      className: "r"
-    }, /*#__PURE__*/React.createElement("button", {
-      className: "btn btn--sm btn--danger",
-      onClick: () => remove(t.id)
-    }, "\uC0AD\uC81C")));
-  })), /*#__PURE__*/React.createElement("tfoot", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
-    colSpan: 2
-  }, "\uD569\uACC4"), /*#__PURE__*/React.createElement("td", {
-    className: "r num"
-  }, won(sum(rows, "amount"))), /*#__PURE__*/React.createElement("td", {
-    colSpan: 5
-  })))))));
+    })]
+  });
 }
 
 /* ══════════════════ 출고 데이터 업로드 ══════════════════ */
@@ -1673,137 +2292,227 @@ function Upload({
       notify(e.message, true);
     }
   }
-  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Card, {
-    title: "\uCD9C\uACE0 \uB370\uC774\uD130 \uC5C5\uB85C\uB4DC"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "formrow"
-  }, /*#__PURE__*/React.createElement(Field, {
-    label: "\uAE30\uC900\uC6D4"
-  }, /*#__PURE__*/React.createElement("input", {
-    className: "input",
-    type: "month",
-    value: month,
-    onChange: e => setMonth(e.target.value)
-  })), /*#__PURE__*/React.createElement(Field, {
-    label: "출고기준일"
-  }, /*#__PURE__*/React.createElement("input", {
-    className: "input",
-    type: "date",
-    value: shipmentDate,
-    onChange: e => setShipmentDate(e.target.value)
-  })), /*#__PURE__*/React.createElement(Field, {
-    label: "\uB9C8\uAC10 \uC0C1\uD0DC"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "btnrow",
-    style: {
-      alignItems: "center",
-      minHeight: 38
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "badge badge--" + (locked ? "bad" : "ok")
-  }, locked ? "잠김" : "열림"), can("month_lock") && /*#__PURE__*/React.createElement("button", {
-    className: "btn btn--sm",
-    onClick: toggleLock
-  }, locked ? "잠금 해제" : "마감 잠금")))), /*#__PURE__*/React.createElement("div", {
-    className: "dropzone" + (over ? " is-over" : ""),
-    onDragOver: e => {
-      e.preventDefault();
-      setOver(true);
-    },
-    onDragLeave: () => setOver(false),
-    onDrop: e => {
-      e.preventDefault();
-      setOver(false);
-      if (e.dataTransfer.files[0]) readFile(e.dataTransfer.files[0]);
-    }
-  }, /*#__PURE__*/React.createElement("p", {
-    style: {
-      margin: "0 0 10px"
-    }
-  }, "\uC5D1\uC140 \uD30C\uC77C\uC744 \uB04C\uC5B4\uB2E4 \uB193\uAC70\uB098 \uC544\uB798\uC5D0\uC11C \uC120\uD0DD\uD558\uC138\uC694."), /*#__PURE__*/React.createElement("input", {
-    ref: fileRef,
-    type: "file",
-    accept: ".xlsx,.xls,.csv",
-    onChange: e => e.target.files[0] && readFile(e.target.files[0])
-  }), /*#__PURE__*/React.createElement("p", {
-    className: "t-sm t-muted",
-    style: {
-      margin: "12px 0 0"
-    }
-  }, "\uC6D4\uBCC4 \uCD9C\uACE0 \uCD5C\uC18C \uC11C\uC2DD: \uAC70\uB798\uCC98\uCF54\uB4DC \xB7 \uAC70\uB798\uCC98\uBA85 \xB7 \uC0AC\uC5C5\uBD80 \xB7 \uB2F4\uB2F9\uC790 \xB7 \uD68C\uC218\uAE30\uAC04(\uAC1C\uC6D4) \xB7 \uCD9C\uACE0\uAE08\uC561 \xB7 \uBE44\uACE0")), error && /*#__PURE__*/React.createElement("div", {
-    className: "alert alert--bad",
-    style: {
-      marginTop: 12
-    }
-  }, error), locked && /*#__PURE__*/React.createElement("div", {
-    className: "alert alert--warn",
-    style: {
-      marginTop: 12
-    }
-  }, month, " \uC740 \uB9C8\uAC10 \uC7A0\uAE08 \uC0C1\uD0DC\uB77C \uC5C5\uB85C\uB4DC\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uC7A0\uAE08\uC744 \uD574\uC81C\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694."), parsed && /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginTop: 16
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "alert alert--info"
-  }, /*#__PURE__*/React.createElement("b", null, parsed.filename), " \u2014 \uC720\uD6A8\uD55C ", parsed.rows.length, "\uD589\uC744 \uC77D\uC5C8\uC2B5\uB2C8\uB2E4. \uC778\uC2DD\uD55C \uC5F4: ", parsed.mapped.length, "\uAC1C.", parsed.dupes.length > 0 && " 중복 코드 " + parsed.dupes.length + "건이 있습니다."), (parsed.dupes.length > 0 || parsed.issues.length > 0) && /*#__PURE__*/React.createElement("div", {
-    className: "alert alert--bad",
-    style: {
-      marginTop: 10
-    }
-  }, "\uC5C5\uB85C\uB4DC \uC804 \uC218\uC815 \uD544\uC694: ", parsed.dupes.length > 0 && "중복 코드 " + parsed.dupes.join(", "), parsed.dupes.length > 0 && parsed.issues.length > 0 && " · ", parsed.issues.slice(0, 8).join(" · "), parsed.issues.length > 8 && " 외 " + (parsed.issues.length - 8) + "건"), /*#__PURE__*/React.createElement("p", {
-    className: "t-sm t-muted"
-  }, parsed.mode === "shipment" ? month + " 출고분만 재설정하며 회수기간에 따라 수금대상월을 자동 산출합니다." : month + " 의 기존 확정 채권 데이터를 교체합니다.", " \uB2E4\uB978 \uC6D4 \uB370\uC774\uD130\uB294 \uADF8\uB300\uB85C \uC720\uC9C0\uB429\uB2C8\uB2E4."), /*#__PURE__*/React.createElement("div", {
-    className: "tablewrap",
-    style: {
-      maxHeight: 260,
-      overflowY: "auto",
-      marginBottom: 12
-    }
-  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "\uCF54\uB4DC"), /*#__PURE__*/React.createElement("th", null, "\uAC70\uB798\uCC98\uBA85"), /*#__PURE__*/React.createElement("th", null, "\uC0AC\uC5C5\uBD80"), /*#__PURE__*/React.createElement("th", null, parsed.mode === "shipment" ? "회수기간" : "분류"), /*#__PURE__*/React.createElement("th", null, "\uB2F4\uB2F9\uC790"), /*#__PURE__*/React.createElement("th", {
-    className: "r"
-  }, parsed.mode === "shipment" ? "출고금액" : "채권잔액"))), /*#__PURE__*/React.createElement("tbody", null, parsed.rows.slice(0, 12).map((r, i) => /*#__PURE__*/React.createElement("tr", {
-    key: i
-  }, /*#__PURE__*/React.createElement("td", {
-    className: "num"
-  }, r.code), /*#__PURE__*/React.createElement("td", null, r.name), /*#__PURE__*/React.createElement("td", null, r.biz_unit || "–"), /*#__PURE__*/React.createElement("td", null, parsed.mode === "shipment" ? r.collection_period + "개월" : r.status || "자동판정"), /*#__PURE__*/React.createElement("td", null, r.owner || "–"), /*#__PURE__*/React.createElement("td", {
-    className: "r num"
-  }, won(parsed.mode === "shipment" ? r.shipment_amount : r.balance))))))), /*#__PURE__*/React.createElement("div", {
-    className: "btnrow"
-  }, /*#__PURE__*/React.createElement("button", {
-    className: "btn btn--primary",
-    onClick: send,
-    disabled: busy || locked || !shipmentDate || parsed.dupes.length > 0 || parsed.issues.length > 0
-  }, month, " \uB370\uC774\uD130\uB85C \uBC18\uC601"), /*#__PURE__*/React.createElement("button", {
-    className: "btn",
-    onClick: () => setParsed(null)
-  }, "\uCDE8\uC18C")))), /*#__PURE__*/React.createElement(Card, {
-    title: "\uC5C5\uB85C\uB4DC \uC774\uB825",
-    flush: true
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "tablewrap"
-  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "업로드 일시"), /*#__PURE__*/React.createElement("th", null, "출고기준일"), /*#__PURE__*/React.createElement("th", null, "\uAE30\uC900\uC6D4"), /*#__PURE__*/React.createElement("th", null, "\uD30C\uC77C\uBA85"), /*#__PURE__*/React.createElement("th", {
-    className: "r"
-  }, "\uBC18\uC601 \uD589"), /*#__PURE__*/React.createElement("th", {
-    className: "r"
-  }, "\uAD50\uCCB4\uB41C \uD589"), /*#__PURE__*/React.createElement("th", null, "\uC5C5\uB85C\uB354"), /*#__PURE__*/React.createElement("th", null, "\uB9C8\uAC10"))), /*#__PURE__*/React.createElement("tbody", null, data.uploads.map(u => {
-    const l = lockOf(u.month);
-    return /*#__PURE__*/React.createElement("tr", {
-      key: u.id
-    }, /*#__PURE__*/React.createElement("td", {
-      className: "num t-sm"
-    }, u.uploaded_at), /*#__PURE__*/React.createElement("td", {
-      className: "num t-sm"
-    }, u.shipment_date || "–"), /*#__PURE__*/React.createElement("td", {
-      className: "num t-strong"
-    }, u.month), /*#__PURE__*/React.createElement("td", null, u.filename), /*#__PURE__*/React.createElement("td", {
-      className: "r num"
-    }, u.row_count), /*#__PURE__*/React.createElement("td", {
-      className: "r num t-muted"
-    }, u.replaced), /*#__PURE__*/React.createElement("td", null, u.uploaded_by), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("span", {
-      className: "badge badge--" + (l && l.locked ? "bad" : "mute")
-    }, l && l.locked ? "잠김" : "열림")));
-  }))))));
+  return /*#__PURE__*/_jsxs(_Fragment, {
+    children: [/*#__PURE__*/_jsxs(Card, {
+      title: "출고 데이터 업로드",
+      children: [/*#__PURE__*/_jsxs("div", {
+        className: "formrow",
+        children: [/*#__PURE__*/_jsx(Field, {
+          label: "기준월",
+          children: /*#__PURE__*/_jsx("input", {
+            className: "input",
+            type: "month",
+            value: month,
+            onChange: e => setMonth(e.target.value)
+          })
+        }), /*#__PURE__*/_jsx(Field, {
+          label: "출고기준일",
+          children: /*#__PURE__*/_jsx("input", {
+            className: "input",
+            type: "date",
+            value: shipmentDate,
+            onChange: e => setShipmentDate(e.target.value)
+          })
+        }), /*#__PURE__*/_jsx(Field, {
+          label: "마감 상태",
+          children: /*#__PURE__*/_jsxs("div", {
+            className: "btnrow",
+            style: {
+              alignItems: "center",
+              minHeight: 38
+            },
+            children: [/*#__PURE__*/_jsx("span", {
+              className: "badge badge--" + (locked ? "bad" : "ok"),
+              children: locked ? "잠김" : "열림"
+            }), can("month_lock") && /*#__PURE__*/_jsx("button", {
+              className: "btn btn--sm",
+              onClick: toggleLock,
+              children: locked ? "잠금 해제" : "마감 잠금"
+            })]
+          })
+        })]
+      }), /*#__PURE__*/_jsxs("div", {
+        className: "dropzone" + (over ? " is-over" : ""),
+        onDragOver: e => {
+          e.preventDefault();
+          setOver(true);
+        },
+        onDragLeave: () => setOver(false),
+        onDrop: e => {
+          e.preventDefault();
+          setOver(false);
+          if (e.dataTransfer.files[0]) readFile(e.dataTransfer.files[0]);
+        },
+        children: [/*#__PURE__*/_jsx("p", {
+          style: {
+            margin: "0 0 10px"
+          },
+          children: "엑셀 파일을 끌어다 놓거나 아래에서 선택하세요."
+        }), /*#__PURE__*/_jsx("input", {
+          ref: fileRef,
+          type: "file",
+          accept: ".xlsx,.xls,.csv",
+          onChange: e => e.target.files[0] && readFile(e.target.files[0])
+        }), /*#__PURE__*/_jsx("p", {
+          className: "t-sm t-muted",
+          style: {
+            margin: "12px 0 0"
+          },
+          children: "월별 출고 최소 서식: 거래처코드 · 거래처명 · 사업부 · 담당자 · 회수기간(개월) · 출고금액 · 비고"
+        })]
+      }), error && /*#__PURE__*/_jsx("div", {
+        className: "alert alert--bad",
+        style: {
+          marginTop: 12
+        },
+        children: error
+      }), locked && /*#__PURE__*/_jsxs("div", {
+        className: "alert alert--warn",
+        style: {
+          marginTop: 12
+        },
+        children: [month, " 은 마감 잠금 상태라 업로드할 수 없습니다. 잠금을 해제한 뒤 다시 시도하세요."]
+      }), parsed && /*#__PURE__*/_jsxs("div", {
+        style: {
+          marginTop: 16
+        },
+        children: [/*#__PURE__*/_jsxs("div", {
+          className: "alert alert--info",
+          children: [/*#__PURE__*/_jsx("b", {
+            children: parsed.filename
+          }), " — 유효한 ", parsed.rows.length, "행을 읽었습니다. 인식한 열: ", parsed.mapped.length, "개.", parsed.dupes.length > 0 && " 중복 코드 " + parsed.dupes.length + "건이 있습니다."]
+        }), (parsed.dupes.length > 0 || parsed.issues.length > 0) && /*#__PURE__*/_jsxs("div", {
+          className: "alert alert--bad",
+          style: {
+            marginTop: 10
+          },
+          children: ["업로드 전 수정 필요: ", parsed.dupes.length > 0 && "중복 코드 " + parsed.dupes.join(", "), parsed.dupes.length > 0 && parsed.issues.length > 0 && " · ", parsed.issues.slice(0, 8).join(" · "), parsed.issues.length > 8 && " 외 " + (parsed.issues.length - 8) + "건"]
+        }), /*#__PURE__*/_jsxs("p", {
+          className: "t-sm t-muted",
+          children: [parsed.mode === "shipment" ? month + " 출고분만 재설정하며 회수기간에 따라 수금대상월을 자동 산출합니다." : month + " 의 기존 확정 채권 데이터를 교체합니다.", " 다른 월 데이터는 그대로 유지됩니다."]
+        }), /*#__PURE__*/_jsx("div", {
+          className: "tablewrap",
+          style: {
+            maxHeight: 260,
+            overflowY: "auto",
+            marginBottom: 12
+          },
+          children: /*#__PURE__*/_jsxs("table", {
+            children: [/*#__PURE__*/_jsx("thead", {
+              children: /*#__PURE__*/_jsxs("tr", {
+                children: [/*#__PURE__*/_jsx("th", {
+                  children: "코드"
+                }), /*#__PURE__*/_jsx("th", {
+                  children: "거래처명"
+                }), /*#__PURE__*/_jsx("th", {
+                  children: "사업부"
+                }), /*#__PURE__*/_jsx("th", {
+                  children: parsed.mode === "shipment" ? "회수기간" : "분류"
+                }), /*#__PURE__*/_jsx("th", {
+                  children: "담당자"
+                }), /*#__PURE__*/_jsx("th", {
+                  className: "r",
+                  children: parsed.mode === "shipment" ? "출고금액" : "채권잔액"
+                })]
+              })
+            }), /*#__PURE__*/_jsx("tbody", {
+              children: parsed.rows.slice(0, 12).map((r, i) => /*#__PURE__*/_jsxs("tr", {
+                children: [/*#__PURE__*/_jsx("td", {
+                  className: "num",
+                  children: r.code
+                }), /*#__PURE__*/_jsx("td", {
+                  children: r.name
+                }), /*#__PURE__*/_jsx("td", {
+                  children: r.biz_unit || "–"
+                }), /*#__PURE__*/_jsx("td", {
+                  children: parsed.mode === "shipment" ? r.collection_period + "개월" : r.status || "자동판정"
+                }), /*#__PURE__*/_jsx("td", {
+                  children: r.owner || "–"
+                }), /*#__PURE__*/_jsx("td", {
+                  className: "r num",
+                  children: won(parsed.mode === "shipment" ? r.shipment_amount : r.balance)
+                })]
+              }, i))
+            })]
+          })
+        }), /*#__PURE__*/_jsxs("div", {
+          className: "btnrow",
+          children: [/*#__PURE__*/_jsxs("button", {
+            className: "btn btn--primary",
+            onClick: send,
+            disabled: busy || locked || !shipmentDate || parsed.dupes.length > 0 || parsed.issues.length > 0,
+            children: [month, " 데이터로 반영"]
+          }), /*#__PURE__*/_jsx("button", {
+            className: "btn",
+            onClick: () => setParsed(null),
+            children: "취소"
+          })]
+        })]
+      })]
+    }), /*#__PURE__*/_jsx(Card, {
+      title: "업로드 이력",
+      flush: true,
+      children: /*#__PURE__*/_jsx("div", {
+        className: "tablewrap",
+        children: /*#__PURE__*/_jsxs("table", {
+          children: [/*#__PURE__*/_jsx("thead", {
+            children: /*#__PURE__*/_jsxs("tr", {
+              children: [/*#__PURE__*/_jsx("th", {
+                children: "업로드 일시"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "출고기준일"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "기준월"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "파일명"
+              }), /*#__PURE__*/_jsx("th", {
+                className: "r",
+                children: "반영 행"
+              }), /*#__PURE__*/_jsx("th", {
+                className: "r",
+                children: "교체된 행"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "업로더"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "마감"
+              })]
+            })
+          }), /*#__PURE__*/_jsx("tbody", {
+            children: data.uploads.map(u => {
+              const l = lockOf(u.month);
+              return /*#__PURE__*/_jsxs("tr", {
+                children: [/*#__PURE__*/_jsx("td", {
+                  className: "num t-sm",
+                  children: u.uploaded_at
+                }), /*#__PURE__*/_jsx("td", {
+                  className: "num t-sm",
+                  children: u.shipment_date || "–"
+                }), /*#__PURE__*/_jsx("td", {
+                  className: "num t-strong",
+                  children: u.month
+                }), /*#__PURE__*/_jsx("td", {
+                  children: u.filename
+                }), /*#__PURE__*/_jsx("td", {
+                  className: "r num",
+                  children: u.row_count
+                }), /*#__PURE__*/_jsx("td", {
+                  className: "r num t-muted",
+                  children: u.replaced
+                }), /*#__PURE__*/_jsx("td", {
+                  children: u.uploaded_by
+                }), /*#__PURE__*/_jsx("td", {
+                  children: /*#__PURE__*/_jsx("span", {
+                    className: "badge badge--" + (l && l.locked ? "bad" : "mute"),
+                    children: l && l.locked ? "잠김" : "열림"
+                  })
+                })]
+              }, u.id);
+            })
+          })]
+        })
+      })
+    })]
+  });
 }
 function UploadTemplate() {
   async function downloadTemplate() {
@@ -1824,25 +2533,138 @@ function UploadTemplate() {
       alert(e.message);
     }
   }
-  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Card, {
-    title: "출고데이터 업로드서식"
-  }, /*#__PURE__*/React.createElement("p", {
-    style: {
-      marginTop: 0
+  return /*#__PURE__*/_jsxs(_Fragment, {
+    children: [/*#__PURE__*/_jsxs(Card, {
+      title: "출고데이터 업로드서식",
+      children: [/*#__PURE__*/_jsx("p", {
+        style: {
+          marginTop: 0
+        },
+        children: "월별 출고데이터를 등록하는 표준 서식입니다."
+      }), /*#__PURE__*/_jsx("div", {
+        className: "alert alert--info",
+        style: {
+          marginBottom: 14
+        },
+        children: "필수 항목: 거래처코드 · 거래처명 · 사업부"
+      }), /*#__PURE__*/_jsx("button", {
+        className: "btn btn--primary",
+        onClick: downloadTemplate,
+        children: "엑셀 업로드 서식 다운로드"
+      })]
+    }), /*#__PURE__*/_jsx(Card, {
+      title: "사용 순서",
+      children: /*#__PURE__*/_jsxs("ol", {
+        className: "template-steps",
+        children: [/*#__PURE__*/_jsxs("li", {
+          children: ["서식을 내려받아 첫 번째 시트인 ", /*#__PURE__*/_jsx("b", {
+            children: "업로드서식"
+          }), "에 데이터를 입력합니다."]
+        }), /*#__PURE__*/_jsx("li", {
+          children: "출고 데이터 업로드 메뉴에서 기준월을 선택합니다."
+        }), /*#__PURE__*/_jsx("li", {
+          children: "파일을 선택해 오류·중복 여부를 확인한 뒤 해당 월 데이터로 반영합니다."
+        }), /*#__PURE__*/_jsx("li", {
+          children: "확정된 월은 마감 잠금하여 추가 변경을 방지합니다."
+        })]
+      })
+    })]
+  });
+}
+
+/* ══════════════════ 자금수지 수금계획 ══════════════════ */
+
+function CashPlan({
+  data,
+  notify
+}) {
+  const planMonths = data.meta.cash_plan_months || [thisMonth()];
+  const [month, setMonth] = useState(planMonths[0]);
+  const [busy, setBusy] = useState(false);
+  async function download() {
+    const includeOverdue = window.confirm("미수채권과 부실채권을 포함하시겠습니까?\n\n확인: 정상·미수·부실채권 포함\n취소: 정상채권만 다운로드");
+    setBusy(true);
+    try {
+      const res = await fetch("/api/cash-plan/export", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          month,
+          include_overdue: includeOverdue
+        })
+      });
+      if (!res.ok) {
+        let message = "수금계획을 생성하지 못했습니다.";
+        try {
+          message = (await res.json()).error || message;
+        } catch (e) {/* ignore */}
+        throw new Error(message);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "MedPark_" + Number(month.slice(5, 7)) + "월_수금계획" + (includeOverdue ? "_미수부실포함" : "") + ".xlsx";
+      link.click();
+      URL.revokeObjectURL(url);
+      notify(Number(month.slice(5, 7)) + "월 수금계획을 생성했습니다.");
+    } catch (e) {
+      notify(e.message, true);
     }
-  }, "월별 출고데이터를 등록하는 표준 서식입니다."), /*#__PURE__*/React.createElement("div", {
-    className: "alert alert--info",
-    style: {
-      marginBottom: 14
-    }
-  }, "필수 항목: 거래처코드 · 거래처명 · 사업부"), /*#__PURE__*/React.createElement("button", {
-    className: "btn btn--primary",
-    onClick: downloadTemplate
-  }, "\uC5D1\uC140 \uC5C5\uB85C\uB4DC \uC11C\uC2DD \uB2E4\uC6B4\uB85C\uB4DC")), /*#__PURE__*/React.createElement(Card, {
-    title: "\uC0AC\uC6A9 \uC21C\uC11C"
-  }, /*#__PURE__*/React.createElement("ol", {
-    className: "template-steps"
-  }, /*#__PURE__*/React.createElement("li", null, "\uC11C\uC2DD\uC744 \uB0B4\uB824\uBC1B\uC544 \uCCAB \uBC88\uC9F8 \uC2DC\uD2B8\uC778 ", /*#__PURE__*/React.createElement("b", null, "\uC5C5\uB85C\uB4DC\uC11C\uC2DD"), "\uC5D0 \uB370\uC774\uD130\uB97C \uC785\uB825\uD569\uB2C8\uB2E4."), /*#__PURE__*/React.createElement("li", null, "\uCD9C\uACE0 \uB370\uC774\uD130 \uC5C5\uB85C\uB4DC \uBA54\uB274\uC5D0\uC11C \uAE30\uC900\uC6D4\uC744 \uC120\uD0DD\uD569\uB2C8\uB2E4."), /*#__PURE__*/React.createElement("li", null, "\uD30C\uC77C\uC744 \uC120\uD0DD\uD574 \uC624\uB958\xB7\uC911\uBCF5 \uC5EC\uBD80\uB97C \uD655\uC778\uD55C \uB4A4 \uD574\uB2F9 \uC6D4 \uB370\uC774\uD130\uB85C \uBC18\uC601\uD569\uB2C8\uB2E4."), /*#__PURE__*/React.createElement("li", null, "\uD655\uC815\uB41C \uC6D4\uC740 \uB9C8\uAC10 \uC7A0\uAE08\uD558\uC5EC \uCD94\uAC00 \uBCC0\uACBD\uC744 \uBC29\uC9C0\uD569\uB2C8\uB2E4."))));
+    setBusy(false);
+  }
+  return /*#__PURE__*/_jsxs(_Fragment, {
+    children: [/*#__PURE__*/_jsxs(Card, {
+      title: "㈜메드파크 자금수지관리 수금계획",
+      children: [/*#__PURE__*/_jsx("div", {
+        className: "formrow",
+        children: /*#__PURE__*/_jsx(Field, {
+          label: "수금계획 기준월",
+          children: /*#__PURE__*/_jsx("select", {
+            className: "select",
+            value: month,
+            onChange: e => setMonth(e.target.value),
+            children: planMonths.map(m => /*#__PURE__*/_jsxs("option", {
+              value: m,
+              children: [Number(m.slice(5, 7)), "월 수금계획"]
+            }, m))
+          })
+        })
+      }), /*#__PURE__*/_jsx("div", {
+        className: "alert alert--info",
+        style: {
+          margin: "12px 0"
+        },
+        children: "정상채권은 선택한 월의 수금대상 금액만 반영합니다. 다운로드 시 미수·부실채권 포함 여부를 선택할 수 있습니다."
+      }), /*#__PURE__*/_jsx("button", {
+        className: "btn btn--primary",
+        onClick: download,
+        disabled: busy || !month,
+        children: busy ? "엑셀 생성 중" : Number(month.slice(5, 7)) + "월 수금계획 다운로드"
+      })]
+    }), /*#__PURE__*/_jsx(Card, {
+      title: "적용 기준",
+      children: /*#__PURE__*/_jsxs("ul", {
+        className: "template-steps",
+        children: [/*#__PURE__*/_jsxs("li", {
+          children: ["본부는 ", /*#__PURE__*/_jsx("b", {
+            children: "사업부"
+          }), ", 수금/지출은 ", /*#__PURE__*/_jsx("b", {
+            children: "수금"
+          }), "으로 고정합니다."]
+        }), /*#__PURE__*/_jsx("li", {
+          children: "부서/팀과 집행항목은 덴탈·메디컬·에스테틱 사업부에 맞춰 자동 변환합니다."
+        }), /*#__PURE__*/_jsx("li", {
+          children: "자금계획일·자금실행일은 해당 월 말일이며, 수금목표일이 있으면 그 날짜를 사용합니다."
+        }), /*#__PURE__*/_jsx("li", {
+          children: "정상채권·미수채권·부실채권을 거래처별 별도 행으로 표시합니다."
+        })]
+      })
+    })]
+  });
 }
 
 /* ══════════════════ 계정·권한 관리 ══════════════════ */
@@ -1855,6 +2677,47 @@ function Users({
   const [sel, setSel] = useState(null);
   const [perms, setPerms] = useState([]);
   const [role, setRole] = useState("sales");
+  const [newUser, setNewUser] = useState({
+    username: "",
+    name: "",
+    title: "",
+    role: "sales",
+    biz_unit: "",
+    password: ""
+  });
+  const setNew = key => e => setNewUser(v => ({
+    ...v,
+    [key]: e.target.value
+  }));
+  async function createAccount(e) {
+    e.preventDefault();
+    if (!newUser.username.trim() || !newUser.name.trim()) {
+      notify("아이디와 이름을 입력하세요.", true);
+      return;
+    }
+    if (newUser.password.length < 8) {
+      notify("초기 비밀번호는 8자 이상으로 입력하세요.", true);
+      return;
+    }
+    try {
+      await api("/api/users", {
+        method: "POST",
+        body: newUser
+      });
+      notify(newUser.username + " 계정을 등록했습니다.");
+      setNewUser({
+        username: "",
+        name: "",
+        title: "",
+        role: "sales",
+        biz_unit: "",
+        password: ""
+      });
+      await refresh();
+    } catch (e) {
+      notify(e.message, true);
+    }
+  }
   function choose(u) {
     setSel(u.username);
     setPerms(u.permissions || []);
@@ -1911,71 +2774,186 @@ function Users({
       notify(e.message, true);
     }
   }
-  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Card, {
-    title: "\uACC4\uC815",
-    flush: true
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "tablewrap"
-  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "\uC544\uC774\uB514"), /*#__PURE__*/React.createElement("th", null, "\uC774\uB984"), /*#__PURE__*/React.createElement("th", null, "\uC9C1\uC704"), /*#__PURE__*/React.createElement("th", null, "\uC5ED\uD560"), /*#__PURE__*/React.createElement("th", null, "\uC0AC\uC5C5\uBD80"), /*#__PURE__*/React.createElement("th", {
-    className: "r"
-  }, "\uAD8C\uD55C \uC218"), /*#__PURE__*/React.createElement("th", null, "\uC0C1\uD0DC"), /*#__PURE__*/React.createElement("th", null))), /*#__PURE__*/React.createElement("tbody", null, data.users.map(u => /*#__PURE__*/React.createElement("tr", {
-    key: u.username,
-    style: {
-      background: sel === u.username ? "var(--brand-soft)" : undefined
-    }
-  }, /*#__PURE__*/React.createElement("td", {
-    className: "t-strong"
-  }, u.username), /*#__PURE__*/React.createElement("td", null, u.name), /*#__PURE__*/React.createElement("td", {
-    className: "t-muted"
-  }, u.title || "–"), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("span", {
-    className: "badge badge--brand"
-  }, data.meta.roles[u.role].label)), /*#__PURE__*/React.createElement("td", null, u.biz_unit || "–"), /*#__PURE__*/React.createElement("td", {
-    className: "r num"
-  }, (u.permissions || []).length, " / 11"), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("span", {
-    className: "badge badge--" + (u.active ? "ok" : "mute")
-  }, u.active ? "사용" : "정지")), /*#__PURE__*/React.createElement("td", {
-    className: "r"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "btnrow",
-    style: {
-      justifyContent: "flex-end"
-    }
-  }, /*#__PURE__*/React.createElement("button", {
-    className: "btn btn--sm",
-    onClick: () => choose(u)
-  }, "\uAD8C\uD55C \uD3B8\uC9D1"), /*#__PURE__*/React.createElement("button", {
-    className: "btn btn--sm",
-    onClick: () => resetPassword(u)
-  }, "\uBE44\uBC00\uBC88\uD638"), /*#__PURE__*/React.createElement("button", {
-    className: "btn btn--sm",
-    onClick: () => toggleActive(u)
-  }, u.active ? "정지" : "사용"))))))))), sel && /*#__PURE__*/React.createElement(Card, {
-    title: sel + " 권한",
-    actions: /*#__PURE__*/React.createElement("button", {
-      className: "btn btn--sm btn--primary",
-      onClick: save
-    }, "\uBCC0\uACBD \uC800\uC7A5")
-  }, /*#__PURE__*/React.createElement(Field, {
-    label: "\uC5ED\uD560 \uD15C\uD50C\uB9BF"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "chiprow"
-  }, Object.entries(data.meta.roles).map(([key, r]) => /*#__PURE__*/React.createElement("button", {
-    key: key,
-    className: "chip",
-    "aria-pressed": role === key,
-    onClick: () => applyTemplate(key)
-  }, r.label)))), /*#__PURE__*/React.createElement("div", {
-    className: "permgrid",
-    style: {
-      marginTop: 12
-    }
-  }, data.meta.permissions.map(p => /*#__PURE__*/React.createElement("label", {
-    key: p.key
-  }, /*#__PURE__*/React.createElement("input", {
-    type: "checkbox",
-    checked: perms.includes(p.key),
-    onChange: e => setPerms(e.target.checked ? [...perms, p.key] : perms.filter(x => x !== p.key))
-  }), p.label)))));
+  return /*#__PURE__*/_jsxs(_Fragment, {
+    children: [/*#__PURE__*/_jsx(Card, {
+      title: "신규 계정 등록",
+      children: /*#__PURE__*/_jsxs("form", {
+        onSubmit: createAccount,
+        children: [/*#__PURE__*/_jsxs("div", {
+          className: "formrow",
+          children: [/*#__PURE__*/_jsx(Field, {
+            label: "아이디*",
+            children: /*#__PURE__*/_jsx("input", {
+              className: "input",
+              value: newUser.username,
+              onChange: setNew("username")
+            })
+          }), /*#__PURE__*/_jsx(Field, {
+            label: "이름*",
+            children: /*#__PURE__*/_jsx("input", {
+              className: "input",
+              value: newUser.name,
+              onChange: setNew("name")
+            })
+          }), /*#__PURE__*/_jsx(Field, {
+            label: "직위",
+            children: /*#__PURE__*/_jsx("input", {
+              className: "input",
+              value: newUser.title,
+              onChange: setNew("title")
+            })
+          }), /*#__PURE__*/_jsx(Field, {
+            label: "역할",
+            children: /*#__PURE__*/_jsx("select", {
+              className: "select",
+              value: newUser.role,
+              onChange: setNew("role"),
+              children: Object.entries(data.meta.roles).map(([key, r]) => /*#__PURE__*/_jsx("option", {
+                value: key,
+                children: r.label
+              }, key))
+            })
+          }), /*#__PURE__*/_jsx(Field, {
+            label: "사업부",
+            children: /*#__PURE__*/_jsxs("select", {
+              className: "select",
+              value: newUser.biz_unit,
+              onChange: setNew("biz_unit"),
+              children: [/*#__PURE__*/_jsx("option", {
+                value: "",
+                children: "전체/미지정"
+              }), data.meta.units.map(u => /*#__PURE__*/_jsx("option", {
+                children: u
+              }, u))]
+            })
+          }), /*#__PURE__*/_jsx(Field, {
+            label: "초기 비밀번호*",
+            children: /*#__PURE__*/_jsx("input", {
+              className: "input",
+              type: "password",
+              minLength: "8",
+              value: newUser.password,
+              onChange: setNew("password")
+            })
+          })]
+        }), /*#__PURE__*/_jsx("button", {
+          className: "btn btn--primary",
+          type: "submit",
+          children: "계정 등록"
+        })]
+      })
+    }), /*#__PURE__*/_jsx(Card, {
+      title: "계정",
+      flush: true,
+      children: /*#__PURE__*/_jsx("div", {
+        className: "tablewrap",
+        children: /*#__PURE__*/_jsxs("table", {
+          children: [/*#__PURE__*/_jsx("thead", {
+            children: /*#__PURE__*/_jsxs("tr", {
+              children: [/*#__PURE__*/_jsx("th", {
+                children: "아이디"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "이름"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "직위"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "역할"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "사업부"
+              }), /*#__PURE__*/_jsx("th", {
+                className: "r",
+                children: "권한 수"
+              }), /*#__PURE__*/_jsx("th", {
+                children: "상태"
+              }), /*#__PURE__*/_jsx("th", {})]
+            })
+          }), /*#__PURE__*/_jsx("tbody", {
+            children: data.users.map(u => /*#__PURE__*/_jsxs("tr", {
+              style: {
+                background: sel === u.username ? "var(--brand-soft)" : undefined
+              },
+              children: [/*#__PURE__*/_jsx("td", {
+                className: "t-strong",
+                children: u.username
+              }), /*#__PURE__*/_jsx("td", {
+                children: u.name
+              }), /*#__PURE__*/_jsx("td", {
+                className: "t-muted",
+                children: u.title || "–"
+              }), /*#__PURE__*/_jsx("td", {
+                children: /*#__PURE__*/_jsx("span", {
+                  className: "badge badge--brand",
+                  children: data.meta.roles[u.role].label
+                })
+              }), /*#__PURE__*/_jsx("td", {
+                children: u.biz_unit || "–"
+              }), /*#__PURE__*/_jsxs("td", {
+                className: "r num",
+                children: [(u.permissions || []).length, " / ", data.meta.permissions.length]
+              }), /*#__PURE__*/_jsx("td", {
+                children: /*#__PURE__*/_jsx("span", {
+                  className: "badge badge--" + (u.active ? "ok" : "mute"),
+                  children: u.active ? "사용" : "정지"
+                })
+              }), /*#__PURE__*/_jsx("td", {
+                className: "r",
+                children: /*#__PURE__*/_jsxs("div", {
+                  className: "btnrow",
+                  style: {
+                    justifyContent: "flex-end"
+                  },
+                  children: [/*#__PURE__*/_jsx("button", {
+                    className: "btn btn--sm",
+                    onClick: () => choose(u),
+                    children: "권한 편집"
+                  }), /*#__PURE__*/_jsx("button", {
+                    className: "btn btn--sm",
+                    onClick: () => resetPassword(u),
+                    children: "비밀번호"
+                  }), /*#__PURE__*/_jsx("button", {
+                    className: "btn btn--sm",
+                    onClick: () => toggleActive(u),
+                    children: u.active ? "정지" : "사용"
+                  })]
+                })
+              })]
+            }, u.username))
+          })]
+        })
+      })
+    }), sel && /*#__PURE__*/_jsxs(Card, {
+      title: sel + " 권한",
+      actions: /*#__PURE__*/_jsx("button", {
+        className: "btn btn--sm btn--primary",
+        onClick: save,
+        children: "변경 저장"
+      }),
+      children: [/*#__PURE__*/_jsx(Field, {
+        label: "역할 템플릿",
+        children: /*#__PURE__*/_jsx("div", {
+          className: "chiprow",
+          children: Object.entries(data.meta.roles).map(([key, r]) => /*#__PURE__*/_jsx("button", {
+            className: "chip",
+            "aria-pressed": role === key,
+            onClick: () => applyTemplate(key),
+            children: r.label
+          }, key))
+        })
+      }), /*#__PURE__*/_jsx("div", {
+        className: "permgrid",
+        style: {
+          marginTop: 12
+        },
+        children: data.meta.permissions.map(p => /*#__PURE__*/_jsxs("label", {
+          children: [/*#__PURE__*/_jsx("input", {
+            type: "checkbox",
+            checked: perms.includes(p.key),
+            onChange: e => setPerms(e.target.checked ? [...perms, p.key] : perms.filter(x => x !== p.key))
+          }), p.label]
+        }, p.key))
+      })]
+    })]
+  });
 }
 
 /* ══════════════════ 셸 ══════════════════ */
@@ -2022,6 +3000,11 @@ const SCREENS = [{
   perm: "upload_data",
   group: "관리"
 }, {
+  key: "cashplan",
+  label: "자금수지 수금계획",
+  perm: "data_export",
+  group: "관리"
+}, {
   key: "users",
   label: "계정·권한 관리",
   perm: "user_manage",
@@ -2056,24 +3039,30 @@ function App() {
     if (visible.length && !visible.some(s => s.key === screen)) setScreen(visible[0].key);
   }, [visible, screen]);
   if (user === undefined) {
-    return /*#__PURE__*/React.createElement("div", {
-      className: "boot"
-    }, /*#__PURE__*/React.createElement("div", {
-      className: "boot__mark"
-    }, "MP"), /*#__PURE__*/React.createElement("p", {
-      className: "boot__text"
-    }, "\uBD88\uB7EC\uC624\uB294 \uC911\uC785\uB2C8\uB2E4."));
+    return /*#__PURE__*/_jsxs("div", {
+      className: "boot",
+      children: [/*#__PURE__*/_jsx("div", {
+        className: "boot__mark",
+        children: "MP"
+      }), /*#__PURE__*/_jsx("p", {
+        className: "boot__text",
+        children: "불러오는 중입니다."
+      })]
+    });
   }
-  if (user === null) return /*#__PURE__*/React.createElement(Login, {
+  if (user === null) return /*#__PURE__*/_jsx(Login, {
     onDone: () => load()
   });
-  if (!data) return /*#__PURE__*/React.createElement("div", {
-    className: "boot"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "boot__mark"
-  }, "MP"), /*#__PURE__*/React.createElement("p", {
-    className: "boot__text"
-  }, "\uB370\uC774\uD130\uB97C \uC900\uBE44\uD558\uACE0 \uC788\uC2B5\uB2C8\uB2E4."));
+  if (!data) return /*#__PURE__*/_jsxs("div", {
+    className: "boot",
+    children: [/*#__PURE__*/_jsx("div", {
+      className: "boot__mark",
+      children: "MP"
+    }), /*#__PURE__*/_jsx("p", {
+      className: "boot__text",
+      children: "데이터를 준비하고 있습니다."
+    })]
+  });
   const patchCustomer = c => setData(d => ({
     ...d,
     customers: d.customers.map(x => x.code === c.code ? c : x)
@@ -2093,82 +3082,112 @@ function App() {
     setUser(null);
     setData(null);
   }
-  return /*#__PURE__*/React.createElement("div", {
-    className: "shell"
-  }, /*#__PURE__*/React.createElement("nav", {
-    className: "side"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "side__top"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "side__logo"
-  }, /*#__PURE__*/React.createElement("span", null, "MP"), "\uBBF8\uC218\uCC44\uAD8C \uAD00\uB9AC")), /*#__PURE__*/React.createElement("div", {
-    className: "side__nav"
-  }, groups.map(g => /*#__PURE__*/React.createElement("div", {
-    key: g
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "side__group"
-  }, g), visible.filter(s => s.group === g).map(s => /*#__PURE__*/React.createElement("button", {
-    key: s.key,
-    className: "side__item",
-    "aria-current": screen === s.key,
-    onClick: () => {
-      setPreset(null);
-      setScreen(s.key);
-    }
-  }, s.label, s.key === "collections" && pendingCount > 0 && /*#__PURE__*/React.createElement("small", null, pendingCount)))))), /*#__PURE__*/React.createElement("div", {
-    className: "side__foot"
-  }, "\uAE30\uC900\uC77C ", data.meta.today)), /*#__PURE__*/React.createElement("main", {
-    className: "main"
-  }, /*#__PURE__*/React.createElement("header", {
-    className: "topbar"
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h1", null, current.label), /*#__PURE__*/React.createElement("div", {
-    className: "sub"
-  }, "\uAE30\uC900\uC77C ", data.meta.today, " \xB7 ", data.meta.reflection_label), /*#__PURE__*/React.createElement("div", {
-    className: "sub"
-  }, "\uAC70\uB798\uCC98 ", data.customers.length, "\uACF3 \xB7 \uC804\uCCB4 \uCC44\uAD8C ", won(sum(data.customers, "balance")), "\uC6D0")), /*#__PURE__*/React.createElement("div", {
-    className: "spacer"
-  }), /*#__PURE__*/React.createElement("div", {
-    className: "who"
-  }, /*#__PURE__*/React.createElement("b", null, user.name, user.title && " " + user.title), /*#__PURE__*/React.createElement("span", null, data.meta.roles[user.role].label, " \xB7 ", user.username)), /*#__PURE__*/React.createElement("button", {
-    className: "btn btn--sm",
-    onClick: signOut
-  }, "\uB85C\uADF8\uC544\uC6C3")), /*#__PURE__*/React.createElement("div", {
-    className: "page"
-  }, screen === "dashboard" && /*#__PURE__*/React.createElement(Dashboard, {
-    data: data,
-    setScreen: setScreen,
-    setPreset: setPreset
-  }), screen === "summary" && /*#__PURE__*/React.createElement(BondSummary, {
-    data: data
-  }), screen === "customers" && /*#__PURE__*/React.createElement(Customers, {
-    data: data,
-    can: can,
-    preset: preset,
-    notify: notify,
-    patchCustomer: patchCustomer
-  }), screen === "owners" && /*#__PURE__*/React.createElement(Owners, {
-    data: data
-  }), screen === "collections" && /*#__PURE__*/React.createElement(Collections, {
-    data: data,
-    can: can,
-    notify: notify,
-    refresh: load
-  }), screen === "targets" && /*#__PURE__*/React.createElement(Targets, {
-    data: data,
-    notify: notify,
-    refresh: load
-  }), screen === "template" && /*#__PURE__*/React.createElement(UploadTemplate, null), screen === "upload" && /*#__PURE__*/React.createElement(Upload, {
-    data: data,
-    can: can,
-    notify: notify,
-    applyUpload: applyUpload,
-    refresh: load
-  }), screen === "users" && /*#__PURE__*/React.createElement(Users, {
-    data: data,
-    notify: notify,
-    refresh: load
-  }))), toast && /*#__PURE__*/React.createElement("div", {
-    className: "toast" + (toast.bad ? " toast--bad" : "")
-  }, toast.message));
+  return /*#__PURE__*/_jsxs("div", {
+    className: "shell",
+    children: [/*#__PURE__*/_jsxs("nav", {
+      className: "side",
+      children: [/*#__PURE__*/_jsx("div", {
+        className: "side__top",
+        children: /*#__PURE__*/_jsxs("div", {
+          className: "side__logo",
+          children: [/*#__PURE__*/_jsx("span", {
+            children: "MP"
+          }), "미수채권 관리"]
+        })
+      }), /*#__PURE__*/_jsx("div", {
+        className: "side__nav",
+        children: groups.map(g => /*#__PURE__*/_jsxs("div", {
+          children: [/*#__PURE__*/_jsx("div", {
+            className: "side__group",
+            children: g
+          }), visible.filter(s => s.group === g).map(s => /*#__PURE__*/_jsxs("button", {
+            className: "side__item",
+            "aria-current": screen === s.key,
+            onClick: () => {
+              setPreset(null);
+              setScreen(s.key);
+            },
+            children: [s.label, s.key === "collections" && pendingCount > 0 && /*#__PURE__*/_jsx("small", {
+              children: pendingCount
+            })]
+          }, s.key))]
+        }, g))
+      }), /*#__PURE__*/_jsxs("div", {
+        className: "side__foot",
+        children: ["기준일 ", data.meta.today]
+      })]
+    }), /*#__PURE__*/_jsxs("main", {
+      className: "main",
+      children: [/*#__PURE__*/_jsxs("header", {
+        className: "topbar",
+        children: [/*#__PURE__*/_jsxs("div", {
+          children: [/*#__PURE__*/_jsx("h1", {
+            children: current.label
+          }), /*#__PURE__*/_jsxs("div", {
+            className: "sub",
+            children: ["기준일 ", data.meta.today, " · ", data.meta.reflection_label]
+          }), /*#__PURE__*/_jsxs("div", {
+            className: "sub",
+            children: ["거래처 ", data.customers.length, "곳 · 전체 채권 ", won(sum(data.customers, "balance")), "원"]
+          })]
+        }), /*#__PURE__*/_jsx("div", {
+          className: "spacer"
+        }), /*#__PURE__*/_jsxs("div", {
+          className: "who",
+          children: [/*#__PURE__*/_jsxs("b", {
+            children: [user.name, user.title && " " + user.title]
+          }), /*#__PURE__*/_jsxs("span", {
+            children: [data.meta.roles[user.role].label, " · ", user.username]
+          })]
+        }), /*#__PURE__*/_jsx("button", {
+          className: "btn btn--sm",
+          onClick: signOut,
+          children: "로그아웃"
+        })]
+      }), /*#__PURE__*/_jsxs("div", {
+        className: "page",
+        children: [screen === "dashboard" && /*#__PURE__*/_jsx(Dashboard, {
+          data: data,
+          setScreen: setScreen,
+          setPreset: setPreset
+        }), screen === "summary" && /*#__PURE__*/_jsx(BondSummary, {
+          data: data
+        }), screen === "customers" && /*#__PURE__*/_jsx(Customers, {
+          data: data,
+          can: can,
+          preset: preset,
+          notify: notify,
+          patchCustomer: patchCustomer
+        }), screen === "owners" && /*#__PURE__*/_jsx(Owners, {
+          data: data
+        }), screen === "collections" && /*#__PURE__*/_jsx(Collections, {
+          data: data,
+          can: can,
+          notify: notify,
+          refresh: load
+        }), screen === "targets" && /*#__PURE__*/_jsx(Targets, {
+          data: data,
+          notify: notify,
+          refresh: load
+        }), screen === "template" && /*#__PURE__*/_jsx(UploadTemplate, {}), screen === "upload" && /*#__PURE__*/_jsx(Upload, {
+          data: data,
+          can: can,
+          notify: notify,
+          applyUpload: applyUpload,
+          refresh: load
+        }), screen === "cashplan" && /*#__PURE__*/_jsx(CashPlan, {
+          data: data,
+          notify: notify
+        }), screen === "users" && /*#__PURE__*/_jsx(Users, {
+          data: data,
+          notify: notify,
+          refresh: load
+        })]
+      })]
+    }), toast && /*#__PURE__*/_jsx("div", {
+      className: "toast" + (toast.bad ? " toast--bad" : ""),
+      children: toast.message
+    })]
+  });
 }
-ReactDOM.createRoot(document.getElementById("root")).render(/*#__PURE__*/React.createElement(App, null));
+ReactDOM.createRoot(document.getElementById("root")).render(/*#__PURE__*/_jsx(App, {}));
