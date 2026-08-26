@@ -259,6 +259,45 @@ def update_customer(code):
     return jsonify(customer=row)
 
 
+@app.get("/api/customers/<code>/receivables")
+@requires("customer_view")
+def customer_receivables(code):
+    as_of = request.args.get("as_of") or date.today().isoformat()
+    with connect() as conn:
+        customer = conn.execute("SELECT * FROM customers WHERE code=%s", (code,)).fetchone()
+        if not customer:
+            return jsonify(error="거래처를 찾을 수 없습니다."), 404
+        items = [r for r in conn.execute(
+            "SELECT * FROM receivable_items WHERE customer_code=%s AND balance<>0"
+            " ORDER BY issue_month,target_month,id", (code,))]
+    for item in items:
+        target_end = (item["target_month"] + "-31") if item["target_month"] else ""
+        age_months = month_offset(item["issue_month"], as_of[:7]) if item["issue_month"] else 0
+        item["as_of_status"] = ("부실" if item["category"] == "부실" or age_months >= 12 else
+                                "연체" if item["category"] == "연체" or (target_end and target_end < as_of)
+                                else "정상")
+    return jsonify(customer=customer, items=items, as_of=as_of)
+
+
+@app.patch("/api/receivables/<int:item_id>")
+@requires("customer_info_edit")
+def update_receivable(item_id):
+    target_date = (body().get("target_date") or "").strip()
+    if target_date:
+        try:
+            datetime.strptime(target_date, "%Y-%m-%d")
+        except ValueError:
+            return jsonify(error="수금목표일 형식이 올바르지 않습니다."), 400
+    with connect() as conn:
+        item = conn.execute(
+            "UPDATE receivable_items SET target_date=%s WHERE id=%s RETURNING *",
+            (target_date, item_id)).fetchone()
+        if not item:
+            return jsonify(error="채권 상세를 찾을 수 없습니다."), 404
+        log(conn, request.user["username"], "receivable_target_update", str(item_id))
+    return jsonify(item=item)
+
+
 # ─────────────────────────────── 수금 ───────────────────────────────
 
 @app.post("/api/collections")
@@ -318,6 +357,19 @@ def approve_collection(cid):
 
         # 잔액 차감도 읽고 쓰지 않고 한 문장으로 끝낸다.
         amount = row["amount"]
+        # 발생월별 원장은 부실 → 미수 → 정상, 각 구분 안에서는 오래된 발생월부터 차감한다.
+        item_remaining = amount
+        detail_items = [x for x in conn.execute(
+            "SELECT id,balance FROM receivable_items WHERE customer_code=%s AND balance>0"
+            " ORDER BY CASE category WHEN '부실' THEN 1 WHEN '연체' THEN 2 ELSE 3 END,issue_month,id",
+            (row["customer_code"],))]
+        for item in detail_items:
+            deducted = min(item_remaining, item["balance"])
+            conn.execute("UPDATE receivable_items SET balance=balance-%s WHERE id=%s",
+                         (deducted, item["id"]))
+            item_remaining -= deducted
+            if item_remaining <= 0:
+                break
         normal_paid = 0
         if before:
             normal_paid = min(
@@ -494,6 +546,9 @@ def upload_rows():
 
             previous_rows = [x for x in conn.execute(
                 "SELECT * FROM monthly_shipments WHERE month=%s", (month,))]
+            previous_targets = {x["customer_code"]: x["target_date"] for x in conn.execute(
+                "SELECT customer_code,target_date FROM receivable_items WHERE source_key LIKE %s",
+                ("shipment:%s:%%" % month,))}
             previous = len(previous_rows)
             bucket_columns = {
                 "current": "normal_current_balance",
@@ -511,6 +566,8 @@ def upload_rows():
                     " WHERE code=%s",
                     (amount, amount, amount, amount, amount, amount, old["code"]))
             conn.execute("DELETE FROM monthly_shipments WHERE month=%s", (month,))
+            conn.execute("DELETE FROM receivable_items WHERE source_key LIKE %s",
+                         ("shipment:%s:%%" % month,))
 
             for item in shipments.values():
                 current = conn.execute("SELECT 1 FROM customers WHERE code=%s", (item["code"],)).fetchone()
@@ -541,6 +598,12 @@ def upload_rows():
                     (month, item["code"], item["name"], item["biz_unit"], item["owner"],
                      item["period"], item["target_month"], item["bucket"], item["amount"],
                      item["amount"], item["note"]))
+                conn.execute(
+                    "INSERT INTO receivable_items (customer_code,source_key,issue_month,target_month,category,"
+                    " original_amount,balance,target_date,note) VALUES (%s,%s,%s,%s,'정상',%s,%s,%s,%s)",
+                    (item["code"], "shipment:%s:%s" % (month, item["code"]), month,
+                     item["target_month"], item["amount"], item["amount"],
+                     previous_targets.get(item["code"], ""), item["note"]))
             conn.execute(
                 "INSERT INTO uploads (month,filename,row_count,uploaded_by,replaced,upload_type,shipment_date)"
                 " VALUES (%s,%s,%s,%s,%s,'shipment',%s)",
@@ -620,6 +683,39 @@ def upload_rows():
             " overdue_days=excluded.overdue_days, last_paid_at=excluded.last_paid_at,"
             " period=excluded.period, source_month=excluded.source_month, note=excluded.note",
             list(payload.values()))
+        # 확정채권 스냅샷도 발생월별 원장으로 재구성하되 기존 채권별 목표일은 보존한다.
+        for code in payload:
+            old_targets = {x["source_key"]: x["target_date"] for x in conn.execute(
+                "SELECT source_key,target_date FROM receivable_items WHERE customer_code=%s"
+                " AND source_key LIKE 'legacy:%%'", (code,))}
+            conn.execute("DELETE FROM receivable_items WHERE customer_code=%s AND source_key LIKE 'legacy:%%'",
+                         (code,))
+            customer = conn.execute("SELECT * FROM customers WHERE code=%s", (code,)).fetchone()
+            period = customer["period"] if customer["period"] >= 0 else 0
+            parts = [
+                ("current", month, customer["normal_current_balance"]),
+                ("next", add_months(month, 1), customer["normal_next_balance"]),
+                ("later", add_months(month, 2), customer["normal_later_balance"]),
+            ]
+            for label, target_month, amount in parts:
+                if amount != 0:
+                    key = "legacy:%s:normal:%s" % (code, label)
+                    conn.execute(
+                        "INSERT INTO receivable_items (customer_code,source_key,issue_month,target_month,category,"
+                        " original_amount,balance,target_date,note) VALUES (%s,%s,%s,%s,'정상',%s,%s,%s,%s)",
+                        (code, key, add_months(target_month, -period), target_month, amount, amount,
+                         old_targets.get(key, customer["collection_target_date"]), "확정 정상채권"))
+            age_months = max(1, (customer["overdue_days"] + 29) // 30)
+            issue_month = add_months(month, -age_months)
+            for category, field in (("연체", "overdue_balance"), ("부실", "bad_balance")):
+                amount = customer[field]
+                if amount != 0:
+                    key = "legacy:%s:%s" % (code, category)
+                    conn.execute(
+                        "INSERT INTO receivable_items (customer_code,source_key,issue_month,target_month,category,"
+                        " original_amount,balance,target_date,note) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                        (code, key, issue_month, add_months(issue_month, period), category, amount, amount,
+                         old_targets.get(key, customer["collection_target_date"]), "확정 %s" % category))
         conn.execute(
             "INSERT INTO uploads (month, filename, row_count, uploaded_by, replaced, upload_type)"
             " VALUES (%s,%s,%s,%s,%s,'snapshot')",
@@ -645,12 +741,20 @@ def export_cash_plan():
     data = body()
     month = (data.get("month") or "").strip()
     include_overdue = bool(data.get("include_overdue"))
+    include_bad = bool(data.get("include_bad"))
+    as_of_date = (data.get("as_of_date") or date.today().isoformat()).strip()
     if len(month) != 7 or month[4] != "-":
         return jsonify(error="다운로드 기준월을 선택하세요."), 400
+    try:
+        datetime.strptime(as_of_date, "%Y-%m-%d")
+    except ValueError:
+        return jsonify(error="미수채권 조회기준일 형식이 올바르지 않습니다."), 400
 
     with connect() as conn:
-        customers = [r for r in conn.execute(
-            "SELECT * FROM customers ORDER BY biz_unit,name,code")]
+        items = [r for r in conn.execute(
+            "SELECT ri.*,c.name,c.biz_unit FROM receivable_items ri"
+            " JOIN customers c ON c.code=ri.customer_code WHERE ri.balance>0"
+            " ORDER BY c.biz_unit,c.name,ri.issue_month,ri.id")]
         snapshot = conn.execute(
             "SELECT month FROM uploads WHERE upload_type='snapshot' ORDER BY id DESC LIMIT 1"
         ).fetchone()
@@ -658,18 +762,19 @@ def export_cash_plan():
     offset = month_offset(base_month, month)
     if offset not in (0, 1, 2):
         return jsonify(error="현재 수금계획은 %s부터 3개월 범위에서 다운로드할 수 있습니다." % base_month), 400
-    normal_field = ("normal_current_balance" if offset == 0 else
-                    "normal_next_balance" if offset == 1 else
-                    "normal_later_balance" if offset >= 2 else None)
-
     rows = []
-    for customer in customers:
-        if normal_field and customer[normal_field] > 0:
-            rows.append((customer, "정상", customer[normal_field]))
-        if include_overdue and customer["overdue_balance"] > 0:
-            rows.append((customer, "연체", customer["overdue_balance"]))
-        if include_overdue and customer["bad_balance"] > 0:
-            rows.append((customer, "부실", customer["bad_balance"]))
+    as_of_month = as_of_date[:7]
+    for item in items:
+        age = month_offset(item["issue_month"], as_of_month) if item["issue_month"] else 0
+        category = ("부실" if item["category"] == "부실" or age >= 12 else
+                    "연체" if item["category"] == "연체" or
+                    (item["target_month"] and item["target_month"] < as_of_month) else "정상")
+        if category == "정상" and item["target_month"] == month:
+            rows.append((item, category, item["balance"]))
+        elif category == "연체" and include_overdue:
+            rows.append((item, category, item["balance"]))
+        elif category == "부실" and include_bad:
+            rows.append((item, category, item["balance"]))
 
     template_path = os.path.join(app.static_folder, "cash_plan_template.b64")
     with open(template_path, "rb") as fh:
@@ -699,17 +804,17 @@ def export_cash_plan():
         "연체": "제품구매대금(미수채권)",
         "부실": "제품구매대금(부실채권)",
     }
-    for row_no, (customer, category, amount) in enumerate(rows, start=7):
-        target_text = (customer.get("collection_target_date") or "").strip()
+    for row_no, (item, category, amount) in enumerate(rows, start=7):
+        target_text = (item.get("target_date") or "").strip()
         try:
             plan_date = datetime.strptime(target_text, "%Y-%m-%d").date() if target_text else month_end
         except ValueError:
             plan_date = month_end
-        unit = customer["biz_unit"]
+        unit = item["biz_unit"]
         values = {
             1: "예정", 5: "사업부", 6: dept.get(unit, unit), 7: "수금",
             8: execution.get(unit, unit + " 수금"), 10: plan_date, 12: plan_date,
-            13: customer["name"], 14: detail[category], 17: amount,
+            13: item["name"], 14: detail[category], 17: amount,
         }
         for col, value in values.items():
             ws.cell(row_no, col).value = value
@@ -728,7 +833,7 @@ def export_cash_plan():
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)
-    suffix = "_미수부실포함" if include_overdue else ""
+    suffix = ("_미수포함" if include_overdue else "") + ("_부실포함" if include_bad else "")
     filename = "MedPark_%02d월_수금계획%s.xlsx" % (mon, suffix)
     return send_file(output,
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
