@@ -210,6 +210,15 @@ function Dashboard({ data, setScreen, setPreset }) {
     { key: "연체", label: "미수채권(11개월 내) 잔액", value: totals.by.연체, count: totals.cnt.연체, color: "var(--warn)" },
     { key: "부실", label: "부실채권(12개월 이상)", value: totals.by.부실, count: totals.cnt.부실, color: "var(--bad)" },
   ];
+  const yesterdayDate = new Date(data.meta.today + "T00:00:00");
+  yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+  const yesterday = yesterdayDate.toISOString().slice(0, 10);
+  const customerUnit = Object.fromEntries(customers.map((c) => [c.code, c.biz_unit]));
+  const yesterdayCollections = approved.filter((c) => c.paid_at === yesterday);
+  const yesterdayByUnit = data.meta.units.map((u) => ({
+    unit: u,
+    amount: sum(yesterdayCollections.filter((c) => customerUnit[c.customer_code] === u), "amount"),
+  }));
 
   return (
     <>
@@ -235,6 +244,18 @@ function Dashboard({ data, setScreen, setPreset }) {
           );
         })}
       </div>
+
+      <Card title={"전일 수금현황 요약 · " + yesterday}>
+        <div className="grid grid--3">
+          <div><div className="kpi__label">승인 수금 합계</div>
+            <div className="kpi__value num">{won(sum(yesterdayCollections, "amount"))}<em>원</em></div></div>
+          <div><div className="kpi__label">승인 건수</div>
+            <div className="kpi__value num">{yesterdayCollections.length}<em>건</em></div></div>
+          <div><div className="kpi__label">사업부별 수금</div>
+            <div className="t-sm">{yesterdayByUnit.map((r) =>
+              <span key={r.unit} style={{ display: "block", marginTop: 3 }}>{r.unit} · <b className="num">{won(r.amount)}원</b></span>)}</div></div>
+        </div>
+      </Card>
 
       <div className="grid grid--2">
         <Card title="사업부별 채권 분류 현황"
@@ -1335,12 +1356,96 @@ function UploadTemplate() {
   );
 }
 
+/* ══════════════════ 자금수지 수금계획 ══════════════════ */
+
+function CashPlan({ data, notify }) {
+  const planMonths = data.meta.cash_plan_months || [thisMonth()];
+  const [month, setMonth] = useState(planMonths[0]);
+  const [busy, setBusy] = useState(false);
+
+  async function download() {
+    const includeOverdue = window.confirm(
+      "미수채권과 부실채권을 포함하시겠습니까?\n\n확인: 정상·미수·부실채권 포함\n취소: 정상채권만 다운로드"
+    );
+    setBusy(true);
+    try {
+      const res = await fetch("/api/cash-plan/export", {
+        method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ month, include_overdue: includeOverdue }),
+      });
+      if (!res.ok) {
+        let message = "수금계획을 생성하지 못했습니다.";
+        try { message = (await res.json()).error || message; } catch (e) { /* ignore */ }
+        throw new Error(message);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "MedPark_" + Number(month.slice(5, 7)) + "월_수금계획" +
+        (includeOverdue ? "_미수부실포함" : "") + ".xlsx";
+      link.click(); URL.revokeObjectURL(url);
+      notify(Number(month.slice(5, 7)) + "월 수금계획을 생성했습니다.");
+    } catch (e) { notify(e.message, true); }
+    setBusy(false);
+  }
+
+  return (
+    <>
+      <Card title="㈜메드파크 자금수지관리 수금계획">
+        <div className="formrow">
+          <Field label="수금계획 기준월">
+            <select className="select" value={month} onChange={(e) => setMonth(e.target.value)}>
+              {planMonths.map((m) => <option key={m} value={m}>{Number(m.slice(5, 7))}월 수금계획</option>)}
+            </select>
+          </Field>
+        </div>
+        <div className="alert alert--info" style={{ margin: "12px 0" }}>
+          정상채권은 선택한 월의 수금대상 금액만 반영합니다. 다운로드 시 미수·부실채권 포함 여부를 선택할 수 있습니다.
+        </div>
+        <button className="btn btn--primary" onClick={download} disabled={busy || !month}>
+          {busy ? "엑셀 생성 중" : Number(month.slice(5, 7)) + "월 수금계획 다운로드"}
+        </button>
+      </Card>
+      <Card title="적용 기준">
+        <ul className="template-steps">
+          <li>본부는 <b>사업부</b>, 수금/지출은 <b>수금</b>으로 고정합니다.</li>
+          <li>부서/팀과 집행항목은 덴탈·메디컬·에스테틱 사업부에 맞춰 자동 변환합니다.</li>
+          <li>자금계획일·자금실행일은 해당 월 말일이며, 수금목표일이 있으면 그 날짜를 사용합니다.</li>
+          <li>정상채권·미수채권·부실채권을 거래처별 별도 행으로 표시합니다.</li>
+        </ul>
+      </Card>
+    </>
+  );
+}
+
 /* ══════════════════ 계정·권한 관리 ══════════════════ */
 
 function Users({ data, notify, refresh }) {
   const [sel, setSel] = useState(null);
   const [perms, setPerms] = useState([]);
   const [role, setRole] = useState("sales");
+  const [newUser, setNewUser] = useState({
+    username: "", name: "", title: "", role: "sales", biz_unit: "", password: "",
+  });
+  const setNew = (key) => (e) => setNewUser((v) => ({ ...v, [key]: e.target.value }));
+
+  async function createAccount(e) {
+    e.preventDefault();
+    if (!newUser.username.trim() || !newUser.name.trim()) {
+      notify("아이디와 이름을 입력하세요.", true); return;
+    }
+    if (newUser.password.length < 8) {
+      notify("초기 비밀번호는 8자 이상으로 입력하세요.", true); return;
+    }
+    try {
+      await api("/api/users", { method: "POST", body: newUser });
+      notify(newUser.username + " 계정을 등록했습니다.");
+      setNewUser({ username: "", name: "", title: "", role: "sales", biz_unit: "", password: "" });
+      await refresh();
+    } catch (e) { notify(e.message, true); }
+  }
 
   function choose(u) {
     setSel(u.username); setPerms(u.permissions || []); setRole(u.role);
@@ -1372,6 +1477,25 @@ function Users({ data, notify, refresh }) {
 
   return (
     <>
+      <Card title="신규 계정 등록">
+        <form onSubmit={createAccount}>
+          <div className="formrow">
+            <Field label="아이디*"><input className="input" value={newUser.username} onChange={setNew("username")} /></Field>
+            <Field label="이름*"><input className="input" value={newUser.name} onChange={setNew("name")} /></Field>
+            <Field label="직위"><input className="input" value={newUser.title} onChange={setNew("title")} /></Field>
+            <Field label="역할"><select className="select" value={newUser.role} onChange={setNew("role")}>
+              {Object.entries(data.meta.roles).map(([key, r]) => <option key={key} value={key}>{r.label}</option>)}
+            </select></Field>
+            <Field label="사업부"><select className="select" value={newUser.biz_unit} onChange={setNew("biz_unit")}>
+              <option value="">전체/미지정</option>{data.meta.units.map((u) => <option key={u}>{u}</option>)}
+            </select></Field>
+            <Field label="초기 비밀번호*"><input className="input" type="password" minLength="8"
+              value={newUser.password} onChange={setNew("password")} /></Field>
+          </div>
+          <button className="btn btn--primary" type="submit">계정 등록</button>
+        </form>
+      </Card>
+
       <Card title="계정" flush>
         <div className="tablewrap">
           <table>
@@ -1387,7 +1511,7 @@ function Users({ data, notify, refresh }) {
                   <td className="t-muted">{u.title || "–"}</td>
                   <td><span className="badge badge--brand">{data.meta.roles[u.role].label}</span></td>
                   <td>{u.biz_unit || "–"}</td>
-                  <td className="r num">{(u.permissions || []).length} / 11</td>
+                  <td className="r num">{(u.permissions || []).length} / {data.meta.permissions.length}</td>
                   <td><span className={"badge badge--" + (u.active ? "ok" : "mute")}>
                     {u.active ? "사용" : "정지"}</span></td>
                   <td className="r">
@@ -1444,6 +1568,7 @@ const SCREENS = [
   { key: "targets",   label: "수금목표 관리",     perm: "target_manage",       group: "수금" },
   { key: "template",  label: "출고데이터 업로드서식", perm: "upload_data",       group: "관리" },
   { key: "upload",    label: "출고 데이터 업로드", perm: "upload_data",        group: "관리" },
+  { key: "cashplan",  label: "자금수지 수금계획", perm: "data_export",          group: "관리" },
   { key: "users",     label: "계정·권한 관리",    perm: "user_manage",         group: "관리" },
 ];
 
@@ -1553,6 +1678,7 @@ function App() {
           {screen === "template" && <UploadTemplate />}
           {screen === "upload" && <Upload data={data} can={can} notify={notify}
             applyUpload={applyUpload} refresh={load} />}
+          {screen === "cashplan" && <CashPlan data={data} notify={notify} />}
           {screen === "users" && <Users data={data} notify={notify} refresh={load} />}
         </div>
       </main>
