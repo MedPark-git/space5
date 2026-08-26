@@ -307,6 +307,14 @@ def bootstrap():
 def update_customer(code):
     data = body()
     fields, values = [], []
+    if "name" in data:
+        if "customer_info_edit" not in request.user["permissions"]:
+            return jsonify(error="'거래처 정보수정' 권한이 없습니다."), 403
+        name = str(data.get("name") or "").strip()
+        if not name:
+            return jsonify(error="거래처명을 입력하세요."), 400
+        fields.append("name = %s")
+        values.append(name)
     if "period" in data:
         if "customer_info_edit" not in request.user["permissions"]:
             return jsonify(error="'거래처 정보수정' 권한이 없습니다."), 403
