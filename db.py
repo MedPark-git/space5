@@ -292,7 +292,8 @@ CREATE TABLE IF NOT EXISTS uploads (
     uploaded_by  TEXT NOT NULL,
     uploaded_at  TEXT NOT NULL {NOW_DEFAULT},
     replaced     INTEGER NOT NULL DEFAULT 0,
-    upload_type  TEXT NOT NULL DEFAULT 'snapshot'
+    upload_type  TEXT NOT NULL DEFAULT 'snapshot',
+    shipment_date TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS monthly_shipments (
@@ -349,6 +350,7 @@ PERMISSIONS = [
     ("upload_data",         "출고 데이터 업로드"),
     ("month_lock",          "월 마감 잠금·해제"),
     ("note_edit",           "비고 편집"),
+    ("customer_info_edit",  "거래처 정보수정"),
     ("data_export",         "데이터 내보내기"),
     ("user_manage",         "계정·권한 관리"),
 ]
@@ -419,11 +421,16 @@ def init_db():
         if USE_PG:
             conn.execute("ALTER TABLE uploads ADD COLUMN IF NOT EXISTS upload_type"
                          " TEXT NOT NULL DEFAULT 'snapshot'")
+            conn.execute("ALTER TABLE uploads ADD COLUMN IF NOT EXISTS shipment_date"
+                         " TEXT NOT NULL DEFAULT ''")
         else:
             upload_columns = {r["name"] for r in conn.execute("PRAGMA table_info(uploads)")}
             if "upload_type" not in upload_columns:
                 conn.execute("ALTER TABLE uploads ADD COLUMN upload_type"
                              " TEXT NOT NULL DEFAULT 'snapshot'")
+            if "shipment_date" not in upload_columns:
+                conn.execute("ALTER TABLE uploads ADD COLUMN shipment_date"
+                             " TEXT NOT NULL DEFAULT ''")
         existing = {r["username"] for r in conn.execute("SELECT username FROM users")}
         for username, name, title, role, unit in SEED_USERS:
             if username in existing:
@@ -434,6 +441,9 @@ def init_db():
                 (username, name, title, role, unit,
                  generate_password_hash(DEFAULT_PASSWORD),
                  json.dumps(ROLE_TEMPLATES[role]["perms"], ensure_ascii=False)))
+        # 기존 시스템관리자에도 새로 추가된 권한을 자동 반영한다.
+        conn.execute("UPDATE users SET permissions=%s WHERE role='admin'",
+                     (json.dumps(ALL_PERMS, ensure_ascii=False),))
         # 시스템관리자 외 기존 계정은 재설정을 위해 한 번만 삭제한다.
         account_reset_key = "non_admin_accounts_cleared_20260825"
         account_reset = conn.execute(
