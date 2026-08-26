@@ -946,12 +946,18 @@ function ClosingReceivables({
         const pptx = new window.PptxGenJS();
         pptx.layout = "LAYOUT_WIDE";
         pptx.author = "MEDPARK";
-        const imageData = canvas.toDataURL("image/png");
         const pageHeight = Math.floor(canvas.width * 6.75 / 12.65);
-        for (let top = 0; top < canvas.height; top += pageHeight) {
+        const reportBox = reportRef.current.getBoundingClientRect();
+        const scaleY = canvas.height / reportBox.height;
+        const rowCuts = [...reportRef.current.querySelectorAll(".closing-detail tbody tr, .closing-detail tfoot tr")].map(row => Math.min(canvas.height, Math.round((row.getBoundingClientRect().bottom - reportBox.top) * scaleY) + 2)).sort((a, b) => a - b);
+        let top = 0;
+        while (top < canvas.height) {
+          const desiredBottom = Math.min(canvas.height, top + pageHeight);
+          const safeCuts = rowCuts.filter(cut => cut > top + 80 && cut <= desiredBottom);
+          const bottom = desiredBottom === canvas.height ? canvas.height : safeCuts.length ? safeCuts[safeCuts.length - 1] : desiredBottom;
           const slice = document.createElement("canvas");
           slice.width = canvas.width;
-          slice.height = Math.min(pageHeight, canvas.height - top);
+          slice.height = bottom - top;
           slice.getContext("2d").drawImage(canvas, 0, top, canvas.width, slice.height, 0, 0, canvas.width, slice.height);
           const slide = pptx.addSlide();
           slide.background = {
@@ -983,6 +989,7 @@ function ClosingReceivables({
             w: 12.65,
             h: 12.65 * slice.height / slice.width
           });
+          top = bottom;
         }
         await pptx.writeFile({
           fileName: base + ".pptx"
