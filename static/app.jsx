@@ -395,6 +395,116 @@ function Dashboard({ data, setScreen, setPreset }) {
   );
 }
 
+/* ══════════════════ 채권요약현황 ══════════════════ */
+
+function BondSummary({ data }) {
+  const unitNames = { 덴탈: "국내덴탈", 메디컬: "국내메디컬", 에스테틱: "국내에스테틱" };
+  const units = data.meta.units;
+
+  function liveNormal(c) {
+    const source = {
+      later: Number(c.normal_later_balance) || 0,
+      next: Number(c.normal_next_balance) || 0,
+      current: Number(c.normal_current_balance) || 0,
+    };
+    let paid = Math.max(0, source.later + source.next + source.current - (Number(c.normal_balance) || 0));
+    const current = Math.max(0, source.current - paid); paid = Math.max(0, paid - source.current);
+    const next = Math.max(0, source.next - paid); paid = Math.max(0, paid - source.next);
+    const later = Math.max(0, source.later - paid);
+    return { later, next, current };
+  }
+
+  const summary = useMemo(() => units.map((unit) => {
+    const customers = data.customers.filter((c) => c.biz_unit === unit);
+    const row = { unit, later: 0, next: 0, current: 0, overdue: 0, bad: 0,
+      normalCollected: 0, overdueCollected: 0 };
+    customers.forEach((c) => {
+      const live = liveNormal(c);
+      row.later += live.later; row.next += live.next; row.current += live.current;
+      row.overdue += Number(c.overdue_balance) || 0;
+      row.bad += Number(c.bad_balance) || 0;
+      const normalSource = (Number(c.normal_later_balance) || 0)
+        + (Number(c.normal_next_balance) || 0) + (Number(c.normal_current_balance) || 0);
+      row.normalCollected += (Number(c.normal_collected) || 0)
+        + Math.max(0, normalSource - (Number(c.normal_balance) || 0));
+      row.overdueCollected += (Number(c.overdue_collected) || 0)
+        + Math.max(0, (Number(c.overdue_source_balance) || 0) - (Number(c.overdue_balance) || 0));
+    });
+    row.normal = row.later + row.next + row.current;
+    row.total = row.normal + row.overdue + row.bad;
+    return row;
+  }), [data.customers, units]);
+
+  const total = (key) => sum(summary, key);
+  const rate = (value, base) => base ? (value / base * 100).toFixed(1) + "%" : "0.0%";
+  const sourceMonth = (data.uploads[0] && data.uploads[0].month) || thisMonth();
+
+  return (
+    <>
+      <Card title={"1. 사업부별 채권 분류 현황 (" + sourceMonth + " 기준)"} flush>
+        <div className="tablewrap summary-table">
+          <table>
+            <thead>
+              <tr><th rowSpan="2">사업부</th><th colSpan="4" className="summary-head summary-head--normal">정상채권</th>
+                <th rowSpan="2" className="summary-head summary-head--overdue">미수채권</th>
+                <th rowSpan="2" className="summary-head summary-head--bad">부실채권</th>
+                <th rowSpan="2" className="summary-head summary-head--total">합계</th>
+                <th rowSpan="2" className="summary-head summary-head--total">미수채권 비중</th></tr>
+              <tr><th>10월 이후</th><th>9월 분</th><th>8월 분(당월)</th><th>[소계]</th></tr>
+            </thead>
+            <tbody>{summary.map((r) => (
+              <tr key={r.unit}><td className="t-strong">{unitNames[r.unit]}</td>
+                <td className="r num summary-normal">{won(r.later)}</td>
+                <td className="r num summary-normal">{won(r.next)}</td>
+                <td className="r num summary-normal">{won(r.current)}</td>
+                <td className="r num summary-subtotal">{won(r.normal)}</td>
+                <td className="r num summary-overdue">{won(r.overdue)}</td>
+                <td className="r num summary-bad">{won(r.bad)}</td>
+                <td className="r num t-strong">{won(r.total)}</td>
+                <td className="r num t-strong">{rate(r.overdue, r.total)}</td></tr>
+            ))}</tbody>
+            <tfoot><tr><td>합계</td><td className="r num">{won(total("later"))}</td>
+              <td className="r num">{won(total("next"))}</td><td className="r num">{won(total("current"))}</td>
+              <td className="r num summary-subtotal">{won(total("normal"))}</td>
+              <td className="r num summary-overdue">{won(total("overdue"))}</td>
+              <td className="r num">{won(total("bad"))}</td><td className="r num">{won(total("total"))}</td>
+              <td className="r num">{rate(total("overdue"), total("total"))}</td></tr></tfoot>
+          </table>
+        </div>
+        <div className="summary-note">현재 운영 기초자료 {data.customers.length}개 거래처 기준 · 금액 단위: 원</div>
+      </Card>
+
+      <Card title={"2. " + Number(sourceMonth.slice(5, 7)) + "월 수금실적"} flush>
+        <div className="tablewrap summary-table">
+          <table>
+            <thead><tr><th rowSpan="2">사업부</th>
+              <th colSpan="4" className="summary-head summary-head--normal">정상채권 (당월분)</th>
+              <th colSpan="4" className="summary-head summary-head--overdue">미수채권 (부실채권 제외)</th></tr>
+              <tr><th>기초</th><th>수금액</th><th>잔액</th><th>회수율</th>
+                <th>기초</th><th>수금액</th><th>잔액</th><th>회수율</th></tr></thead>
+            <tbody>{summary.map((r) => {
+              const normalOpening = r.current + r.normalCollected;
+              const overdueOpening = r.overdue + r.overdueCollected;
+              return <tr key={r.unit}><td className="t-strong">{unitNames[r.unit]}</td>
+                <td className="r num">{won(normalOpening)}</td><td className="r num summary-normal">{won(r.normalCollected)}</td>
+                <td className="r num summary-subtotal">{won(r.current)}</td><td className="r num t-strong">{rate(r.normalCollected, normalOpening)}</td>
+                <td className="r num">{won(overdueOpening)}</td><td className="r num summary-overdue">{won(r.overdueCollected)}</td>
+                <td className="r num summary-subtotal">{won(r.overdue)}</td><td className="r num t-strong">{rate(r.overdueCollected, overdueOpening)}</td></tr>;
+            })}</tbody>
+            <tfoot><tr><td>합계</td>
+              <td className="r num">{won(total("current") + total("normalCollected"))}</td>
+              <td className="r num">{won(total("normalCollected"))}</td><td className="r num">{won(total("current"))}</td>
+              <td className="r num">{rate(total("normalCollected"), total("current") + total("normalCollected"))}</td>
+              <td className="r num">{won(total("overdue") + total("overdueCollected"))}</td>
+              <td className="r num">{won(total("overdueCollected"))}</td><td className="r num">{won(total("overdue"))}</td>
+              <td className="r num">{rate(total("overdueCollected"), total("overdue") + total("overdueCollected"))}</td></tr></tfoot>
+          </table>
+        </div>
+      </Card>
+    </>
+  );
+}
+
 /* ══════════════════ 거래처별 현황 ══════════════════ */
 
 function Customers({ data, can, preset, notify, patchCustomer }) {
@@ -921,7 +1031,13 @@ const COLUMN_ALIASES = {
   owner: ["담당자", "영업담당", "담당", "owner"],
   balance: ["미수잔액", "미수금액", "채권잔액", "잔액", "미수금", "balance"],
   normal_balance: ["정상채권잔액", "정상채권", "normal_balance"],
+  normal_later_balance: ["10월이후수금대상", "정상채권10월이후", "normal_later_balance"],
+  normal_next_balance: ["9월수금대상", "정상채권9월분", "normal_next_balance"],
+  normal_current_balance: ["8월수금대상", "정상채권8월분", "normal_current_balance"],
+  normal_collected: ["정상채권수금현황", "정상채권수금액", "normal_collected"],
   overdue_balance: ["미수채권(11개월내)", "11개월내", "overdue_balance"],
+  overdue_source_balance: ["미수채권기초잔액", "overdue_source_balance"],
+  overdue_collected: ["미수채권수금현황", "미수채권수금액", "overdue_collected"],
   bad_balance: ["부실채권(12개월이상)", "12개월이상", "bad_balance"],
   advance: ["선수금", "선수금액", "advance"],
   overdue_days: ["경과일", "연체일", "경과일수", "연체일수"],
@@ -987,7 +1103,13 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
             owner: String(pick("owner") || "").trim(),
             balance: pick("balance"),
             normal_balance: pick("normal_balance"),
+            normal_later_balance: pick("normal_later_balance"),
+            normal_next_balance: pick("normal_next_balance"),
+            normal_current_balance: pick("normal_current_balance"),
+            normal_collected: pick("normal_collected"),
             overdue_balance: pick("overdue_balance"),
+            overdue_source_balance: pick("overdue_source_balance") || pick("overdue_balance"),
+            overdue_collected: pick("overdue_collected"),
             bad_balance: pick("bad_balance"),
             advance: pick("advance"),
             overdue_days: pick("overdue_days"),
@@ -1238,6 +1360,7 @@ function Users({ data, notify, refresh }) {
 
 const SCREENS = [
   { key: "dashboard", label: "대시보드",         perm: "dashboard_view",      group: "현황" },
+  { key: "summary",   label: "채권요약현황",     perm: "dashboard_view",      group: "현황" },
   { key: "customers", label: "거래처별 현황",     perm: "customer_view",       group: "현황" },
   { key: "owners",    label: "담당자별 채권현황", perm: "owner_view",          group: "현황" },
   { key: "collections", label: "수금 등록",       perm: "collection_register", group: "수금", alt: "collection_approve" },
@@ -1342,6 +1465,7 @@ function App() {
 
         <div className="page">
           {screen === "dashboard" && <Dashboard data={data} setScreen={setScreen} setPreset={setPreset} />}
+          {screen === "summary" && <BondSummary data={data} />}
           {screen === "customers" && <Customers data={data} can={can} preset={preset}
             notify={notify} patchCustomer={patchCustomer} />}
           {screen === "owners" && <Owners data={data} />}
