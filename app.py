@@ -211,16 +211,17 @@ def bootstrap():
                 normal_next_balance=0, normal_later_balance=0,
                 normal_collected=0, overdue_balance=0, overdue_source_balance=0,
                 overdue_collected=0, bad_balance=0))
-            amount = item["balance"]
+            amount = int(item["balance"] or 0)
+            original_amount = int(item["original_amount"] or 0)
             part["balance"] += amount
             if item["category"] == "부실":
                 part["bad_balance"] += amount
             elif item["category"] == "연체":
                 part["overdue_balance"] += amount
-                part["overdue_source_balance"] += item["original_amount"]
+                part["overdue_source_balance"] += original_amount
             else:
                 part["normal_balance"] += amount
-                part["normal_collected"] += max(item["original_amount"] - amount, 0)
+                part["normal_collected"] += max(original_amount - amount, 0)
                 if item["target_month"] == latest_snapshot:
                     part["normal_current_balance"] += amount
                 elif item["target_month"] == add_months(latest_snapshot, 1):
@@ -265,7 +266,7 @@ def bootstrap():
                     customer = closing_map.get(row["code"])
                     if not customer:
                         continue
-                    amount = row["balance"]
+                    amount = int(row["balance"] or 0)
                     bucket_field = bucket_fields.get(row["bucket"], "normal_later_balance")
                     for field in ("balance", "normal_balance", bucket_field):
                         customer[field] = max(0, int(customer.get(field) or 0) - amount)
