@@ -630,7 +630,7 @@ def upload_rows():
                 shipments[key] = dict(
                     code=code, name=str(r.get("name") or "").strip() or code,
                     biz_unit=unit,
-                    owner=str(r.get("owner") or "").strip(), period=period,
+                    owner="", period=period,
                     target_month=target_month, bucket=bucket, amount=amount,
                     note=str(r.get("note") or "").strip())
 
@@ -671,13 +671,11 @@ def upload_rows():
                 column = bucket_columns[item["bucket"]]
                 if current:
                     conn.execute(
-                        "UPDATE customers SET name=%s,"
-                        " owner=CASE WHEN %s='' THEN owner ELSE %s END, period=%s,"
+                        "UPDATE customers SET name=%s, period=%s,"
                         " balance=balance+%s, normal_balance=normal_balance+%s,"
                         " " + column + "=" + column + "+%s, source_month=%s,"
                         " updated_at=" + db.NOW_SQL + " WHERE code=%s",
-                        (item["name"], item["owner"], item["owner"],
-                         item["period"], item["amount"], item["amount"], item["amount"],
+                        (item["name"], item["period"], item["amount"], item["amount"], item["amount"],
                          month, item["code"]))
                 else:
                     values = dict(current=0, next=0, later=0)
@@ -686,13 +684,13 @@ def upload_rows():
                         "INSERT INTO customers (code,name,biz_unit,status,owner,balance,normal_balance,"
                         " normal_current_balance,normal_next_balance,normal_later_balance,period,source_month,note)"
                         " VALUES (%s,%s,%s,'정상',%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                        (item["code"], item["name"], item["biz_unit"], item["owner"],
+                        (item["code"], item["name"], item["biz_unit"], "",
                          item["amount"], item["amount"], values["current"], values["next"],
                          values["later"], item["period"], month, item["note"]))
                 conn.execute(
                     "INSERT INTO monthly_shipment_units (month,code,name,biz_unit,owner,collection_period,"
                     " target_month,bucket,amount,balance,note) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                    (month, item["code"], item["name"], item["biz_unit"], item["owner"],
+                    (month, item["code"], item["name"], item["biz_unit"], "",
                      item["period"], item["target_month"], item["bucket"], item["amount"],
                      item["amount"], item["note"]))
                 conn.execute(
@@ -747,7 +745,7 @@ def upload_rows():
             collection_period = -1 if period_raw in (None, "") else as_int(period_raw, -1)
             payload[code] = (
                 code, str(r.get("name") or "").strip() or code, unit, status,
-                str(r.get("owner") or "").strip(), balance,
+                "", balance,
                 normal_balance,
                 normal_later,
                 normal_next,
@@ -770,7 +768,7 @@ def upload_rows():
             " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
             " ON CONFLICT (code) DO UPDATE SET"
             " name=excluded.name, biz_unit=excluded.biz_unit, status=excluded.status,"
-            " owner=excluded.owner, balance=excluded.balance, advance=excluded.advance,"
+            " balance=excluded.balance, advance=excluded.advance,"
             " normal_balance=excluded.normal_balance,"
             " normal_later_balance=excluded.normal_later_balance,"
             " normal_next_balance=excluded.normal_next_balance,"
