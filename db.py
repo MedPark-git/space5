@@ -314,9 +314,29 @@ CREATE TABLE IF NOT EXISTS monthly_shipments (
 CREATE INDEX IF NOT EXISTS idx_ship_code ON monthly_shipments(code);
 CREATE INDEX IF NOT EXISTS idx_ship_target ON monthly_shipments(target_month);
 
+CREATE TABLE IF NOT EXISTS monthly_shipment_units (
+    month              TEXT NOT NULL,
+    code               TEXT NOT NULL,
+    name               TEXT NOT NULL,
+    biz_unit           TEXT NOT NULL,
+    owner              TEXT NOT NULL DEFAULT '',
+    collection_period  INTEGER NOT NULL DEFAULT -1,
+    target_month       TEXT NOT NULL DEFAULT '',
+    bucket             TEXT NOT NULL DEFAULT 'current',
+    amount             {BIGINT} NOT NULL DEFAULT 0,
+    balance            {BIGINT} NOT NULL DEFAULT 0,
+    note               TEXT NOT NULL DEFAULT '',
+    uploaded_at        TEXT NOT NULL {NOW_DEFAULT},
+    PRIMARY KEY (month, code, biz_unit)
+);
+CREATE INDEX IF NOT EXISTS idx_ship_unit_code ON monthly_shipment_units(code);
+CREATE INDEX IF NOT EXISTS idx_ship_unit_target ON monthly_shipment_units(target_month);
+CREATE INDEX IF NOT EXISTS idx_ship_unit_biz ON monthly_shipment_units(biz_unit);
+
 CREATE TABLE IF NOT EXISTS receivable_items (
     id             {SERIAL},
     customer_code  TEXT NOT NULL,
+    biz_unit       TEXT NOT NULL DEFAULT '',
     source_key     TEXT NOT NULL UNIQUE,
     issue_month    TEXT NOT NULL DEFAULT '',
     target_month   TEXT NOT NULL DEFAULT '',
@@ -448,6 +468,28 @@ def init_db():
             if "shipment_date" not in upload_columns:
                 conn.execute("ALTER TABLE uploads ADD COLUMN shipment_date"
                              " TEXT NOT NULL DEFAULT ''")
+        # 채권 원장에 사업부를 보존하고, 기존 월별 출고는 사업부 복수 저장이 가능한 표로 이전한다.
+        if USE_PG:
+            conn.execute("ALTER TABLE receivable_items ADD COLUMN IF NOT EXISTS biz_unit"
+                         " TEXT NOT NULL DEFAULT ''")
+        else:
+            item_columns = {r["name"] for r in conn.execute("PRAGMA table_info(receivable_items)")}
+            if "biz_unit" not in item_columns:
+                conn.execute("ALTER TABLE receivable_items ADD COLUMN biz_unit"
+                             " TEXT NOT NULL DEFAULT ''")
+        conn.execute(
+            "UPDATE receivable_items SET biz_unit=(SELECT c.biz_unit FROM customers c"
+            " WHERE c.code=receivable_items.customer_code) WHERE biz_unit=''"
+        )
+        migrated_shipments = conn.execute(
+            "SELECT COUNT(*) AS c FROM monthly_shipment_units").fetchone()["c"]
+        if migrated_shipments == 0:
+            conn.execute(
+                "INSERT INTO monthly_shipment_units (month,code,name,biz_unit,owner,collection_period,"
+                "target_month,bucket,amount,balance,note,uploaded_at)"
+                " SELECT month,code,name,biz_unit,owner,collection_period,target_month,bucket,amount,balance,note,uploaded_at"
+                " FROM monthly_shipments WHERE 1=1 ON CONFLICT(month,code,biz_unit) DO NOTHING"
+            )
         # 기존 집계형 채권을 발생월별 원장으로 한 번만 안전하게 전환한다.
         item_count = conn.execute("SELECT COUNT(*) AS c FROM receivable_items").fetchone()["c"]
         if item_count == 0:
@@ -483,6 +525,10 @@ def init_db():
                             (code, "legacy:%s:%s" % (code, category), issue,
                              shift_month(issue, period), category, amount, amount, customer["collection_target_date"],
                              "기존 %s 세부 전환" % category))
+        conn.execute(
+            "UPDATE receivable_items SET biz_unit=(SELECT c.biz_unit FROM customers c"
+            " WHERE c.code=receivable_items.customer_code) WHERE biz_unit=''"
+        )
         existing = {r["username"] for r in conn.execute("SELECT username FROM users")}
         for username, name, title, role, unit in SEED_USERS:
             if username in existing:
