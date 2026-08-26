@@ -10,7 +10,7 @@ import os
 import base64
 import io
 import calendar
-from copy import copy
+from copy import copy, deepcopy
 from datetime import date, datetime
 from functools import wraps
 
@@ -229,17 +229,44 @@ def bootstrap():
                     part["normal_later_balance"] += amount
         cash_plan_months = [add_months(latest_snapshot, i) for i in range(3)]
         reflection_label = "마감 데이터 없음"
+        dashboard_closing_customers = deepcopy(customers)
+        dashboard_views = []
         if finalized:
             closed_month = finalized[-1]
             reflection_label = "%d월 최종마감 반영" % int(closed_month[5:7])
+            dashboard_views.append(dict(key="closing", label=reflection_label))
             next_month = add_months(closed_month, 1)
             shipment = next((u for u in uploads
                              if u.get("upload_type") == "shipment" and u["month"] == next_month), None)
             if shipment:
+                closing_map = {c["code"]: c for c in dashboard_closing_customers}
+                shipment_rows = [r for r in conn.execute(
+                    "SELECT code,biz_unit,bucket,balance FROM monthly_shipment_units"
+                    " WHERE month=%s AND balance<>0", (next_month,))]
+                bucket_fields = {
+                    "current": "normal_current_balance",
+                    "next": "normal_next_balance",
+                    "later": "normal_later_balance",
+                }
+                for row in shipment_rows:
+                    customer = closing_map.get(row["code"])
+                    if not customer:
+                        continue
+                    amount = row["balance"]
+                    bucket_field = bucket_fields.get(row["bucket"], "normal_later_balance")
+                    for field in ("balance", "normal_balance", bucket_field):
+                        customer[field] = max(0, int(customer.get(field) or 0) - amount)
+                    part = (customer.get("unit_breakdown") or {}).get(row["biz_unit"])
+                    if part:
+                        for field in ("balance", "normal_balance", bucket_field):
+                            part[field] = max(0, int(part.get(field) or 0) - amount)
                 reflected_date = shipment.get("shipment_date") or str(shipment["uploaded_at"])[:10]
                 uploaded_day = int(reflected_date[8:10])
                 reflection_label += " + %d월 %d일 출고데이터 반영" % (
                     int(next_month[5:7]), uploaded_day)
+                dashboard_views.append(dict(key="combined", label=reflection_label))
+        if not dashboard_views:
+            dashboard_views.append(dict(key="combined", label=reflection_label))
         users = []
         if "user_manage" in user["permissions"]:
             users = [{k: v for k, v in r.items() if k != "password"}
@@ -247,12 +274,14 @@ def bootstrap():
             for u in users:
                 u["permissions"] = json.loads(u["permissions"])
     return jsonify(
-        user=user, customers=customers, collections=collections, targets=targets,
+        user=user, customers=customers, dashboard_closing_customers=dashboard_closing_customers,
+        collections=collections, targets=targets,
         uploads=uploads, locks=locks, users=users,
         meta=dict(permissions=[{"key": k, "label": l} for k, l in PERMISSIONS],
                   roles={k: v for k, v in ROLE_TEMPLATES.items()},
                   methods=METHODS, units=UNITS, statuses=STATUSES,
                   today=date.today().isoformat(), reflection_label=reflection_label,
+                  dashboard_views=dashboard_views,
                   cash_plan_months=cash_plan_months),
     )
 
