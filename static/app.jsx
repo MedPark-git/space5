@@ -1124,15 +1124,20 @@ const COLUMN_ALIASES = {
 
 function mapHeaders(headers) {
   const map = {};
-  headers.forEach((h, i) => {
-    const clean = String(h || "").replace(/\s/g, "");
-    for (const [field, aliases] of Object.entries(COLUMN_ALIASES)) {
-      if (map[field] !== undefined) continue;
-      if (aliases.some((a) => clean === a.replace(/\s/g, "") || clean.includes(a.replace(/\s/g, "")))) {
-        map[field] = i;
-      }
-    }
-  });
+  const cleaned = headers.map((h) => String(h || "").replace(/\s/g, ""));
+  // '고객'이 '고객코드'에 먼저 걸리는 일을 막기 위해 정확히 같은 머리글을 최우선으로 찾는다.
+  for (const [field, aliases] of Object.entries(COLUMN_ALIASES)) {
+    const normalized = aliases.map((a) => a.replace(/\s/g, ""));
+    const exact = cleaned.findIndex((header) => normalized.includes(header));
+    if (exact >= 0) map[field] = exact;
+  }
+  // 과거 서식의 부가 문구가 붙은 머리글만 부분 일치로 보완한다.
+  for (const [field, aliases] of Object.entries(COLUMN_ALIASES)) {
+    if (map[field] !== undefined) continue;
+    const normalized = aliases.map((a) => a.replace(/\s/g, ""));
+    const fuzzy = cleaned.findIndex((header) => normalized.some((a) => a && header.includes(a)));
+    if (fuzzy >= 0) map[field] = fuzzy;
+  }
   return map;
 }
 
