@@ -238,6 +238,7 @@ CREATE TABLE IF NOT EXISTS customers (
     bad_balance   {BIGINT} NOT NULL DEFAULT 0,
     advance       {BIGINT} NOT NULL DEFAULT 0,
     overdue_days  INTEGER NOT NULL DEFAULT 0,
+    collection_target_date TEXT NOT NULL DEFAULT '',
     last_paid_at  TEXT NOT NULL DEFAULT '',
     period        INTEGER NOT NULL DEFAULT 1,
     source_month  TEXT NOT NULL DEFAULT '',
@@ -380,18 +381,21 @@ def init_db():
             "normal_balance", "normal_later_balance", "normal_next_balance",
             "normal_current_balance", "normal_collected", "overdue_balance",
             "overdue_source_balance", "overdue_collected", "bad_balance",
+            "collection_target_date",
         )
         if USE_PG:
             for column in split_columns:
                 conn.execute(
                     "ALTER TABLE customers ADD COLUMN IF NOT EXISTS " + column
-                    + " BIGINT NOT NULL DEFAULT 0")
+                    + (" TEXT NOT NULL DEFAULT ''" if column == "collection_target_date"
+                       else " BIGINT NOT NULL DEFAULT 0"))
         else:
             existing_columns = {r["name"] for r in conn.execute("PRAGMA table_info(customers)")}
             for column in split_columns:
                 if column not in existing_columns:
                     conn.execute("ALTER TABLE customers ADD COLUMN " + column
-                                 + " INTEGER NOT NULL DEFAULT 0")
+                                 + (" TEXT NOT NULL DEFAULT ''" if column == "collection_target_date"
+                                    else " INTEGER NOT NULL DEFAULT 0"))
         existing = {r["username"] for r in conn.execute("SELECT username FROM users")}
         for username, name, title, role, unit in SEED_USERS:
             if username in existing:
