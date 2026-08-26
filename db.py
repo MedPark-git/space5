@@ -314,6 +314,23 @@ CREATE TABLE IF NOT EXISTS monthly_shipments (
 CREATE INDEX IF NOT EXISTS idx_ship_code ON monthly_shipments(code);
 CREATE INDEX IF NOT EXISTS idx_ship_target ON monthly_shipments(target_month);
 
+CREATE TABLE IF NOT EXISTS receivable_items (
+    id             {SERIAL},
+    customer_code  TEXT NOT NULL,
+    source_key     TEXT NOT NULL UNIQUE,
+    issue_month    TEXT NOT NULL DEFAULT '',
+    target_month   TEXT NOT NULL DEFAULT '',
+    category       TEXT NOT NULL DEFAULT '정상',
+    original_amount {BIGINT} NOT NULL DEFAULT 0,
+    balance        {BIGINT} NOT NULL DEFAULT 0,
+    target_date    TEXT NOT NULL DEFAULT '',
+    note           TEXT NOT NULL DEFAULT '',
+    created_at     TEXT NOT NULL {NOW_DEFAULT}
+);
+CREATE INDEX IF NOT EXISTS idx_ri_customer ON receivable_items(customer_code);
+CREATE INDEX IF NOT EXISTS idx_ri_issue ON receivable_items(issue_month);
+CREATE INDEX IF NOT EXISTS idx_ri_target ON receivable_items(target_month);
+
 CREATE TABLE IF NOT EXISTS month_locks (
     month     TEXT PRIMARY KEY,
     locked    INTEGER NOT NULL DEFAULT 0,
@@ -431,6 +448,41 @@ def init_db():
             if "shipment_date" not in upload_columns:
                 conn.execute("ALTER TABLE uploads ADD COLUMN shipment_date"
                              " TEXT NOT NULL DEFAULT ''")
+        # 기존 집계형 채권을 발생월별 원장으로 한 번만 안전하게 전환한다.
+        item_count = conn.execute("SELECT COUNT(*) AS c FROM receivable_items").fetchone()["c"]
+        if item_count == 0:
+            def shift_month(month, offset):
+                if not month or len(month) != 7:
+                    return ""
+                y, m = (int(x) for x in month.split("-"))
+                total = y * 12 + m - 1 + offset
+                return "%04d-%02d" % (total // 12, total % 12 + 1)
+            for customer in conn.execute("SELECT * FROM customers"):
+                code, base = customer["code"], customer["source_month"]
+                period = customer["period"] if customer["period"] >= 0 else 0
+                normal_parts = [
+                    ("current", base, customer["normal_current_balance"]),
+                    ("next", shift_month(base, 1), customer["normal_next_balance"]),
+                    ("later", shift_month(base, 2), customer["normal_later_balance"]),
+                ]
+                for label, target, amount in normal_parts:
+                    if amount != 0:
+                        conn.execute(
+                            "INSERT INTO receivable_items (customer_code,source_key,issue_month,target_month,category,original_amount,balance,target_date,note)"
+                            " VALUES (%s,%s,%s,%s,'정상',%s,%s,%s,%s) ON CONFLICT(source_key) DO NOTHING",
+                            (code, "legacy:%s:normal:%s" % (code, label), shift_month(target, -period),
+                             target, amount, amount, customer["collection_target_date"], "기존 정상채권 세부 전환"))
+                months = max(1, (customer["overdue_days"] + 29) // 30)
+                issue = shift_month(base, -months)
+                for category, field in (("연체", "overdue_balance"), ("부실", "bad_balance")):
+                    amount = customer[field]
+                    if amount != 0:
+                        conn.execute(
+                            "INSERT INTO receivable_items (customer_code,source_key,issue_month,target_month,category,original_amount,balance,target_date,note)"
+                            " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT(source_key) DO NOTHING",
+                            (code, "legacy:%s:%s" % (code, category), issue,
+                             shift_month(issue, period), category, amount, amount, customer["collection_target_date"],
+                             "기존 %s 세부 전환" % category))
         existing = {r["username"] for r in conn.execute("SELECT username FROM users")}
         for username, name, title, role, unit in SEED_USERS:
             if username in existing:
