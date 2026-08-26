@@ -403,23 +403,38 @@ def upload_rows():
             code = str(r.get("code") or "").strip()
             if not code or code.startswith("#REF") or code.startswith("#N/A"):
                 continue  # 엑셀 수식 오류 셀은 건너뛴다
+            if code.isdigit():
+                code = code.zfill(5)
             unit = str(r.get("biz_unit") or "").strip() or "덴탈"
             overdue = as_int(r.get("overdue_days"))
+            normal_balance = as_int(r.get("normal_balance"))
+            overdue_balance = as_int(r.get("overdue_balance"))
+            bad_balance = as_int(r.get("bad_balance"))
+            split_total = normal_balance + overdue_balance + bad_balance
+            balance = as_int(r.get("balance"))
+            if split_total and balance != split_total:
+                balance = split_total
+            normal_later = as_int(r.get("normal_later_balance"))
+            normal_next = as_int(r.get("normal_next_balance"))
+            normal_current = as_int(r.get("normal_current_balance"))
+            if normal_balance and not (normal_later or normal_next or normal_current):
+                normal_current = normal_balance
             status = str(r.get("status") or "").strip()
             if status not in STATUSES:
-                status = "정상" if overdue <= 30 else ("연체" if overdue <= 180 else "부실")
+                status = "부실" if bad_balance else (
+                    "연체" if overdue_balance or overdue > 0 else "정상")
             payload[code] = (
                 code, str(r.get("name") or "").strip() or code, unit, status,
-                str(r.get("owner") or "").strip(), as_int(r.get("balance")),
-                as_int(r.get("normal_balance")),
-                as_int(r.get("normal_later_balance")),
-                as_int(r.get("normal_next_balance")),
-                as_int(r.get("normal_current_balance")),
+                str(r.get("owner") or "").strip(), balance,
+                normal_balance,
+                normal_later,
+                normal_next,
+                normal_current,
                 as_int(r.get("normal_collected")),
-                as_int(r.get("overdue_balance")),
-                as_int(r.get("overdue_source_balance") or r.get("overdue_balance")),
+                overdue_balance,
+                as_int(r.get("overdue_source_balance") or overdue_balance),
                 as_int(r.get("overdue_collected")),
-                as_int(r.get("bad_balance")),
+                bad_balance,
                 as_int(r.get("advance")), overdue,
                 str(r.get("last_paid_at") or "").strip(), 1, month,
                 str(r.get("note") or "").strip(),
