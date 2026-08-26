@@ -40,7 +40,7 @@ const sum = (list, key) => list.reduce((a, x) => a + (Number(x[key]) || 0), 0);
 function customerForUnit(customer, unit) {
   if (unit === "전체") return customer;
   const part = customer.unit_breakdown && customer.unit_breakdown[unit];
-  if (!part || Number(part.balance || 0) === 0) return null;
+  if (!part) return null;
   return {
     ...customer,
     ...part,
