@@ -16,6 +16,18 @@ const STATUS_LABEL = { 정상: "정상채권", 연체: "미수채권", 부실: "
 const today = () => new Date().toISOString().slice(0, 10);
 const thisMonth = () => new Date().toISOString().slice(0, 7);
 const sum = (list, key) => list.reduce((a, x) => a + (Number(x[key]) || 0), 0);
+function customerForUnit(customer, unit) {
+  if (unit === "전체") return customer;
+  const part = customer.unit_breakdown && customer.unit_breakdown[unit];
+  if (!part || Number(part.balance || 0) === 0) return null;
+  return {
+    ...customer, ...part, biz_unit: unit,
+    status: Number(part.bad_balance) ? "부실" : Number(part.overdue_balance) ? "연체" : "정상",
+  };
+}
+function customersForUnit(customers, unit) {
+  return unit === "전체" ? customers : customers.map((c) => customerForUnit(c, unit)).filter(Boolean);
+}
 const code5 = (code) => String(code || "").padStart(5, "0");
 const overdueMonths = (days) => Math.ceil(Math.max(0, Number(days) || 0) / 30);
 
@@ -137,7 +149,7 @@ function Dashboard({ data, setScreen, setPreset }) {
   const [overdueTopUnit, setOverdueTopUnit] = useState("전체");
 
   const scoped = useMemo(
-    () => (unit === "전체" ? customers : customers.filter((c) => c.biz_unit === unit)),
+    () => customersForUnit(customers, unit),
     [customers, unit]);
 
   const totals = useMemo(() => {
@@ -151,7 +163,7 @@ function Dashboard({ data, setScreen, setPreset }) {
   }, [scoped]);
 
   const byUnit = useMemo(() => data.meta.units.map((u) => {
-    const rows = customers.filter((c) => c.biz_unit === u);
+    const rows = customersForUnit(customers, u);
     const g = { unit: u, 정상: 0, 연체: 0, 부실: 0, count: rows.length };
     rows.forEach((c) => { g.정상 += c.normal_balance; g.연체 += c.overdue_balance; g.부실 += c.bad_balance; });
     g.total = g.정상 + g.연체 + g.부실;
@@ -170,11 +182,11 @@ function Dashboard({ data, setScreen, setPreset }) {
     return Object.values(map).sort((a, b) => b.month.localeCompare(a.month)).slice(0, 6);
   }, [approved]);
 
-  const normalTop5 = customers
-    .filter((c) => (normalTopUnit === "전체" || c.biz_unit === normalTopUnit) && c.normal_balance > 0)
+  const normalTop5 = customersForUnit(customers, normalTopUnit)
+    .filter((c) => c.normal_balance > 0)
     .sort((a, b) => b.normal_balance - a.normal_balance).slice(0, 5);
-  const overdueTop5 = customers
-    .filter((c) => (overdueTopUnit === "전체" || c.biz_unit === overdueTopUnit) && c.overdue_balance > 0)
+  const overdueTop5 = customersForUnit(customers, overdueTopUnit)
+    .filter((c) => c.overdue_balance > 0)
     .sort((a, b) => b.overdue_balance - a.overdue_balance).slice(0, 5);
   const topUnitSelect = (value, setter, label) => (
     <select className="select" style={{ width: 110, padding: "6px 9px" }}
@@ -438,7 +450,7 @@ function BondSummary({ data }) {
   }
 
   const summary = useMemo(() => units.map((unit) => {
-    const customers = data.customers.filter((c) => c.biz_unit === unit);
+    const customers = customersForUnit(data.customers, unit);
     const row = { unit, later: 0, next: 0, current: 0, overdue: 0, bad: 0,
       normalCollected: 0, overdueCollected: 0 };
     customers.forEach((c) => {
@@ -563,16 +575,15 @@ function Customers({ data, can, preset, notify, patchCustomer }) {
 
   useEffect(() => { if (preset) { setUnit(preset.unit); setType(preset.status); } }, [preset]);
 
-  const rows = useMemo(() => data.customers.flatMap((c) => {
+  const rows = useMemo(() => customersForUnit(data.customers, unit).flatMap((c) => {
     const parts = [
       { status: "정상", balance: Number(c.normal_balance) || 0, months: 0 },
       { status: "연체", balance: Number(c.overdue_balance) || 0, months: overdueMonths(c.overdue_days) },
       { status: "부실", balance: Number(c.bad_balance) || 0, months: overdueMonths(c.overdue_days) },
     ].filter((part) => part.balance !== 0);
     return parts.map((part, index) => ({ ...c, ...part, advance: index === 0 ? c.advance : 0,
-      rowKey: c.code + "-" + part.status }));
+      rowKey: c.code + "-" + c.biz_unit + "-" + part.status }));
   }).filter((c) => {
-    if (unit !== "전체" && c.biz_unit !== unit) return false;
     if (type !== "전체" && c.status !== type) return false;
     if (q && !(c.name.includes(q) || c.code.includes(q) || code5(c.code).includes(q)
       || (c.owner || "").includes(q))) return false;
@@ -670,9 +681,10 @@ function Customers({ data, can, preset, notify, patchCustomer }) {
             조회기준일 {receivableDetail.as_of} · 발생월별 잔액과 정상회수월을 확인하고 채권별 목표일을 입력합니다.
           </div>
           <div className="tablewrap"><table>
-            <thead><tr><th>채권발생월</th><th>정상회수월</th><th>현재 구분</th>
+            <thead><tr><th>사업부</th><th>채권발생월</th><th>정상회수월</th><th>현재 구분</th>
               <th className="r">최초금액</th><th className="r">현재잔액</th><th>수금목표일</th><th>비고</th></tr></thead>
             <tbody>{receivableDetail.items.map((item) => <tr key={item.id}>
+              <td className="t-strong">{item.biz_unit || receivableDetail.customer.biz_unit}</td>
               <td className="num t-strong">{item.issue_month || "미확인"}</td>
               <td className="num">{item.target_month || "미입력"}</td><td><Badge status={item.as_of_status || item.category} /></td>
               <td className="r num">{won(item.original_amount)}</td><td className="r num t-strong">{won(item.balance)}</td>
@@ -1222,10 +1234,6 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
           });
           multiUnitCodes = Array.from(unitsByCode.entries())
             .filter(([, units]) => units.size > 1).map(([code]) => code);
-          if (multiUnitCodes.length) {
-            issues.push("복수 사업부 거래처 " + multiUnitCodes.join(", ")
-              + ": 사업부별 채권 원장 기능 확정 후 업로드할 수 있습니다.");
-          }
         }
         const seen = new Set(), dupes = [];
         preparedRows.forEach((r) => { if (seen.has(r.code)) dupes.push(r.code); seen.add(r.code); });
@@ -1242,11 +1250,6 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
   async function send() {
     setBusy(true);
     try {
-      if (parsed.multiUnitCodes && parsed.multiUnitCodes.length) {
-        notify("복수 사업부 거래처의 채권 원장 설계가 확정되기 전에는 업로드할 수 없습니다.", true);
-        setBusy(false);
-        return;
-      }
       const res = await api("/api/uploads", {
         method: "POST",
         body: { month, shipment_date: shipmentDate, filename: parsed.filename,
@@ -1314,7 +1317,9 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
               <b>{parsed.filename}</b> — 유효한 {parsed.rows.length}행을 읽었습니다.
               {parsed.amaranthMode && " 아마란스10 원본 서식으로 인식했습니다."}
               인식한 열: {parsed.mapped.length}개.
-              {parsed.dupes.length > 0 && " 중복 코드 " + parsed.dupes.length + "건이 있습니다."}
+              {parsed.dupes.length > 0 && (parsed.amaranthMode
+                ? " 복수 사업부 코드 " + parsed.dupes.length + "건을 사업부별로 분리합니다."
+                : " 중복 코드 " + parsed.dupes.length + "건이 있습니다.")}
             </div>
             {(parsed.dupes.length > 0 || parsed.issues.length > 0) && (
               <div className="alert alert--bad" style={{ marginTop: 10 }}>
