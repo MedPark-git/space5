@@ -231,6 +231,21 @@ tfoot td { background: var(--surface-2); font-weight: 700; border-top: 1px solid
 .chip[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: #fff; }
 .chiprow { display: flex; gap: 7px; flex-wrap: wrap; }
 
+/* ── 채권요약현황 ──────────────────────────────────────────────── */
+.summary-table table { min-width: 1120px; }
+.summary-table th, .summary-table td { padding: 11px 12px; border-right: 1px solid var(--line); }
+.summary-table thead th { text-align: center; vertical-align: middle; }
+.summary-table .summary-head { color: #fff; font-weight: 700; }
+.summary-head--normal { background: #198f78 !important; }
+.summary-head--overdue { background: #e18b16 !important; }
+.summary-head--bad { background: #c9473d !important; }
+.summary-head--total { background: #101a2a !important; }
+.summary-normal { color: #078a72; font-weight: 600; }
+.summary-overdue { color: #df7b00; font-weight: 600; }
+.summary-bad { color: #cf4339; font-weight: 600; }
+.summary-subtotal { background: #e4f4f0; font-weight: 700; }
+.summary-note { padding: 11px 14px; background: #fff8e7; color: #9a5d00; font-size: 12.5px; }
+
 /* ── 트리 ───────────────────────────────────────────────────────── */
 .tree { display: grid; gap: 3px; }
 .tree__unit { display: flex; align-items: center; gap: 8px; width: 100%; background: none;
