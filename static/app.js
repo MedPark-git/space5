@@ -468,6 +468,35 @@ function Owners({ data }) {
                             React.createElement("td", { colSpan: 2 })))))))));
 }
 /* ══════════════════ 수금 등록 ══════════════════ */
+function CustomerSearch({ customers, value, onChange }) {
+    const selected = customers.find((c) => c.code === value);
+    const [query, setQuery] = useState(selected ? selected.name : "");
+    const [open, setOpen] = useState(false);
+    const matches = useMemo(() => {
+        const keyword = query.trim().toLowerCase();
+        return customers.filter((c) => !keyword
+            || c.name.toLowerCase().includes(keyword)
+            || String(c.code).toLowerCase().includes(keyword)).slice(0, 12);
+    }, [customers, query]);
+    useEffect(() => {
+        if (!value)
+            setQuery("");
+    }, [value]);
+    function choose(customer) {
+        onChange(customer.code);
+        setQuery(customer.name);
+        setOpen(false);
+    }
+    return (React.createElement("div", { className: "customer-search" },
+        React.createElement("input", { className: "input", value: query, placeholder: "\uAC70\uB798\uCC98\uBA85 \uB610\uB294 \uCF54\uB4DC \uAC80\uC0C9", role: "combobox", "aria-expanded": open, "aria-autocomplete": "list", onFocus: () => setOpen(true), onBlur: () => setTimeout(() => setOpen(false), 150), onChange: (e) => { setQuery(e.target.value); onChange(""); setOpen(true); } }),
+        open && (React.createElement("div", { className: "customer-search__menu", role: "listbox" },
+            matches.map((c) => (React.createElement("button", { type: "button", role: "option", key: c.code, className: "customer-search__option", onMouseDown: (e) => e.preventDefault(), onClick: () => choose(c) },
+                React.createElement("span", null,
+                    React.createElement("b", null, c.name),
+                    React.createElement("small", null, c.code, " \u00B7 ", c.biz_unit)),
+                React.createElement("strong", { className: "num" }, won(c.balance), "\uC6D0")))),
+            matches.length === 0 && React.createElement("div", { className: "customer-search__empty" }, "\uAC80\uC0C9 \uACB0\uACFC\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.")))));
+}
 function Collections({ data, can, notify, refresh }) {
     const [form, setForm] = useState({
         customer_code: "", amount: "", method: "계좌수금", paid_at: today(), note: "",
@@ -505,15 +534,7 @@ function Collections({ data, can, notify, refresh }) {
         can("collection_register") && (React.createElement(Card, { title: "\uC218\uAE08 \uB4F1\uB85D" },
             React.createElement("div", { className: "formrow" },
                 React.createElement(Field, { label: "\uAC70\uB798\uCC98" },
-                    React.createElement("select", { className: "select", value: form.customer_code, onChange: set("customer_code") },
-                        React.createElement("option", { value: "" }, "\uC120\uD0DD\uD558\uC138\uC694"),
-                        data.customers.map((c) => (React.createElement("option", { key: c.code, value: c.code },
-                            c.name,
-                            " \u00B7 ",
-                            c.biz_unit,
-                            " (",
-                            won(c.balance),
-                            "\uC6D0)"))))),
+                    React.createElement(CustomerSearch, { customers: data.customers, value: form.customer_code, onChange: (code) => setForm({ ...form, customer_code: code }) })),
                 React.createElement(Field, { label: "\uC218\uAE08\uC561 (\uC6D0)" },
                     React.createElement("input", { className: "input num", inputMode: "numeric", value: form.amount, onChange: set("amount"), placeholder: "0" })),
                 React.createElement(Field, { label: "\uC218\uAE08\uBC29\uBC95" },
