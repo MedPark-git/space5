@@ -218,8 +218,8 @@ tfoot td { background: var(--surface-2); font-weight: 700; border-top: 1px solid
 .customer-filters .field { margin-bottom: 0; }
 .customer-filters > .btn { margin-bottom: 1px; }
 .customer-table table { min-width: 1480px; }
-.customer-row--missing-period td { background: #eef1f4; }
-.customer-row--missing-period:hover td { background: #e2e6ea; }
+.customer-period--missing { background: #e4e7eb !important; }
+.customer-period--missing .inline-edit { color: #667085; font-weight: 700; }
 .inline-edit { width: 100%; min-height: 28px; padding: 3px 5px; border: 1px solid transparent; border-radius: 5px; background: transparent; text-align: left; }
 .inline-edit:not(:disabled):hover { border-color: var(--line); background: var(--surface-2); }
 .inline-edit:disabled { cursor: default; }
