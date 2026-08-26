@@ -220,6 +220,10 @@ tfoot td { background: var(--surface-2); font-weight: 700; border-top: 1px solid
 .customer-table table { min-width: 1480px; }
 .customer-period--missing { background: #e4e7eb !important; }
 .customer-period--missing .inline-edit { color: #667085; font-weight: 700; }
+.modal-backdrop { position: fixed; inset: 0; z-index: 1000; background: rgba(15,23,42,.48); display: flex; align-items: center; justify-content: center; padding: 24px; }
+.modal-card { width: min(720px, 96vw); max-height: 86vh; overflow: auto; background: #fff; border-radius: 12px; box-shadow: 0 24px 70px rgba(15,23,42,.28); }
+.modal-card--wide { width: min(1180px, 96vw); }
+.modal-card .card__head { position: sticky; top: 0; z-index: 2; background: #fff; }
 .inline-edit { width: 100%; min-height: 28px; padding: 3px 5px; border: 1px solid transparent; border-radius: 5px; background: transparent; text-align: left; }
 .inline-edit:not(:disabled):hover { border-color: var(--line); background: var(--surface-2); }
 .inline-edit:disabled { cursor: default; }
