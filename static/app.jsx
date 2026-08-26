@@ -559,6 +559,7 @@ function Customers({ data, can, preset, notify, patchCustomer }) {
   const [q, setQ] = useState("");
   const [editingNote, setEditingNote] = useState(null);
   const [draftNote, setDraftNote] = useState("");
+  const [receivableDetail, setReceivableDetail] = useState(null);
 
   useEffect(() => { if (preset) { setUnit(preset.unit); setType(preset.status); } }, [preset]);
 
@@ -588,6 +589,21 @@ function Customers({ data, can, preset, notify, patchCustomer }) {
   async function saveNote(code) {
     await updateCustomer(code, { note: draftNote }, "비고를 저장했습니다.");
     setEditingNote(null);
+  }
+
+  async function openReceivables(c) {
+    try {
+      const result = await api("/api/customers/" + encodeURIComponent(c.code) + "/receivables");
+      setReceivableDetail({ ...result, name: c.name });
+    } catch (e) { notify(e.message, true); }
+  }
+
+  async function saveItemTarget(itemId, target_date) {
+    try {
+      const result = await api("/api/receivables/" + itemId, { method: "PATCH", body: { target_date } });
+      setReceivableDetail((d) => ({ ...d, items: d.items.map((x) => x.id === itemId ? result.item : x) }));
+      notify("채권별 수금목표일을 저장했습니다.");
+    } catch (e) { notify(e.message, true); }
   }
 
   const distinctCustomers = new Set(rows.map((r) => r.code)).size;
@@ -626,8 +642,8 @@ function Customers({ data, can, preset, notify, patchCustomer }) {
               </td>
               <td><InlineEdit value={c.owner} placeholder="클릭해 입력" canEdit={can("note_edit")}
                 onSave={(owner) => updateCustomer(c.code, { owner }, "담당자를 저장했습니다.")} /></td>
-              <td><InlineEdit value={c.collection_target_date} placeholder="날짜 선택" type="date" canEdit={can("note_edit")}
-                onSave={(collection_target_date) => updateCustomer(c.code, { collection_target_date }, "수금목표일을 저장했습니다.")} /></td>
+              <td><button type="button" className="inline-edit" onClick={() => openReceivables(c)}>
+                채권별 목표 설정</button></td>
               <td className="r num t-strong">{won(c.balance)}</td>
               <td className="r num">{c.advance ? won(c.advance) : "–"}</td>
               <td className="r num">{c.months}개월</td><td className="num t-muted t-sm">{c.last_paid_at || "–"}</td>
@@ -646,6 +662,27 @@ function Customers({ data, can, preset, notify, patchCustomer }) {
           </table></div>
         )}
       </Card>
+      {receivableDetail && <div className="modal-backdrop" onMouseDown={() => setReceivableDetail(null)}>
+        <section className="modal-card modal-card--wide" onMouseDown={(e) => e.stopPropagation()}>
+          <header className="card__head"><h3>{receivableDetail.name} · 발생월별 채권 상세</h3>
+            <div className="spacer" /><button className="btn btn--sm" onClick={() => setReceivableDetail(null)}>닫기</button></header>
+          <div className="alert alert--info" style={{ margin: 14 }}>
+            조회기준일 {receivableDetail.as_of} · 발생월별 잔액과 정상회수월을 확인하고 채권별 목표일을 입력합니다.
+          </div>
+          <div className="tablewrap"><table>
+            <thead><tr><th>채권발생월</th><th>정상회수월</th><th>현재 구분</th>
+              <th className="r">최초금액</th><th className="r">현재잔액</th><th>수금목표일</th><th>비고</th></tr></thead>
+            <tbody>{receivableDetail.items.map((item) => <tr key={item.id}>
+              <td className="num t-strong">{item.issue_month || "미확인"}</td>
+              <td className="num">{item.target_month || "미입력"}</td><td><Badge status={item.as_of_status || item.category} /></td>
+              <td className="r num">{won(item.original_amount)}</td><td className="r num t-strong">{won(item.balance)}</td>
+              <td><InlineEdit value={item.target_date} placeholder="목표일 입력" type="date"
+                canEdit={can("customer_info_edit")} onSave={(value) => saveItemTarget(item.id, value)} /></td>
+              <td className="t-sm t-muted">{item.note || "–"}</td>
+            </tr>)}</tbody>
+          </table></div>
+        </section>
+      </div>}
     </>
   );
 }
@@ -1361,18 +1398,19 @@ function UploadTemplate() {
 function CashPlan({ data, notify }) {
   const planMonths = data.meta.cash_plan_months || [thisMonth()];
   const [month, setMonth] = useState(planMonths[0]);
+  const [asOfDate, setAsOfDate] = useState(data.meta.today);
+  const [includeOverdue, setIncludeOverdue] = useState(false);
+  const [includeBad, setIncludeBad] = useState(false);
   const [busy, setBusy] = useState(false);
 
   async function download() {
-    const includeOverdue = window.confirm(
-      "미수채권과 부실채권을 포함하시겠습니까?\n\n확인: 정상·미수·부실채권 포함\n취소: 정상채권만 다운로드"
-    );
     setBusy(true);
     try {
       const res = await fetch("/api/cash-plan/export", {
         method: "POST", credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ month, include_overdue: includeOverdue }),
+        body: JSON.stringify({ month, as_of_date: asOfDate,
+          include_overdue: includeOverdue, include_bad: includeBad }),
       });
       if (!res.ok) {
         let message = "수금계획을 생성하지 못했습니다.";
@@ -1384,7 +1422,7 @@ function CashPlan({ data, notify }) {
       const link = document.createElement("a");
       link.href = url;
       link.download = "MedPark_" + Number(month.slice(5, 7)) + "월_수금계획" +
-        (includeOverdue ? "_미수부실포함" : "") + ".xlsx";
+        (includeOverdue ? "_미수포함" : "") + (includeBad ? "_부실포함" : "") + ".xlsx";
       link.click(); URL.revokeObjectURL(url);
       notify(Number(month.slice(5, 7)) + "월 수금계획을 생성했습니다.");
     } catch (e) { notify(e.message, true); }
@@ -1400,11 +1438,20 @@ function CashPlan({ data, notify }) {
               {planMonths.map((m) => <option key={m} value={m}>{Number(m.slice(5, 7))}월 수금계획</option>)}
             </select>
           </Field>
+          <Field label="미수채권 조회기준일">
+            <input className="input" type="date" value={asOfDate} onChange={(e) => setAsOfDate(e.target.value)} />
+          </Field>
+        </div>
+        <div className="chiprow" style={{ marginTop: 12 }}>
+          <label className="chip" aria-pressed={includeOverdue}><input type="checkbox" checked={includeOverdue}
+            onChange={(e) => setIncludeOverdue(e.target.checked)} /> 미수채권 포함</label>
+          <label className="chip" aria-pressed={includeBad}><input type="checkbox" checked={includeBad}
+            onChange={(e) => setIncludeBad(e.target.checked)} /> 부실채권 포함</label>
         </div>
         <div className="alert alert--info" style={{ margin: "12px 0" }}>
-          정상채권은 선택한 월의 수금대상 금액만 반영합니다. 다운로드 시 미수·부실채권 포함 여부를 선택할 수 있습니다.
+          정상채권은 선택한 월의 수금대상 금액만 반영합니다. 미수채권은 입력한 조회기준일 현재 상태로 산정합니다.
         </div>
-        <button className="btn btn--primary" onClick={download} disabled={busy || !month}>
+        <button className="btn btn--primary" onClick={download} disabled={busy || !month || !asOfDate}>
           {busy ? "엑셀 생성 중" : Number(month.slice(5, 7)) + "월 수금계획 다운로드"}
         </button>
       </Card>
