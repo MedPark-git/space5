@@ -645,11 +645,22 @@ function ClosingReceivables({ data, notify }) {
       } else {
         if (!window.PptxGenJS) throw new Error("PPT 변환 모듈을 불러오지 못했습니다.");
         const pptx = new window.PptxGenJS(); pptx.layout = "LAYOUT_WIDE"; pptx.author = "MEDPARK";
-        const imageData = canvas.toDataURL("image/png");
         const pageHeight = Math.floor(canvas.width * 6.75 / 12.65);
-        for (let top = 0; top < canvas.height; top += pageHeight) {
+        const reportBox = reportRef.current.getBoundingClientRect();
+        const scaleY = canvas.height / reportBox.height;
+        const rowCuts = [...reportRef.current.querySelectorAll(
+          ".closing-detail tbody tr, .closing-detail tfoot tr"
+        )].map((row) => Math.min(canvas.height,
+          Math.round((row.getBoundingClientRect().bottom - reportBox.top) * scaleY) + 2
+        )).sort((a, b) => a - b);
+        let top = 0;
+        while (top < canvas.height) {
+          const desiredBottom = Math.min(canvas.height, top + pageHeight);
+          const safeCuts = rowCuts.filter((cut) => cut > top + 80 && cut <= desiredBottom);
+          const bottom = desiredBottom === canvas.height ? canvas.height
+            : (safeCuts.length ? safeCuts[safeCuts.length - 1] : desiredBottom);
           const slice = document.createElement("canvas"); slice.width = canvas.width;
-          slice.height = Math.min(pageHeight, canvas.height - top);
+          slice.height = bottom - top;
           slice.getContext("2d").drawImage(canvas, 0, top, canvas.width, slice.height, 0, 0, canvas.width, slice.height);
           const slide = pptx.addSlide(); slide.background = { color: "EEF1F6" };
           slide.addText("㈜메드파크 결산회의용 부서별 미수채권현황", { x: .35, y: .1, w: 9, h: .3,
@@ -657,6 +668,7 @@ function ClosingReceivables({ data, notify }) {
           slide.addText("기준일 " + data.meta.today, { x: 10.2, y: .15, w: 2.75, h: .2, align: "right", fontSize: 9, color: "5C6B80" });
           slide.addImage({ data: slice.toDataURL("image/png"), x: .34, y: .48, w: 12.65,
             h: 12.65 * slice.height / slice.width });
+          top = bottom;
         }
         await pptx.writeFile({ fileName: base + ".pptx" });
       }
