@@ -218,12 +218,7 @@ function Dashboard({
     collections,
     targets
   } = data;
-  const viewOptions = data.meta.dashboard_views || [{
-    key: "combined",
-    label: data.meta.reflection_label
-  }];
-  const [dataView, setDataView] = useState(viewOptions.some(v => v.key === "combined") ? "combined" : viewOptions[0].key);
-  const customers = dataView === "closing" ? data.dashboard_closing_customers || data.customers : data.customers;
+  const customers = data.customers;
   const [unit, setUnit] = useState("전체");
   const [normalTopUnit, setNormalTopUnit] = useState("전체");
   const [overdueTopUnit, setOverdueTopUnit] = useState("전체");
@@ -361,19 +356,7 @@ function Dashboard({
     unit: u,
     amount: sum(yesterdayCollections.filter(c => customerUnit[c.customer_code] === u), "amount")
   }));
-  return /*#__PURE__*/React.createElement(React.Fragment, null, viewOptions.length > 1 && /*#__PURE__*/React.createElement(Card, {
-    title: "대시보드 조회기준"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "chiprow",
-    style: {
-      marginBottom: 0
-    }
-  }, viewOptions.map(view => /*#__PURE__*/React.createElement("button", {
-    key: view.key,
-    className: "chip",
-    "aria-pressed": dataView === view.key,
-    onClick: () => setDataView(view.key)
-  }, view.label)))), /*#__PURE__*/React.createElement("div", {
+  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     className: "chiprow"
   }, ["전체", ...data.meta.units].map(u => /*#__PURE__*/React.createElement("button", {
     key: u,
@@ -1979,6 +1962,7 @@ function Upload({
 
 function CashPlan({
   data,
+  dataView,
   notify
 }) {
   const planMonths = data.meta.cash_plan_months || [thisMonth()];
@@ -1999,6 +1983,7 @@ function CashPlan({
         body: JSON.stringify({
           month,
           as_of_date: asOfDate,
+          data_view: dataView,
           include_overdue: includeOverdue,
           include_bad: includeBad
         })
@@ -2355,12 +2340,14 @@ const SCREENS = [{
   perm: "user_manage",
   group: "관리"
 }];
+const REPORT_SCREENS = new Set(["dashboard", "summary", "customers", "owners", "targets", "cashplan"]);
 function App() {
   const [user, setUser] = useState(undefined);
   const [data, setData] = useState(null);
   const [screen, setScreen] = useState("dashboard");
   const [preset, setPreset] = useState(null);
   const [toast, setToast] = useState(null);
+  const [dataView, setDataView] = useState(() => localStorage.getItem("ar_data_view") || "combined");
   const notify = useCallback((message, bad) => {
     setToast({
       message,
@@ -2383,6 +2370,17 @@ function App() {
   useEffect(() => {
     if (visible.length && !visible.some(s => s.key === screen)) setScreen(visible[0].key);
   }, [visible, screen]);
+  useEffect(() => {
+    if (!data) return;
+    const options = data.meta.dashboard_views || [];
+    if (!options.some(view => view.key === dataView)) {
+      const fallback = options.some(view => view.key === "combined") ? "combined" : options[0] && options[0].key;
+      if (fallback) setDataView(fallback);
+    }
+  }, [data, dataView]);
+  useEffect(() => {
+    localStorage.setItem("ar_data_view", dataView);
+  }, [dataView]);
   if (user === undefined) {
     return /*#__PURE__*/React.createElement("div", {
       className: "boot"
@@ -2412,6 +2410,18 @@ function App() {
     uploads: res.uploads
   }));
   const current = SCREENS.find(s => s.key === screen) || SCREENS[0];
+  const viewOptions = data.meta.dashboard_views || [{
+    key: "combined",
+    label: data.meta.reflection_label
+  }];
+  const reportScreen = REPORT_SCREENS.has(screen);
+  const selectedView = viewOptions.find(view => view.key === dataView) || viewOptions[0];
+  const effectiveView = selectedView.key;
+  const reportData = effectiveView === "closing" ? {
+    ...data,
+    customers: data.dashboard_closing_customers || data.customers
+  } : data;
+  const screenData = reportScreen ? reportData : data;
   const groups = [...new Set(visible.map(s => s.group))];
   const pendingCount = data.collections.filter(c => c.state === "pending").length;
   async function signOut() {
@@ -2451,11 +2461,22 @@ function App() {
     className: "topbar"
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("h1", null, current.label), /*#__PURE__*/React.createElement("div", {
     className: "sub"
-  }, "기준일 ", data.meta.today, " · ", data.meta.reflection_label), /*#__PURE__*/React.createElement("div", {
+  }, "기준일 ", data.meta.today, " · ", reportScreen ? selectedView.label : "현재 운영데이터 기준"), /*#__PURE__*/React.createElement("div", {
     className: "sub"
-  }, "거래처 ", data.customers.length, "곳 · 전체 채권 ", won(sum(data.customers, "balance")), "원")), /*#__PURE__*/React.createElement("div", {
+  }, "거래처 ", screenData.customers.length, "곳 · 전체 채권 ", won(sum(screenData.customers, "balance")), "원")), /*#__PURE__*/React.createElement("div", {
     className: "spacer"
-  }), /*#__PURE__*/React.createElement("div", {
+  }), reportScreen ? /*#__PURE__*/React.createElement("label", {
+    className: "view-select"
+  }, /*#__PURE__*/React.createElement("span", null, "조회기준"), /*#__PURE__*/React.createElement("select", {
+    className: "select",
+    value: effectiveView,
+    onChange: e => setDataView(e.target.value)
+  }, viewOptions.map(view => /*#__PURE__*/React.createElement("option", {
+    key: view.key,
+    value: view.key
+  }, view.label)))) : /*#__PURE__*/React.createElement("span", {
+    className: "badge badge--brand"
+  }, "현재 운영데이터 기준"), /*#__PURE__*/React.createElement("div", {
     className: "who"
   }, /*#__PURE__*/React.createElement("b", null, user.name, user.title && " " + user.title), /*#__PURE__*/React.createElement("span", null, data.meta.roles[user.role].label, " · ", user.username)), /*#__PURE__*/React.createElement("button", {
     className: "btn btn--sm",
@@ -2463,26 +2484,26 @@ function App() {
   }, "로그아웃")), /*#__PURE__*/React.createElement("div", {
     className: "page"
   }, screen === "dashboard" && /*#__PURE__*/React.createElement(Dashboard, {
-    data: data,
+    data: reportData,
     setScreen: setScreen,
     setPreset: setPreset
   }), screen === "summary" && /*#__PURE__*/React.createElement(BondSummary, {
-    data: data
+    data: reportData
   }), screen === "customers" && /*#__PURE__*/React.createElement(Customers, {
-    data: data,
+    data: reportData,
     can: can,
     preset: preset,
     notify: notify,
     patchCustomer: patchCustomer
   }), screen === "owners" && /*#__PURE__*/React.createElement(Owners, {
-    data: data
+    data: reportData
   }), screen === "collections" && /*#__PURE__*/React.createElement(Collections, {
     data: data,
     can: can,
     notify: notify,
     refresh: load
   }), screen === "targets" && /*#__PURE__*/React.createElement(Targets, {
-    data: data,
+    data: reportData,
     notify: notify,
     refresh: load
   }), screen === "upload" && /*#__PURE__*/React.createElement(Upload, {
@@ -2492,7 +2513,8 @@ function App() {
     applyUpload: applyUpload,
     refresh: load
   }), screen === "cashplan" && /*#__PURE__*/React.createElement(CashPlan, {
-    data: data,
+    data: reportData,
+    dataView: effectiveView,
     notify: notify
   }), screen === "users" && /*#__PURE__*/React.createElement(Users, {
     data: data,
