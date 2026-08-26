@@ -1014,15 +1014,16 @@ const COLUMN_ALIASES = {
   owner: ["담당자", "영업담당", "담당", "owner"],
   balance: ["미수잔액", "미수금액", "채권잔액", "잔액", "미수금", "balance"],
   normal_balance: ["정상채권잔액", "정상채권", "normal_balance"],
-  normal_later_balance: ["10월이후수금대상", "정상채권10월이후", "normal_later_balance"],
-  normal_next_balance: ["9월수금대상", "정상채권9월분", "normal_next_balance"],
-  normal_current_balance: ["8월수금대상", "정상채권8월분", "normal_current_balance"],
+  normal_later_balance: ["차차월이후정상채권", "차차월이후", "10월이후수금대상", "정상채권10월이후", "normal_later_balance"],
+  normal_next_balance: ["익월정상채권", "익월", "9월수금대상", "정상채권9월분", "normal_next_balance"],
+  normal_current_balance: ["당월정상채권", "당월", "8월수금대상", "정상채권8월분", "normal_current_balance"],
   normal_collected: ["정상채권수금현황", "정상채권수금액", "normal_collected"],
   overdue_balance: ["미수채권(11개월내)", "11개월내", "overdue_balance"],
   overdue_source_balance: ["미수채권기초잔액", "overdue_source_balance"],
   overdue_collected: ["미수채권수금현황", "미수채권수금액", "overdue_collected"],
   bad_balance: ["부실채권(12개월이상)", "12개월이상", "bad_balance"],
   advance: ["선수금", "선수금액", "advance"],
+  overdue_months: ["연체기간(개월)", "연체개월", "연체기간개월"],
   overdue_days: ["경과일", "연체일", "경과일수", "연체일수"],
   last_paid_at: ["최종수금일", "최근수금일", "최종입금일"],
   note: ["비고", "특이사항", "메모"],
@@ -1072,16 +1073,30 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
           setError("머리글 행을 찾지 못했습니다. '거래처코드'와 '거래처명' 열이 있는지 확인하세요.");
           return;
         }
-        const rows = [];
+        const required = ["code", "name", "biz_unit", "normal_balance", "overdue_balance", "bad_balance"];
+        const missing = required.filter((field) => map[field] === undefined);
+        if (missing.length) {
+          setError("필수 열이 없습니다: " + missing.map((field) => ({
+            code: "거래처코드", name: "거래처명", biz_unit: "사업부", normal_balance: "정상채권잔액",
+            overdue_balance: "미수채권(11개월 내)", bad_balance: "부실채권(12개월 이상)",
+          })[field]).join(", "));
+          return;
+        }
+        const rows = [], issues = [];
         for (let i = headerRow + 1; i < grid.length; i++) {
           const raw = grid[i] || [];
           const pick = (f) => (map[f] === undefined ? "" : raw[map[f]]);
           const code = String(pick("code") || "").trim();
           if (!code || /^#REF|^#N\/A/.test(code)) continue;
+          const normalizedCode = /^\d+$/.test(code) ? code.padStart(5, "0") : code;
+          const name = String(pick("name") || "").trim();
+          const bizUnit = String(pick("biz_unit") || "").trim();
+          if (!name) issues.push((i + 1) + "행: 거래처명 누락");
+          if (!data.meta.units.includes(bizUnit)) issues.push((i + 1) + "행: 사업부 오류");
           rows.push({
-            code,
-            name: String(pick("name") || "").trim(),
-            biz_unit: String(pick("biz_unit") || "").trim(),
+            code: normalizedCode,
+            name,
+            biz_unit: bizUnit,
             status: String(pick("status") || "").trim(),
             owner: String(pick("owner") || "").trim(),
             balance: pick("balance"),
@@ -1095,14 +1110,15 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
             overdue_collected: pick("overdue_collected"),
             bad_balance: pick("bad_balance"),
             advance: pick("advance"),
-            overdue_days: pick("overdue_days"),
+            overdue_days: map.overdue_months !== undefined
+              ? (Number(pick("overdue_months")) || 0) * 30 : pick("overdue_days"),
             last_paid_at: String(pick("last_paid_at") || "").trim(),
             note: String(pick("note") || "").trim(),
           });
         }
         const seen = new Set(), dupes = [];
         rows.forEach((r) => { if (seen.has(r.code)) dupes.push(r.code); seen.add(r.code); });
-        setParsed({ filename: file.name, rows, dupes, mapped: Object.keys(map) });
+        setParsed({ filename: file.name, rows, dupes, issues, mapped: Object.keys(map) });
       } catch (err) {
         setError("파일을 읽지 못했습니다: " + err.message);
       }
@@ -1175,8 +1191,15 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
             <div className="alert alert--info">
               <b>{parsed.filename}</b> — 유효한 {parsed.rows.length}행을 읽었습니다.
               인식한 열: {parsed.mapped.length}개.
-              {parsed.dupes.length > 0 && " 중복 코드 " + parsed.dupes.length + "건은 마지막 값으로 덮어씁니다."}
+              {parsed.dupes.length > 0 && " 중복 코드 " + parsed.dupes.length + "건이 있습니다."}
             </div>
+            {(parsed.dupes.length > 0 || parsed.issues.length > 0) && (
+              <div className="alert alert--bad" style={{ marginTop: 10 }}>
+                업로드 전 수정 필요: {parsed.dupes.length > 0 && "중복 코드 " + parsed.dupes.join(", ")}
+                {parsed.dupes.length > 0 && parsed.issues.length > 0 && " · "}
+                {parsed.issues.slice(0, 8).join(" · ")}{parsed.issues.length > 8 && " 외 " + (parsed.issues.length - 8) + "건"}
+              </div>
+            )}
             <p className="t-sm t-muted">
               {month} 의 기존 데이터를 이 파일로 교체합니다. 다른 월 데이터는 그대로 유지됩니다.
             </p>
@@ -1198,7 +1221,8 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
               </table>
             </div>
             <div className="btnrow">
-              <button className="btn btn--primary" onClick={send} disabled={busy || locked}>
+              <button className="btn btn--primary" onClick={send}
+                disabled={busy || locked || parsed.dupes.length > 0 || parsed.issues.length > 0}>
                 {month} 데이터로 반영
               </button>
               <button className="btn" onClick={() => setParsed(null)}>취소</button>
@@ -1236,6 +1260,45 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
             </tbody>
           </table>
         </div>
+      </Card>
+    </>
+  );
+}
+
+function UploadTemplate() {
+  async function downloadTemplate() {
+    try {
+      const response = await fetch("/static/receivables_upload_template.b64");
+      if (!response.ok) throw new Error("서식 파일을 불러오지 못했습니다.");
+      const encoded = (await response.text()).trim();
+      const bytes = Uint8Array.from(atob(encoded), (char) => char.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bytes], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      }));
+      const link = document.createElement("a");
+      link.href = url; link.download = "MedPark_채권데이터_업로드서식.xlsx"; link.click();
+      URL.revokeObjectURL(url);
+    } catch (e) { alert(e.message); }
+  }
+
+  return (
+    <>
+      <Card title="채권 데이터 엑셀 업로드 서식">
+        <p style={{ marginTop: 0 }}>월별 채권 데이터를 정확하게 등록할 수 있는 표준 서식입니다.</p>
+        <div className="alert alert--info" style={{ marginBottom: 14 }}>
+          필수 항목: 거래처코드 · 거래처명 · 사업부 · 정상채권잔액 · 미수채권(11개월 내) · 부실채권(12개월 이상)
+        </div>
+        <button className="btn btn--primary" onClick={downloadTemplate}>
+          엑셀 업로드 서식 다운로드
+        </button>
+      </Card>
+      <Card title="사용 순서">
+        <ol className="template-steps">
+          <li>서식을 내려받아 첫 번째 시트인 <b>업로드서식</b>에 데이터를 입력합니다.</li>
+          <li>출고 데이터 업로드 메뉴에서 기준월을 선택합니다.</li>
+          <li>파일을 선택해 오류·중복 여부를 확인한 뒤 해당 월 데이터로 반영합니다.</li>
+          <li>확정된 월은 마감 잠금하여 추가 변경을 방지합니다.</li>
+        </ol>
       </Card>
     </>
   );
@@ -1348,6 +1411,7 @@ const SCREENS = [
   { key: "owners",    label: "담당자별 채권현황", perm: "owner_view",          group: "현황" },
   { key: "collections", label: "수금 등록",       perm: "collection_register", group: "수금", alt: "collection_approve" },
   { key: "targets",   label: "수금목표 관리",     perm: "target_manage",       group: "수금" },
+  { key: "template",  label: "엑셀 업로드 서식",   perm: "upload_data",         group: "관리" },
   { key: "upload",    label: "출고 데이터 업로드", perm: "upload_data",        group: "관리" },
   { key: "users",     label: "계정·권한 관리",    perm: "user_manage",         group: "관리" },
 ];
@@ -1454,6 +1518,7 @@ function App() {
           {screen === "owners" && <Owners data={data} />}
           {screen === "collections" && <Collections data={data} can={can} notify={notify} refresh={load} />}
           {screen === "targets" && <Targets data={data} notify={notify} refresh={load} />}
+          {screen === "template" && <UploadTemplate />}
           {screen === "upload" && <Upload data={data} can={can} notify={notify}
             applyUpload={applyUpload} refresh={load} />}
           {screen === "users" && <Users data={data} notify={notify} refresh={load} />}
