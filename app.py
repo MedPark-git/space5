@@ -7,10 +7,14 @@ MedPark 미수채권 관리 — Flask 백엔드.
 """
 import json
 import os
+import base64
+import io
+import calendar
+from copy import copy
 from datetime import date, datetime
 from functools import wraps
 
-from flask import Flask, jsonify, request, session, render_template
+from flask import Flask, jsonify, request, session, render_template, send_file
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import db
@@ -99,6 +103,12 @@ def add_months(month, offset):
     return "%04d-%02d" % (total // 12, total % 12 + 1)
 
 
+def month_offset(base_month, target_month):
+    by, bm = (int(x) for x in base_month.split("-"))
+    ty, tm = (int(x) for x in target_month.split("-"))
+    return (ty - by) * 12 + tm - bm
+
+
 # ─────────────────────────────── 화면 ───────────────────────────────
 
 BUILD = str(int(os.path.getmtime(os.path.join(os.path.dirname(__file__), "static", "app.js"))))
@@ -182,6 +192,9 @@ def bootstrap():
             "SELECT * FROM uploads ORDER BY id DESC LIMIT 200")]
         locks = [r for r in conn.execute("SELECT * FROM month_locks")]
         finalized = sorted([r["month"] for r in locks if r.get("locked")])
+        latest_snapshot = next((u["month"] for u in uploads
+                                if u.get("upload_type") == "snapshot"), date.today().strftime("%Y-%m"))
+        cash_plan_months = [add_months(latest_snapshot, i) for i in range(3)]
         reflection_label = "마감 데이터 없음"
         if finalized:
             closed_month = finalized[-1]
@@ -206,7 +219,8 @@ def bootstrap():
         meta=dict(permissions=[{"key": k, "label": l} for k, l in PERMISSIONS],
                   roles={k: v for k, v in ROLE_TEMPLATES.items()},
                   methods=METHODS, units=UNITS, statuses=STATUSES,
-                  today=date.today().isoformat(), reflection_label=reflection_label),
+                  today=date.today().isoformat(), reflection_label=reflection_label,
+                  cash_plan_months=cash_plan_months),
     )
 
 
@@ -620,6 +634,107 @@ def upload_rows():
                    customers=customers, uploads=uploads)
 
 
+# ───────────────────────── 자금수지 수금계획 ──────────────────────
+
+@app.post("/api/cash-plan/export")
+@requires("data_export")
+def export_cash_plan():
+    """첨부된 ㈜메드파크 자금수지 서식을 유지해 월별 수금계획을 생성한다."""
+    from openpyxl import load_workbook
+
+    data = body()
+    month = (data.get("month") or "").strip()
+    include_overdue = bool(data.get("include_overdue"))
+    if len(month) != 7 or month[4] != "-":
+        return jsonify(error="다운로드 기준월을 선택하세요."), 400
+
+    with connect() as conn:
+        customers = [r for r in conn.execute(
+            "SELECT * FROM customers ORDER BY biz_unit,name,code")]
+        snapshot = conn.execute(
+            "SELECT month FROM uploads WHERE upload_type='snapshot' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    base_month = snapshot["month"] if snapshot else month
+    offset = month_offset(base_month, month)
+    if offset not in (0, 1, 2):
+        return jsonify(error="현재 수금계획은 %s부터 3개월 범위에서 다운로드할 수 있습니다." % base_month), 400
+    normal_field = ("normal_current_balance" if offset == 0 else
+                    "normal_next_balance" if offset == 1 else
+                    "normal_later_balance" if offset >= 2 else None)
+
+    rows = []
+    for customer in customers:
+        if normal_field and customer[normal_field] > 0:
+            rows.append((customer, "정상", customer[normal_field]))
+        if include_overdue and customer["overdue_balance"] > 0:
+            rows.append((customer, "연체", customer["overdue_balance"]))
+        if include_overdue and customer["bad_balance"] > 0:
+            rows.append((customer, "부실", customer["bad_balance"]))
+
+    template_path = os.path.join(app.static_folder, "cash_plan_template.b64")
+    with open(template_path, "rb") as fh:
+        template_bytes = base64.b64decode(fh.read())
+    wb = load_workbook(io.BytesIO(template_bytes))
+    ws = wb["서식"] if "서식" in wb.sheetnames else wb.active
+
+    required_rows = max(len(rows), 16)
+    if required_rows > 16:
+        ws.insert_rows(23, required_rows - 16)
+        for target_row in range(23, 7 + required_rows):
+            ws.row_dimensions[target_row].height = ws.row_dimensions[22].height
+            for col in range(1, 44):
+                target = ws.cell(target_row, col)
+                target._style = copy(ws.cell(22, col)._style)
+
+    for row_no in range(7, 7 + required_rows):
+        for col in range(1, 44):
+            ws.cell(row_no, col).value = None
+
+    year, mon = (int(x) for x in month.split("-"))
+    month_end = date(year, mon, calendar.monthrange(year, mon)[1])
+    dept = {"덴탈": "국내_덴탈", "메디컬": "국내_메디컬", "에스테틱": "국내_에스테틱"}
+    execution = {k: v + " 수금" for k, v in dept.items()}
+    detail = {
+        "정상": "제품구매대금(%02d월 정상채권)" % mon,
+        "연체": "제품구매대금(미수채권)",
+        "부실": "제품구매대금(부실채권)",
+    }
+    for row_no, (customer, category, amount) in enumerate(rows, start=7):
+        target_text = (customer.get("collection_target_date") or "").strip()
+        try:
+            plan_date = datetime.strptime(target_text, "%Y-%m-%d").date() if target_text else month_end
+        except ValueError:
+            plan_date = month_end
+        unit = customer["biz_unit"]
+        values = {
+            1: "예정", 5: "사업부", 6: dept.get(unit, unit), 7: "수금",
+            8: execution.get(unit, unit + " 수금"), 10: plan_date, 12: plan_date,
+            13: customer["name"], 14: detail[category], 17: amount,
+        }
+        for col, value in values.items():
+            ws.cell(row_no, col).value = value
+        ws.cell(row_no, 10).number_format = "yyyy-mm-dd"
+        ws.cell(row_no, 12).number_format = "yyyy-mm-dd"
+        ws.cell(row_no, 17).number_format = "#,##0_);[Red](#,##0)"
+
+    ws["F4"] = date.today()
+    ws["F4"].number_format = "yyyy-mm-dd"
+    ws["F3"] = date.fromordinal(date.today().toordinal() - 1)
+    ws["F3"].number_format = "yyyy-mm-dd"
+    ws["I1"] = "★ %d/%d 수금계획" % (mon, month_end.day)
+    ws.auto_filter.ref = "A6:AQ%d" % max(7, 6 + len(rows))
+    ws.print_area = "A1:AQ%d" % max(22, 6 + len(rows))
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    suffix = "_미수부실포함" if include_overdue else ""
+    filename = "MedPark_%02d월_수금계획%s.xlsx" % (mon, suffix)
+    return send_file(output,
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                     as_attachment=True, download_name=filename)
+
+
 @app.post("/api/locks/<month>")
 @requires("month_lock")
 def toggle_lock(month):
@@ -643,8 +758,11 @@ def toggle_lock(month):
 def create_user():
     data = body()
     username = (data.get("username") or "").strip()
+    password = data.get("password") or ""
     if not username:
         return jsonify(error="아이디를 입력하세요."), 400
+    if len(password) < 8:
+        return jsonify(error="초기 비밀번호는 8자 이상이어야 합니다."), 400
     role = data.get("role") if data.get("role") in ROLE_TEMPLATES else "sales"
     perms = data.get("permissions")
     if not isinstance(perms, list):
@@ -658,7 +776,7 @@ def create_user():
             " VALUES (%s,%s,%s,%s,%s,%s,%s)",
             (username, data.get("name") or username, data.get("title") or "", role,
              data.get("biz_unit") or "",
-             generate_password_hash(data.get("password") or db.DEFAULT_PASSWORD),
+             generate_password_hash(password),
              json.dumps(perms, ensure_ascii=False)))
         log(conn, request.user["username"], "user_create", username)
     return jsonify(ok=True), 201
