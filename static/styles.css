@@ -116,6 +116,17 @@ button { cursor: pointer; }
 .export-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
 .summary-export { display: grid; gap: 18px; padding: 1px; }
 .zero-result { text-align: center; color: var(--muted); padding: 28px 12px; }
+.closing-toolbar { display: flex; align-items: end; gap: 8px; }
+.closing-toolbar .field { width: 220px; margin-bottom: 0; }
+.closing-toolbar .spacer { flex: 1; }
+.closing-report { display: grid; gap: 18px; }
+.closing-meta { padding: 9px 12px; color: var(--muted); font-size: 12px; border-bottom: 1px solid var(--line-soft); }
+.closing-summary--overdue td { background: #fff7a8; }
+.closing-summary th:last-child, .closing-summary td:last-child { min-width: 360px; }
+.closing-detail { margin-top: 18px; }
+.closing-detail thead th { background: #e5efdd; }
+.closing-detail .closing-amount { background: #fff1c9; font-weight: 700; }
+.closing-notes { min-width: 420px; white-space: normal; background: #e9f3fb; }
 @media (max-width: 900px) {
   .shell { grid-template-columns: 1fr; }
   .side { position: static; height: auto; }
