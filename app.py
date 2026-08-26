@@ -194,6 +194,39 @@ def bootstrap():
         finalized = sorted([r["month"] for r in locks if r.get("locked")])
         latest_snapshot = next((u["month"] for u in uploads
                                 if u.get("upload_type") == "snapshot"), date.today().strftime("%Y-%m"))
+        unit_rows = [r for r in conn.execute(
+            "SELECT customer_code,biz_unit,target_month,category,SUM(original_amount) AS original_amount,"
+            " SUM(balance) AS balance FROM receivable_items"
+            " GROUP BY customer_code,biz_unit,target_month,category")]
+        customer_map = {c["code"]: c for c in customers}
+        for customer in customers:
+            customer["unit_breakdown"] = {}
+        for item in unit_rows:
+            customer = customer_map.get(item["customer_code"])
+            if not customer:
+                continue
+            unit = item["biz_unit"] or customer["biz_unit"]
+            part = customer["unit_breakdown"].setdefault(unit, dict(
+                balance=0, normal_balance=0, normal_current_balance=0,
+                normal_next_balance=0, normal_later_balance=0,
+                normal_collected=0, overdue_balance=0, overdue_source_balance=0,
+                overdue_collected=0, bad_balance=0))
+            amount = item["balance"]
+            part["balance"] += amount
+            if item["category"] == "부실":
+                part["bad_balance"] += amount
+            elif item["category"] == "연체":
+                part["overdue_balance"] += amount
+                part["overdue_source_balance"] += item["original_amount"]
+            else:
+                part["normal_balance"] += amount
+                part["normal_collected"] += max(item["original_amount"] - amount, 0)
+                if item["target_month"] == latest_snapshot:
+                    part["normal_current_balance"] += amount
+                elif item["target_month"] == add_months(latest_snapshot, 1):
+                    part["normal_next_balance"] += amount
+                else:
+                    part["normal_later_balance"] += amount
         cash_plan_months = [add_months(latest_snapshot, i) for i in range(3)]
         reflection_label = "마감 데이터 없음"
         if finalized:
@@ -400,14 +433,15 @@ def approve_collection(cid):
         remaining = normal_paid
         if remaining > 0:
             shipment_rows = [s for s in conn.execute(
-                "SELECT month,code,balance FROM monthly_shipments"
+                "SELECT month,code,biz_unit,balance FROM monthly_shipment_units"
                 " WHERE code=%s AND balance>0 ORDER BY target_month,month",
                 (row["customer_code"],))]
             for shipment in shipment_rows:
                 paid = min(remaining, shipment["balance"])
                 conn.execute(
-                    "UPDATE monthly_shipments SET balance=balance-%s WHERE month=%s AND code=%s",
-                    (paid, shipment["month"], shipment["code"]))
+                    "UPDATE monthly_shipment_units SET balance=balance-%s"
+                    " WHERE month=%s AND code=%s AND biz_unit=%s",
+                    (paid, shipment["month"], shipment["code"], shipment["biz_unit"]))
                 remaining -= paid
                 if remaining <= 0:
                     break
@@ -537,18 +571,30 @@ def upload_rows():
                     return jsonify(error="%s 거래처의 출고금액은 0 이상이어야 합니다." % code), 400
                 target_month = add_months(month, period) if period >= 0 else ""
                 bucket = "current" if period == 0 else ("next" if period == 1 else "later")
-                shipments[code] = dict(
+                unit = str(r.get("biz_unit") or "").strip() or "덴탈"
+                key = (code, unit)
+                if key in shipments:
+                    shipments[key]["amount"] += amount
+                    continue
+                shipments[key] = dict(
                     code=code, name=str(r.get("name") or "").strip() or code,
-                    biz_unit=str(r.get("biz_unit") or "").strip() or "덴탈",
+                    biz_unit=unit,
                     owner=str(r.get("owner") or "").strip(), period=period,
                     target_month=target_month, bucket=bucket, amount=amount,
                     note=str(r.get("note") or "").strip())
 
             previous_rows = [x for x in conn.execute(
-                "SELECT * FROM monthly_shipments WHERE month=%s", (month,))]
-            previous_targets = {x["customer_code"]: x["target_date"] for x in conn.execute(
-                "SELECT customer_code,target_date FROM receivable_items WHERE source_key LIKE %s",
-                ("shipment:%s:%%" % month,))}
+                "SELECT * FROM monthly_shipment_units WHERE month=%s", (month,))]
+            previous_target_rows = [x for x in conn.execute(
+                "SELECT customer_code,biz_unit,target_date FROM receivable_items WHERE source_key LIKE %s",
+                ("shipment:%s:%%" % month,))]
+            previous_targets = {
+                (x["customer_code"], x["biz_unit"]): x["target_date"]
+                for x in previous_target_rows
+            }
+            previous_targets_by_code = {
+                x["customer_code"]: x["target_date"] for x in previous_target_rows
+            }
             previous = len(previous_rows)
             bucket_columns = {
                 "current": "normal_current_balance",
@@ -565,7 +611,7 @@ def upload_rows():
                     " " + column + "=CASE WHEN " + column + "-%s<0 THEN 0 ELSE " + column + "-%s END"
                     " WHERE code=%s",
                     (amount, amount, amount, amount, amount, amount, old["code"]))
-            conn.execute("DELETE FROM monthly_shipments WHERE month=%s", (month,))
+            conn.execute("DELETE FROM monthly_shipment_units WHERE month=%s", (month,))
             conn.execute("DELETE FROM receivable_items WHERE source_key LIKE %s",
                          ("shipment:%s:%%" % month,))
 
@@ -574,12 +620,12 @@ def upload_rows():
                 column = bucket_columns[item["bucket"]]
                 if current:
                     conn.execute(
-                        "UPDATE customers SET name=%s, biz_unit=%s,"
+                        "UPDATE customers SET name=%s,"
                         " owner=CASE WHEN %s='' THEN owner ELSE %s END, period=%s,"
                         " balance=balance+%s, normal_balance=normal_balance+%s,"
                         " " + column + "=" + column + "+%s, source_month=%s,"
                         " updated_at=" + db.NOW_SQL + " WHERE code=%s",
-                        (item["name"], item["biz_unit"], item["owner"], item["owner"],
+                        (item["name"], item["owner"], item["owner"],
                          item["period"], item["amount"], item["amount"], item["amount"],
                          month, item["code"]))
                 else:
@@ -593,17 +639,19 @@ def upload_rows():
                          item["amount"], item["amount"], values["current"], values["next"],
                          values["later"], item["period"], month, item["note"]))
                 conn.execute(
-                    "INSERT INTO monthly_shipments (month,code,name,biz_unit,owner,collection_period,"
+                    "INSERT INTO monthly_shipment_units (month,code,name,biz_unit,owner,collection_period,"
                     " target_month,bucket,amount,balance,note) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                     (month, item["code"], item["name"], item["biz_unit"], item["owner"],
                      item["period"], item["target_month"], item["bucket"], item["amount"],
                      item["amount"], item["note"]))
                 conn.execute(
-                    "INSERT INTO receivable_items (customer_code,source_key,issue_month,target_month,category,"
-                    " original_amount,balance,target_date,note) VALUES (%s,%s,%s,%s,'정상',%s,%s,%s,%s)",
-                    (item["code"], "shipment:%s:%s" % (month, item["code"]), month,
+                    "INSERT INTO receivable_items (customer_code,biz_unit,source_key,issue_month,target_month,category,"
+                    " original_amount,balance,target_date,note) VALUES (%s,%s,%s,%s,%s,'정상',%s,%s,%s,%s)",
+                    (item["code"], item["biz_unit"],
+                     "shipment:%s:%s:%s" % (month, item["code"], item["biz_unit"]), month,
                      item["target_month"], item["amount"], item["amount"],
-                     previous_targets.get(item["code"], ""), item["note"]))
+                     previous_targets.get((item["code"], item["biz_unit"]),
+                                          previous_targets_by_code.get(item["code"], "")), item["note"]))
             conn.execute(
                 "INSERT INTO uploads (month,filename,row_count,uploaded_by,replaced,upload_type,shipment_date)"
                 " VALUES (%s,%s,%s,%s,%s,'shipment',%s)",
@@ -701,9 +749,9 @@ def upload_rows():
                 if amount != 0:
                     key = "legacy:%s:normal:%s" % (code, label)
                     conn.execute(
-                        "INSERT INTO receivable_items (customer_code,source_key,issue_month,target_month,category,"
-                        " original_amount,balance,target_date,note) VALUES (%s,%s,%s,%s,'정상',%s,%s,%s,%s)",
-                        (code, key, add_months(target_month, -period), target_month, amount, amount,
+                        "INSERT INTO receivable_items (customer_code,biz_unit,source_key,issue_month,target_month,category,"
+                        " original_amount,balance,target_date,note) VALUES (%s,%s,%s,%s,%s,'정상',%s,%s,%s,%s)",
+                        (code, customer["biz_unit"], key, add_months(target_month, -period), target_month, amount, amount,
                          old_targets.get(key, customer["collection_target_date"]), "확정 정상채권"))
             age_months = max(1, (customer["overdue_days"] + 29) // 30)
             issue_month = add_months(month, -age_months)
@@ -712,9 +760,9 @@ def upload_rows():
                 if amount != 0:
                     key = "legacy:%s:%s" % (code, category)
                     conn.execute(
-                        "INSERT INTO receivable_items (customer_code,source_key,issue_month,target_month,category,"
-                        " original_amount,balance,target_date,note) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                        (code, key, issue_month, add_months(issue_month, period), category, amount, amount,
+                        "INSERT INTO receivable_items (customer_code,biz_unit,source_key,issue_month,target_month,category,"
+                        " original_amount,balance,target_date,note) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                        (code, customer["biz_unit"], key, issue_month, add_months(issue_month, period), category, amount, amount,
                          old_targets.get(key, customer["collection_target_date"]), "확정 %s" % category))
         conn.execute(
             "INSERT INTO uploads (month, filename, row_count, uploaded_by, replaced, upload_type)"
@@ -752,7 +800,7 @@ def export_cash_plan():
 
     with connect() as conn:
         items = [r for r in conn.execute(
-            "SELECT ri.*,c.name,c.biz_unit FROM receivable_items ri"
+            "SELECT ri.*,c.name,COALESCE(NULLIF(ri.biz_unit,''),c.biz_unit) AS biz_unit FROM receivable_items ri"
             " JOIN customers c ON c.code=ri.customer_code WHERE ri.balance>0"
             " ORDER BY c.biz_unit,c.name,ri.issue_month,ri.id")]
         snapshot = conn.execute(
