@@ -509,7 +509,7 @@ function BondSummary({ data }) {
 
 /* ══════════════════ 거래처별 현황 ══════════════════ */
 
-function InlineEdit({ value, type = "text", placeholder, canEdit, onSave }) {
+function InlineEdit({ value, type = "text", placeholder, canEdit, onSave, formatValue }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value || "");
   useEffect(() => { if (!editing) setDraft(value || ""); }, [value, editing]);
@@ -523,7 +523,8 @@ function InlineEdit({ value, type = "text", placeholder, canEdit, onSave }) {
   if (!editing) return (
     <button type="button" className="inline-edit" disabled={!canEdit}
       onClick={() => canEdit && setEditing(true)}>
-      {value || <span className="t-muted">{placeholder}</span>}
+      {value !== "" && value != null ? (formatValue ? formatValue(value) : value) :
+        <span className="t-muted">{placeholder}</span>}
     </button>
   );
   return <input className="input input--compact" type={type} value={draft} autoFocus
@@ -592,12 +593,16 @@ function Customers({ data, can, preset, notify, patchCustomer }) {
             <thead><tr><th>코드</th><th>거래처명</th><th>사업부</th><th>채권유형</th><th>회수기간</th><th>담당자</th>
               <th>수금목표일</th><th className="r">채권잔액</th><th className="r">선수금</th>
               <th className="r">연체기간(개월)</th><th>최종수금일</th><th style={{ minWidth: 180 }}>비고</th></tr></thead>
-            <tbody>{rows.map((c) => <tr key={c.rowKey}
-              className={c.period == null || Number(c.period) < 0 ? "customer-row--missing-period" : ""}>
+            <tbody>{rows.map((c) => <tr key={c.rowKey}>
               <td className="num t-muted">{code5(c.code)}</td><td className="t-strong">{c.name}</td>
               <td>{c.biz_unit}</td><td><Badge status={c.status} /></td>
-              <td className="num">{c.period == null || Number(c.period) < 0 ? "미입력" :
-                Number(c.period) === 0 ? "0개월 (당월)" : Number(c.period) === 1 ? "1개월 (익월)" : c.period + "개월"}</td>
+              <td className={"num" + (c.period == null || Number(c.period) < 0 ? " customer-period--missing" : "")}>
+                <InlineEdit value={c.period == null || Number(c.period) < 0 ? "" : String(c.period)}
+                  placeholder="미입력" type="number" canEdit={can("customer_info_edit")}
+                  formatValue={(value) => Number(value) === 0 ? "0개월 (당월)" :
+                    Number(value) === 1 ? "1개월 (익월)" : value + "개월"}
+                  onSave={(period) => updateCustomer(c.code, { period }, "회수기간을 저장했습니다.")} />
+              </td>
               <td><InlineEdit value={c.owner} placeholder="클릭해 입력" canEdit={can("note_edit")}
                 onSave={(owner) => updateCustomer(c.code, { owner }, "담당자를 저장했습니다.")} /></td>
               <td><InlineEdit value={c.collection_target_date} placeholder="날짜 선택" type="date" canEdit={can("note_edit")}
@@ -1050,6 +1055,7 @@ function mapHeaders(headers) {
 
 function Upload({ data, can, notify, applyUpload, refresh }) {
   const [month, setMonth] = useState(thisMonth());
+  const [shipmentDate, setShipmentDate] = useState(data.meta.today);
   const [parsed, setParsed] = useState(null);
   const [error, setError] = useState("");
   const [over, setOver] = useState(false);
@@ -1080,7 +1086,7 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
         }
         const shipmentMode = map.shipment_amount !== undefined;
         const required = shipmentMode
-          ? ["code", "name", "biz_unit", "collection_period", "shipment_amount"]
+          ? ["code", "name", "biz_unit"]
           : ["code", "name", "biz_unit", "normal_balance", "overdue_balance", "bad_balance"];
         const missing = required.filter((field) => map[field] === undefined);
         if (missing.length) {
@@ -1103,7 +1109,7 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
           if (!name) issues.push((i + 1) + "행: 거래처명 누락");
           if (!data.meta.units.includes(bizUnit)) issues.push((i + 1) + "행: 사업부 오류");
           const period = pick("collection_period");
-          if (shipmentMode && (period === "" || Number(period) < 0 || !Number.isFinite(Number(period)))) {
+          if (shipmentMode && period !== "" && (Number(period) < 0 || !Number.isFinite(Number(period)))) {
             issues.push((i + 1) + "행: 회수기간 오류");
           }
           rows.push({
@@ -1147,7 +1153,8 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
     try {
       const res = await api("/api/uploads", {
         method: "POST",
-        body: { month, filename: parsed.filename, rows: parsed.rows, mode: parsed.mode },
+        body: { month, shipment_date: shipmentDate, filename: parsed.filename,
+          rows: parsed.rows, mode: parsed.mode },
       });
       applyUpload(res);
       notify(res.inserted + "행을 반영했습니다. 기존 " + res.replaced + "행은 교체되었습니다.");
@@ -1171,6 +1178,10 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
         <div className="formrow">
           <Field label="기준월">
             <input className="input" type="month" value={month} onChange={(e) => setMonth(e.target.value)} />
+          </Field>
+          <Field label="출고기준일">
+            <input className="input" type="date" value={shipmentDate}
+              onChange={(e) => setShipmentDate(e.target.value)} />
           </Field>
           <Field label="마감 상태">
             <div className="btnrow" style={{ alignItems: "center", minHeight: 38 }}>
@@ -1241,7 +1252,7 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
             </div>
             <div className="btnrow">
               <button className="btn btn--primary" onClick={send}
-                disabled={busy || locked || parsed.dupes.length > 0 || parsed.issues.length > 0}>
+                disabled={busy || locked || !shipmentDate || parsed.dupes.length > 0 || parsed.issues.length > 0}>
                 {month} 데이터로 반영
               </button>
               <button className="btn" onClick={() => setParsed(null)}>취소</button>
@@ -1254,7 +1265,7 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
         <div className="tablewrap">
           <table>
             <thead>
-              <tr><th>일시</th><th>기준월</th><th>파일명</th><th className="r">반영 행</th>
+              <tr><th>업로드 일시</th><th>출고기준일</th><th>기준월</th><th>파일명</th><th className="r">반영 행</th>
                 <th className="r">교체된 행</th><th>업로더</th><th>마감</th></tr>
             </thead>
             <tbody>
@@ -1263,6 +1274,7 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
                 return (
                   <tr key={u.id}>
                     <td className="num t-sm">{u.uploaded_at}</td>
+                    <td className="num t-sm">{u.shipment_date || "–"}</td>
                     <td className="num t-strong">{u.month}</td>
                     <td>{u.filename}</td>
                     <td className="r num">{u.row_count}</td>
@@ -1295,17 +1307,17 @@ function UploadTemplate() {
         type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       }));
       const link = document.createElement("a");
-      link.href = url; link.download = "MedPark_채권데이터_업로드서식.xlsx"; link.click();
+      link.href = url; link.download = "MedPark_출고데이터_업로드서식.xlsx"; link.click();
       URL.revokeObjectURL(url);
     } catch (e) { alert(e.message); }
   }
 
   return (
     <>
-      <Card title="채권 데이터 엑셀 업로드 서식">
-        <p style={{ marginTop: 0 }}>월별 채권 데이터를 정확하게 등록할 수 있는 표준 서식입니다.</p>
+      <Card title="출고데이터 업로드서식">
+        <p style={{ marginTop: 0 }}>월별 출고데이터를 등록하는 표준 서식입니다.</p>
         <div className="alert alert--info" style={{ marginBottom: 14 }}>
-          필수 항목: 거래처코드 · 거래처명 · 사업부 · 정상채권잔액 · 미수채권(11개월 내) · 부실채권(12개월 이상)
+          필수 항목: 거래처코드 · 거래처명 · 사업부
         </div>
         <button className="btn btn--primary" onClick={downloadTemplate}>
           엑셀 업로드 서식 다운로드
@@ -1430,7 +1442,7 @@ const SCREENS = [
   { key: "owners",    label: "담당자별 채권현황", perm: "owner_view",          group: "현황" },
   { key: "collections", label: "수금 등록",       perm: "collection_register", group: "수금", alt: "collection_approve" },
   { key: "targets",   label: "수금목표 관리",     perm: "target_manage",       group: "수금" },
-  { key: "template",  label: "엑셀 업로드 서식",   perm: "upload_data",         group: "관리" },
+  { key: "template",  label: "출고데이터 업로드서식", perm: "upload_data",       group: "관리" },
   { key: "upload",    label: "출고 데이터 업로드", perm: "upload_data",        group: "관리" },
   { key: "users",     label: "계정·권한 관리",    perm: "user_manage",         group: "관리" },
 ];
