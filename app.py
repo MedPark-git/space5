@@ -184,6 +184,13 @@ def bootstrap():
     with connect() as conn:
         customers = [r for r in conn.execute(
             "SELECT * FROM customers ORDER BY balance DESC")]
+        detail_notes = {}
+        for row in conn.execute("SELECT customer_code,note FROM receivable_items WHERE note<>'' ORDER BY issue_month,id"):
+            notes = detail_notes.setdefault(row["customer_code"], [])
+            if row["note"] not in notes:
+                notes.append(row["note"])
+        for customer in customers:
+            customer["detail_notes"] = detail_notes.get(customer["code"], [])
         collections = [r for r in conn.execute(
             "SELECT * FROM collections ORDER BY id DESC LIMIT 800")]
         targets = [r for r in conn.execute(
@@ -364,21 +371,36 @@ def customer_receivables(code):
 
 
 @app.patch("/api/receivables/<int:item_id>")
-@requires("customer_info_edit")
+@login_required
 def update_receivable(item_id):
-    target_date = (body().get("target_date") or "").strip()
+    data = body()
+    fields, values = [], []
+    target_date = (data.get("target_date") or "").strip() if "target_date" in data else ""
+    if "target_date" in data:
+        if "customer_info_edit" not in request.user["permissions"]:
+            return jsonify(error="'거래처 정보수정' 권한이 없습니다."), 403
+        fields.append("target_date=%s")
+        values.append(target_date)
     if target_date:
         try:
             datetime.strptime(target_date, "%Y-%m-%d")
         except ValueError:
             return jsonify(error="수금목표일 형식이 올바르지 않습니다."), 400
+    if "note" in data:
+        if "note_edit" not in request.user["permissions"]:
+            return jsonify(error="'비고 편집' 권한이 없습니다."), 403
+        fields.append("note=%s")
+        values.append(str(data.get("note") or "").strip())
+    if not fields:
+        return jsonify(error="변경할 항목이 없습니다."), 400
+    values.append(item_id)
     with connect() as conn:
         item = conn.execute(
-            "UPDATE receivable_items SET target_date=%s WHERE id=%s RETURNING *",
-            (target_date, item_id)).fetchone()
+            "UPDATE receivable_items SET " + ",".join(fields) + " WHERE id=%s RETURNING *",
+            values).fetchone()
         if not item:
             return jsonify(error="채권 상세를 찾을 수 없습니다."), 404
-        log(conn, request.user["username"], "receivable_target_update", str(item_id))
+        log(conn, request.user["username"], "receivable_update", str(item_id))
     return jsonify(item=item)
 
 
