@@ -1602,7 +1602,6 @@ const COLUMN_ALIASES = {
   name: ["거래처명", "거래처", "업체명", "고객명", "고객", "name"],
   biz_unit: ["사업부", "사업부문", "부문", "대분류", "unit"],
   status: ["채권분류", "분류", "채권상태", "상태", "status"],
-  owner: ["담당자", "영업담당", "담당", "owner"],
   collection_period: ["회수기간(개월)", "회수기간", "collection_period"],
   shipment_amount: ["출고금액", "출고액", "합계액", "shipment_amount"],
   balance: ["미수잔액", "미수금액", "채권잔액", "잔액", "미수금", "balance"],
@@ -1728,7 +1727,7 @@ function Upload({
             name,
             biz_unit: bizUnit,
             status: String(pick("status") || "").trim(),
-            owner: String(pick("owner") || "").trim(),
+            owner: "",
             collection_period: period,
             shipment_amount: pick("shipment_amount"),
             balance: pick("balance"),
@@ -1912,13 +1911,13 @@ function Upload({
       overflowY: "auto",
       marginBottom: 12
     }
-  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "코드"), /*#__PURE__*/React.createElement("th", null, "거래처명"), /*#__PURE__*/React.createElement("th", null, "사업부"), /*#__PURE__*/React.createElement("th", null, parsed.mode === "shipment" ? "회수기간" : "분류"), /*#__PURE__*/React.createElement("th", null, "담당자"), /*#__PURE__*/React.createElement("th", {
+  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "코드"), /*#__PURE__*/React.createElement("th", null, "거래처명"), /*#__PURE__*/React.createElement("th", null, "사업부"), /*#__PURE__*/React.createElement("th", null, parsed.mode === "shipment" ? "회수기간" : "분류"), /*#__PURE__*/React.createElement("th", {
     className: "r"
   }, parsed.mode === "shipment" ? "출고금액" : "채권잔액"))), /*#__PURE__*/React.createElement("tbody", null, parsed.rows.slice(0, 12).map((r, i) => /*#__PURE__*/React.createElement("tr", {
     key: i
   }, /*#__PURE__*/React.createElement("td", {
     className: "num"
-  }, r.code), /*#__PURE__*/React.createElement("td", null, r.name), /*#__PURE__*/React.createElement("td", null, r.biz_unit || "–"), /*#__PURE__*/React.createElement("td", null, parsed.mode === "shipment" ? r.collection_period + "개월" : r.status || "자동판정"), /*#__PURE__*/React.createElement("td", null, r.owner || "–"), /*#__PURE__*/React.createElement("td", {
+  }, r.code), /*#__PURE__*/React.createElement("td", null, r.name), /*#__PURE__*/React.createElement("td", null, r.biz_unit || "–"), /*#__PURE__*/React.createElement("td", null, parsed.mode === "shipment" ? r.collection_period + "개월" : r.status || "자동판정"), /*#__PURE__*/React.createElement("td", {
     className: "r num"
   }, won(parsed.mode === "shipment" ? r.shipment_amount : r.balance))))))), /*#__PURE__*/React.createElement("div", {
     className: "btnrow"
