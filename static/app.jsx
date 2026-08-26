@@ -437,7 +437,9 @@ function Dashboard({ data, setScreen, setPreset }) {
 
 /* ══════════════════ 채권요약현황 ══════════════════ */
 
-function BondSummary({ data }) {
+function BondSummary({ data, notify }) {
+  const reportRef = useRef(null);
+  const [exporting, setExporting] = useState(false);
   const unitNames = { 덴탈: "국내덴탈", 메디컬: "국내메디컬", 에스테틱: "국내에스테틱" };
   const units = data.meta.units;
 
@@ -479,8 +481,48 @@ function BondSummary({ data }) {
   const rate = (value, base) => base ? (value / base * 100).toFixed(1) + "%" : "0.0%";
   const sourceMonth = (data.uploads[0] && data.uploads[0].month) || thisMonth();
 
+  async function exportReport(kind) {
+    setExporting(true);
+    try {
+      if (!window.html2canvas) throw new Error("이미지 변환 모듈을 불러오지 못했습니다.");
+      const canvas = await window.html2canvas(reportRef.current, {
+        scale: 2, backgroundColor: "#eef1f6", useCORS: true,
+      });
+      const base = "채권요약현황_" + data.meta.today;
+      if (kind === "png") {
+        const link = document.createElement("a");
+        link.download = base + ".png";
+        link.href = canvas.toDataURL("image/png");
+        link.click();
+      } else {
+        if (!window.PptxGenJS) throw new Error("PPT 변환 모듈을 불러오지 못했습니다.");
+        const pptx = new window.PptxGenJS();
+        pptx.layout = "LAYOUT_WIDE";
+        pptx.author = "MEDPARK";
+        const slide = pptx.addSlide();
+        slide.background = { color: "EEF1F6" };
+        slide.addText("㈜메드파크 채권요약현황", { x: .35, y: .12, w: 8, h: .34,
+          fontFace: "Pretendard", fontSize: 17, bold: true, color: "16202E" });
+        slide.addText("기준일 " + data.meta.today, { x: 10.2, y: .18, w: 2.75, h: .22,
+          align: "right", fontFace: "Pretendard", fontSize: 9, color: "5C6B80" });
+        const ratio = Math.min(12.65 / canvas.width, 6.8 / canvas.height);
+        slide.addImage({ data: canvas.toDataURL("image/png"), x: .34, y: .52,
+          w: canvas.width * ratio, h: canvas.height * ratio });
+        await pptx.writeFile({ fileName: base + ".pptx" });
+      }
+      notify((kind === "png" ? "그림파일" : "PPT") + " 다운로드를 시작했습니다.");
+    } catch (e) { notify(e.message, true); }
+    finally { setExporting(false); }
+  }
+
   return (
     <>
+      <div className="export-actions">
+        <span className="t-muted t-sm">결산회의용 다운로드</span>
+        <button className="btn btn--sm" disabled={exporting} onClick={() => exportReport("png")}>그림파일(PNG)</button>
+        <button className="btn btn--sm btn--primary" disabled={exporting} onClick={() => exportReport("pptx")}>PPT</button>
+      </div>
+      <div ref={reportRef} className="summary-export">
       <Card title={"1. 사업부별 채권 분류 현황 (" + sourceMonth + " 기준)"} flush>
         <div className="tablewrap summary-table">
           <table>
@@ -541,6 +583,7 @@ function BondSummary({ data }) {
           </table>
         </div>
       </Card>
+      </div>
     </>
   );
 }
@@ -574,6 +617,9 @@ function Customers({ data, can, preset, notify, patchCustomer }) {
   const [unit, setUnit] = useState((preset && preset.unit) || "전체");
   const [type, setType] = useState((preset && preset.status) || "전체");
   const [q, setQ] = useState("");
+  const [periodFilter, setPeriodFilter] = useState("전체");
+  const [ownerFilter, setOwnerFilter] = useState("전체");
+  const [ageFilter, setAgeFilter] = useState("전체");
   const [editingNote, setEditingNote] = useState(null);
   const [draftNote, setDraftNote] = useState("");
   const [receivableDetail, setReceivableDetail] = useState(null);
@@ -590,10 +636,21 @@ function Customers({ data, can, preset, notify, patchCustomer }) {
       rowKey: c.code + "-" + c.biz_unit + "-" + part.status }));
   }).filter((c) => {
     if (type !== "전체" && c.status !== type) return false;
+    const missingPeriod = c.period == null || Number(c.period) < 0;
+    if (periodFilter === "미입력" && !missingPeriod) return false;
+    if (periodFilter === "입력" && missingPeriod) return false;
+    if (ownerFilter === "미배정" && c.owner) return false;
+    if (ownerFilter !== "전체" && ownerFilter !== "미배정" && c.owner !== ownerFilter) return false;
+    if (ageFilter === "0" && c.months !== 0) return false;
+    if (ageFilter === "1-3" && (c.months < 1 || c.months > 3)) return false;
+    if (ageFilter === "4-11" && (c.months < 4 || c.months > 11)) return false;
+    if (ageFilter === "12+" && c.months < 12) return false;
     if (q && !(c.name.includes(q) || c.code.includes(q) || code5(c.code).includes(q)
       || (c.owner || "").includes(q))) return false;
     return true;
-  }), [data.customers, unit, type, q]);
+  }), [data.customers, unit, type, q, periodFilter, ownerFilter, ageFilter]);
+
+  const owners = useMemo(() => [...new Set(data.customers.map((c) => c.owner).filter(Boolean))].sort(), [data.customers]);
 
   async function updateCustomer(code, body, message) {
     try {
@@ -622,6 +679,17 @@ function Customers({ data, can, preset, notify, patchCustomer }) {
     } catch (e) { notify(e.message, true); }
   }
 
+  async function saveItemNote(itemId, note) {
+    try {
+      const result = await api("/api/receivables/" + itemId, { method: "PATCH", body: { note } });
+      const items = receivableDetail.items.map((x) => x.id === itemId ? result.item : x);
+      setReceivableDetail((d) => ({ ...d, items }));
+      patchCustomer({ ...receivableDetail.customer,
+        detail_notes: [...new Set(items.map((x) => x.note).filter(Boolean))] });
+      notify("채권 비고를 저장하고 거래처 현황에 취합 반영했습니다.");
+    } catch (e) { notify(e.message, true); }
+  }
+
   const distinctCustomers = new Set(rows.map((r) => r.code)).size;
 
   return (
@@ -634,14 +702,23 @@ function Customers({ data, can, preset, notify, patchCustomer }) {
           <Field label="채권유형별 필터"><select className="select" value={type} onChange={(e) => setType(e.target.value)}>
             <option>전체</option>{data.meta.statuses.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
           </select></Field>
-          <Field label="거래처 검색"><input className="input" value={q} placeholder="거래처명·코드·담당자"
+          <Field label="회수기간"><select className="select" value={periodFilter} onChange={(e) => setPeriodFilter(e.target.value)}>
+            <option>전체</option><option>미입력</option><option>입력</option>
+          </select></Field>
+          <Field label="담당자"><select className="select" value={ownerFilter} onChange={(e) => setOwnerFilter(e.target.value)}>
+            <option>전체</option><option>미배정</option>{owners.map((o) => <option key={o}>{o}</option>)}
+          </select></Field>
+          <Field label="연체기간"><select className="select" value={ageFilter} onChange={(e) => setAgeFilter(e.target.value)}>
+            <option value="전체">전체</option><option value="0">0개월</option><option value="1-3">1~3개월</option>
+            <option value="4-11">4~11개월</option><option value="12+">12개월 이상</option>
+          </select></Field>
+          <Field label="거래처 검색"><input className="input" lang="ko" inputMode="text" value={q} placeholder="거래처명·코드·담당자"
             onChange={(e) => setQ(e.target.value)} /></Field>
-          <button className="btn btn--sm" onClick={() => { setUnit("전체"); setType("전체"); setQ(""); }}>초기화</button>
+          <button className="btn btn--sm" onClick={() => { setUnit("전체"); setType("전체"); setPeriodFilter("전체"); setOwnerFilter("전체"); setAgeFilter("전체"); setQ(""); }}>초기화</button>
         </div>
       </Card>
 
       <Card title={(STATUS_LABEL[type] || type) + " · 거래처 " + distinctCustomers + "곳 / 채권 " + rows.length + "건"} flush>
-        {rows.length === 0 ? <Empty title="조건에 맞는 채권이 없습니다.">상단 필터나 검색어를 바꿔보세요.</Empty> : (
           <div className="tablewrap customer-table"><table>
             <thead><tr><th>코드</th><th>거래처명</th><th>사업부</th><th>채권유형</th><th>회수기간</th><th>담당자</th>
               <th>수금목표일</th><th className="r">채권잔액</th><th className="r">선수금</th>
@@ -670,13 +747,13 @@ function Customers({ data, can, preset, notify, patchCustomer }) {
                 <button className="btn btn--sm" onClick={() => setEditingNote(null)}>취소</button>
               </div> : <button type="button" className="inline-edit" disabled={!can("note_edit")}
                 onClick={() => { setEditingNote(c.rowKey); setDraftNote(c.note || ""); }}>
-                {c.note || <span className="t-muted">클릭해 입력</span>}</button>}</td>
+                {[c.note, ...(c.detail_notes || [])].filter(Boolean).join(" · ") || <span className="t-muted">클릭해 입력</span>}</button>}</td>
             </tr>)}</tbody>
+            {rows.length === 0 && <tbody><tr><td colSpan={12} className="zero-result">조회 결과 <b>0원</b></td></tr></tbody>}
             <tfoot><tr><td colSpan={7}>합계 · 거래처 {distinctCustomers}곳 / 채권 {rows.length}건</td>
               <td className="r num">{won(sum(rows, "balance"))}</td><td className="r num">{won(sum(rows, "advance"))}</td>
               <td colSpan={3} /></tr></tfoot>
           </table></div>
-        )}
       </Card>
       {receivableDetail && <div className="modal-backdrop" onMouseDown={() => setReceivableDetail(null)}>
         <section className="modal-card modal-card--wide" onMouseDown={(e) => e.stopPropagation()}>
@@ -695,7 +772,8 @@ function Customers({ data, can, preset, notify, patchCustomer }) {
               <td className="r num">{won(item.original_amount)}</td><td className="r num t-strong">{won(item.balance)}</td>
               <td><InlineEdit value={item.target_date} placeholder="목표일 입력" type="date"
                 canEdit={can("customer_info_edit")} onSave={(value) => saveItemTarget(item.id, value)} /></td>
-              <td className="t-sm t-muted">{item.note || "–"}</td>
+              <td><InlineEdit value={item.note} placeholder="비고 입력" canEdit={can("note_edit")}
+                onSave={(value) => saveItemNote(item.id, value)} /></td>
             </tr>)}</tbody>
           </table></div>
         </section>
@@ -807,7 +885,7 @@ function CustomerSearch({ customers, value, onChange }) {
 
   return (
     <div className="customer-search">
-      <input className="input" value={query} placeholder="거래처명 또는 코드 검색"
+      <input className="input" lang="ko" inputMode="text" value={query} placeholder="거래처명 또는 코드 검색"
         role="combobox" aria-expanded={open} aria-autocomplete="list"
         onFocus={() => setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
@@ -1689,7 +1767,7 @@ function App() {
     <p className="boot__text">데이터를 준비하고 있습니다.</p></div>;
 
   const patchCustomer = (c) => setData((d) => ({
-    ...d, customers: d.customers.map((x) => (x.code === c.code ? c : x)),
+    ...d, customers: d.customers.map((x) => (x.code === c.code ? { ...x, ...c } : x)),
   }));
   const applyUpload = (res) => setData((d) => ({
     ...d, customers: res.customers, uploads: res.uploads,
@@ -1758,7 +1836,7 @@ function App() {
 
         <div className="page">
           {screen === "dashboard" && <Dashboard data={reportData} setScreen={setScreen} setPreset={setPreset} />}
-          {screen === "summary" && <BondSummary data={reportData} />}
+          {screen === "summary" && <BondSummary data={reportData} notify={notify} />}
           {screen === "customers" && <Customers data={reportData} can={can} preset={preset}
             notify={notify} patchCustomer={patchCustomer} />}
           {screen === "owners" && <Owners data={reportData} />}
