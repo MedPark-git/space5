@@ -1947,7 +1947,7 @@ function UploadTemplate() {
   }, /*#__PURE__*/React.createElement("li", null, "서식을 내려받아 첫 번째 시트인 ", /*#__PURE__*/React.createElement("b", null, "업로드서식"), "에 데이터를 입력합니다."), /*#__PURE__*/React.createElement("li", null, "출고 데이터 업로드 메뉴에서 기준월을 선택합니다."), /*#__PURE__*/React.createElement("li", null, "파일을 선택해 오류·중복 여부를 확인한 뒤 해당 월 데이터로 반영합니다."), /*#__PURE__*/React.createElement("li", null, "확정된 월은 마감 잠금하여 추가 변경을 방지합니다."))));
 }
 
-/* ══════════════════ 자금수지 수금계획 ══════════════════ */
+/* ══════════════════ 수금계획 다운로드 ══════════════════ */
 
 function CashPlan({
   data,
@@ -2323,7 +2323,7 @@ const SCREENS = [{
   group: "관리"
 }, {
   key: "cashplan",
-  label: "자금수지 수금계획",
+  label: "수금계획 다운로드",
   perm: "data_export",
   group: "관리"
 }, {
@@ -2406,7 +2406,7 @@ function App() {
     className: "side__top"
   }, /*#__PURE__*/React.createElement("div", {
     className: "side__logo"
-  }, /*#__PURE__*/React.createElement("span", null, "MP"), "미수채권 관리")), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("span", null, "MP"), "채권관리")), /*#__PURE__*/React.createElement("div", {
     className: "side__nav"
   }, groups.map(g => /*#__PURE__*/React.createElement("div", {
     key: g
