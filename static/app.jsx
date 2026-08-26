@@ -588,6 +588,114 @@ function BondSummary({ data, notify }) {
   );
 }
 
+/* ═══════════════ 결산회의용 부서별 미수채권현황 ═══════════════ */
+
+function ClosingReceivables({ data, notify }) {
+  const [unit, setUnit] = useState("전체");
+  const reportRef = useRef(null);
+  const [exporting, setExporting] = useState(false);
+  const unitNames = { 덴탈: "국내덴탈", 메디컬: "국내메디컬", 에스테틱: "국내에스테틱" };
+  const units = unit === "전체" ? data.meta.units : [unit];
+
+  const reports = useMemo(() => units.map((bizUnit) => {
+    const customers = customersForUnit(data.customers, bizUnit);
+    const detail = customers.flatMap((c) => {
+      const notes = [c.note, ...(c.detail_notes || [])].filter(Boolean);
+      return [
+        { ...c, category: "미수채권", amount: Number(c.overdue_balance) || 0,
+          months: overdueMonths(c.overdue_days), notes },
+        { ...c, category: "부실채권", amount: Number(c.bad_balance) || 0,
+          months: overdueMonths(c.overdue_days), notes },
+      ].filter((row) => row.amount > 0);
+    }).sort((a, b) => b.amount - a.amount);
+    const overdueBalance = sum(customers, "overdue_balance");
+    const badBalance = sum(customers, "bad_balance");
+    const overdueCollected = sum(customers, "overdue_collected");
+    const overdueOpening = overdueBalance + badBalance + overdueCollected;
+    const normalBalance = sum(customers, "normal_balance");
+    const normalCollected = sum(customers, "normal_collected");
+    return { unit: bizUnit, customers, detail, overdueBalance, badBalance, overdueCollected,
+      overdueOpening, normalBalance, normalCollected, normalOpening: normalBalance + normalCollected };
+  }).filter((report) => report.overdueBalance + report.badBalance > 0), [data.customers, units.join("|")]);
+
+  const rate = (paid, opening) => opening ? (paid / opening * 100).toFixed(1) + "%" : "0.0%";
+
+  async function exportReport(kind) {
+    setExporting(true);
+    try {
+      if (!window.html2canvas) throw new Error("이미지 변환 모듈을 불러오지 못했습니다.");
+      const canvas = await window.html2canvas(reportRef.current, { scale: 2, backgroundColor: "#eef1f6", useCORS: true });
+      const base = "결산회의_부서별_미수채권현황_" + data.meta.today;
+      if (kind === "png") {
+        const link = document.createElement("a"); link.download = base + ".png";
+        link.href = canvas.toDataURL("image/png"); link.click();
+      } else {
+        if (!window.PptxGenJS) throw new Error("PPT 변환 모듈을 불러오지 못했습니다.");
+        const pptx = new window.PptxGenJS(); pptx.layout = "LAYOUT_WIDE"; pptx.author = "MEDPARK";
+        const imageData = canvas.toDataURL("image/png");
+        const pageHeight = Math.floor(canvas.width * 6.75 / 12.65);
+        for (let top = 0; top < canvas.height; top += pageHeight) {
+          const slice = document.createElement("canvas"); slice.width = canvas.width;
+          slice.height = Math.min(pageHeight, canvas.height - top);
+          slice.getContext("2d").drawImage(canvas, 0, top, canvas.width, slice.height, 0, 0, canvas.width, slice.height);
+          const slide = pptx.addSlide(); slide.background = { color: "EEF1F6" };
+          slide.addText("㈜메드파크 결산회의용 부서별 미수채권현황", { x: .35, y: .1, w: 9, h: .3,
+            fontFace: "Pretendard", fontSize: 16, bold: true, color: "16202E" });
+          slide.addText("기준일 " + data.meta.today, { x: 10.2, y: .15, w: 2.75, h: .2, align: "right", fontSize: 9, color: "5C6B80" });
+          slide.addImage({ data: slice.toDataURL("image/png"), x: .34, y: .48, w: 12.65,
+            h: 12.65 * slice.height / slice.width });
+        }
+        await pptx.writeFile({ fileName: base + ".pptx" });
+      }
+      notify((kind === "png" ? "그림파일" : "PPT") + " 다운로드를 시작했습니다.");
+    } catch (e) { notify(e.message, true); }
+    finally { setExporting(false); }
+  }
+
+  return <>
+    <div className="closing-toolbar">
+      <Field label="사업부"><select className="select" value={unit} onChange={(e) => setUnit(e.target.value)}>
+        <option>전체</option>{data.meta.units.map((u) => <option key={u}>{u}</option>)}
+      </select></Field>
+      <div className="spacer" /><span className="t-muted t-sm">결산회의용 다운로드</span>
+      <button className="btn btn--sm" disabled={exporting} onClick={() => exportReport("png")}>그림파일(PNG)</button>
+      <button className="btn btn--sm btn--primary" disabled={exporting} onClick={() => exportReport("pptx")}>PPT</button>
+    </div>
+    <div ref={reportRef} className="closing-report">
+      {reports.length === 0 && <Card><div className="zero-result">조회 대상 채권이 없습니다.</div></Card>}
+      {reports.map((report) => <Card key={report.unit}
+        title={(unitNames[report.unit] || report.unit) + " · 미수채권현황"} flush>
+        <div className="closing-meta">기준일 {data.meta.today} · 잔액이 있는 채권만 표시</div>
+        <div className="tablewrap"><table className="closing-summary"><thead><tr>
+          <th>구분</th><th className="r">기초</th><th className="r">수금액</th><th className="r">잔액</th><th className="r">회수율</th><th>주요사항</th>
+        </tr></thead><tbody>
+          <tr className="closing-summary--overdue"><td>미수·부실채권</td>
+            <td className="r num">{won(report.overdueOpening)}</td><td className="r num">{won(report.overdueCollected)}</td>
+            <td className="r num t-strong">{won(report.overdueBalance + report.badBalance)}</td>
+            <td className="r num">{rate(report.overdueCollected, report.overdueOpening)}</td>
+            <td>{report.detail.filter((x) => x.notes.length).length}개 거래처 특이사항 등록</td></tr>
+          {report.normalOpening > 0 && <tr><td>정상채권 (수금 대상)</td>
+            <td className="r num">{won(report.normalOpening)}</td><td className="r num">{won(report.normalCollected)}</td>
+            <td className="r num t-strong">{won(report.normalBalance)}</td>
+            <td className="r num">{rate(report.normalCollected, report.normalOpening)}</td><td /></tr>}
+        </tbody></table></div>
+        <div className="tablewrap"><table className="closing-detail"><thead><tr>
+          <th>거래처명</th><th>사업부</th><th className="r">회수기간</th><th className="r">연체기간</th>
+          <th>채권구분</th><th className="r">채권잔액</th><th>특이사항</th>
+        </tr></thead><tbody>{report.detail.map((row) => <tr key={row.code + row.category}>
+          <td className="t-strong">{row.name}</td><td>{report.unit}</td>
+          <td className={(row.period == null || Number(row.period) < 0) ? "customer-period--missing" : "r num"}>
+            {row.period == null || Number(row.period) < 0 ? "미입력" : Number(row.period) + "개월"}</td>
+          <td className="r num">{row.months}개월</td><td><Badge status={row.category === "부실채권" ? "부실" : "연체"} /></td>
+          <td className="r num closing-amount">{won(row.amount)}</td>
+          <td className="closing-notes">{row.notes.join(" · ") || "–"}</td>
+        </tr>)}</tbody><tfoot><tr><td colSpan={5}>합계 · {report.detail.length}건</td>
+          <td className="r num">{won(sum(report.detail, "amount"))}</td><td /></tr></tfoot></table></div>
+      </Card>)}
+    </div>
+  </>;
+}
+
 /* ══════════════════ 거래처별 현황 ══════════════════ */
 
 function InlineEdit({ value, type = "text", placeholder, canEdit, onSave, formatValue }) {
@@ -1703,6 +1811,7 @@ function Users({ data, notify, refresh }) {
 const SCREENS = [
   { key: "dashboard", label: "대시보드",         perm: "dashboard_view",      group: "현황" },
   { key: "summary",   label: "채권요약현황",     perm: "dashboard_view",      group: "현황" },
+  { key: "closing",   label: "결산회의 미수채권", perm: "dashboard_view",      group: "현황" },
   { key: "customers", label: "거래처별 현황",     perm: "customer_view",       group: "현황" },
   { key: "owners",    label: "담당자별 채권현황", perm: "owner_view",          group: "현황" },
   { key: "collections", label: "수금 등록",       perm: "collection_register", group: "수금", alt: "collection_approve" },
@@ -1711,7 +1820,7 @@ const SCREENS = [
   { key: "cashplan",  label: "수금계획 다운로드", perm: "data_export",          group: "관리" },
   { key: "users",     label: "계정·권한 관리",    perm: "user_manage",         group: "관리" },
 ];
-const REPORT_SCREENS = new Set(["dashboard", "summary", "customers", "owners", "targets", "cashplan"]);
+const REPORT_SCREENS = new Set(["dashboard", "summary", "closing", "customers", "owners", "targets", "cashplan"]);
 
 function App() {
   const [user, setUser] = useState(undefined);
@@ -1837,6 +1946,7 @@ function App() {
         <div className="page">
           {screen === "dashboard" && <Dashboard data={reportData} setScreen={setScreen} setPreset={setPreset} />}
           {screen === "summary" && <BondSummary data={reportData} notify={notify} />}
+          {screen === "closing" && <ClosingReceivables data={reportData} notify={notify} />}
           {screen === "customers" && <Customers data={reportData} can={can} preset={preset}
             notify={notify} patchCustomer={patchCustomer} />}
           {screen === "owners" && <Owners data={reportData} />}
