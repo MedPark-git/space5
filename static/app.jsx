@@ -601,22 +601,17 @@ function ClosingReceivables({ data, notify }) {
     const customers = customersForUnit(data.customers, bizUnit);
     const detail = customers.flatMap((c) => {
       const notes = [c.note, ...(c.detail_notes || [])].filter(Boolean);
-      return [
-        { ...c, category: "미수채권", amount: Number(c.overdue_balance) || 0,
-          months: overdueMonths(c.overdue_days), notes },
-        { ...c, category: "부실채권", amount: Number(c.bad_balance) || 0,
-          months: overdueMonths(c.overdue_days), notes },
-      ].filter((row) => row.amount > 0);
+      return [{ ...c, category: "미수채권", amount: Number(c.overdue_balance) || 0,
+        months: overdueMonths(c.overdue_days), notes }].filter((row) => row.amount > 0);
     }).sort((a, b) => b.amount - a.amount);
     const overdueBalance = sum(customers, "overdue_balance");
-    const badBalance = sum(customers, "bad_balance");
     const overdueCollected = sum(customers, "overdue_collected");
-    const overdueOpening = overdueBalance + badBalance + overdueCollected;
+    const overdueOpening = overdueBalance + overdueCollected;
     const normalBalance = sum(customers, "normal_balance");
     const normalCollected = sum(customers, "normal_collected");
-    return { unit: bizUnit, customers, detail, overdueBalance, badBalance, overdueCollected,
+    return { unit: bizUnit, customers, detail, overdueBalance, overdueCollected,
       overdueOpening, normalBalance, normalCollected, normalOpening: normalBalance + normalCollected };
-  }).filter((report) => report.overdueBalance + report.badBalance > 0), [data.customers, units.join("|")]);
+  }).filter((report) => report.overdueBalance > 0), [data.customers, units.join("|")]);
 
   const rate = (paid, opening) => opening ? (paid / opening * 100).toFixed(1) + "%" : "0.0%";
 
@@ -669,9 +664,9 @@ function ClosingReceivables({ data, notify }) {
         <div className="tablewrap"><table className="closing-summary"><thead><tr>
           <th>구분</th><th className="r">기초</th><th className="r">수금액</th><th className="r">잔액</th><th className="r">회수율</th><th>주요사항</th>
         </tr></thead><tbody>
-          <tr className="closing-summary--overdue"><td>미수·부실채권</td>
+          <tr className="closing-summary--overdue"><td>미수채권</td>
             <td className="r num">{won(report.overdueOpening)}</td><td className="r num">{won(report.overdueCollected)}</td>
-            <td className="r num t-strong">{won(report.overdueBalance + report.badBalance)}</td>
+            <td className="r num t-strong">{won(report.overdueBalance)}</td>
             <td className="r num">{rate(report.overdueCollected, report.overdueOpening)}</td>
             <td>{report.detail.filter((x) => x.notes.length).length}개 거래처 특이사항 등록</td></tr>
           {report.normalOpening > 0 && <tr><td>정상채권 (수금 대상)</td>
@@ -686,7 +681,7 @@ function ClosingReceivables({ data, notify }) {
           <td className="t-strong">{row.name}</td><td>{report.unit}</td>
           <td className={(row.period == null || Number(row.period) < 0) ? "customer-period--missing" : "r num"}>
             {row.period == null || Number(row.period) < 0 ? "미입력" : Number(row.period) + "개월"}</td>
-          <td className="r num">{row.months}개월</td><td><Badge status={row.category === "부실채권" ? "부실" : "연체"} /></td>
+          <td className="r num">{row.months}개월</td><td><Badge status="연체" /></td>
           <td className="r num closing-amount">{won(row.amount)}</td>
           <td className="closing-notes">{row.notes.join(" · ") || "–"}</td>
         </tr>)}</tbody><tfoot><tr><td colSpan={5}>합계 · {report.detail.length}건</td>
