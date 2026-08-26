@@ -228,7 +228,13 @@ CREATE TABLE IF NOT EXISTS customers (
     owner         TEXT NOT NULL DEFAULT '',
     balance       {BIGINT} NOT NULL DEFAULT 0,
     normal_balance {BIGINT} NOT NULL DEFAULT 0,
+    normal_later_balance {BIGINT} NOT NULL DEFAULT 0,
+    normal_next_balance {BIGINT} NOT NULL DEFAULT 0,
+    normal_current_balance {BIGINT} NOT NULL DEFAULT 0,
+    normal_collected {BIGINT} NOT NULL DEFAULT 0,
     overdue_balance {BIGINT} NOT NULL DEFAULT 0,
+    overdue_source_balance {BIGINT} NOT NULL DEFAULT 0,
+    overdue_collected {BIGINT} NOT NULL DEFAULT 0,
     bad_balance   {BIGINT} NOT NULL DEFAULT 0,
     advance       {BIGINT} NOT NULL DEFAULT 0,
     overdue_days  INTEGER NOT NULL DEFAULT 0,
@@ -370,7 +376,11 @@ def init_db():
             conn.execute("SELECT pg_advisory_xact_lock(%s)", (778101,))
         conn.executescript(SCHEMA)
         # 기존 운영 DB에도 채권 분류별 잔액 열을 안전하게 추가한다.
-        split_columns = ("normal_balance", "overdue_balance", "bad_balance")
+        split_columns = (
+            "normal_balance", "normal_later_balance", "normal_next_balance",
+            "normal_current_balance", "normal_collected", "overdue_balance",
+            "overdue_source_balance", "overdue_collected", "bad_balance",
+        )
         if USE_PG:
             for column in split_columns:
                 conn.execute(
