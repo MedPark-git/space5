@@ -555,6 +555,19 @@ def init_db():
                 "ON CONFLICT (scope, key) DO UPDATE SET value=EXCLUDED.value",
                 ("system", account_reset_key, "true"),
             )
+        # 담당자는 파일에서 가져오지 않고 프로그램에서 직접 지정한다.
+        # 기존 담당자 값은 이번 정책 적용 시 한 번만 모두 미배정으로 초기화한다.
+        owner_reset_key = "customer_owners_cleared_20260826_v2"
+        owner_reset = conn.execute(
+            "SELECT 1 FROM kv WHERE scope=%s AND key=%s", ("system", owner_reset_key)
+        ).fetchone()
+        if not owner_reset:
+            conn.execute("UPDATE customers SET owner='' WHERE owner<>''")
+            conn.execute(
+                "INSERT INTO kv (scope,key,value) VALUES (%s,%s,%s)"
+                " ON CONFLICT(scope,key) DO UPDATE SET value=EXCLUDED.value",
+                ("system", owner_reset_key, "true"),
+            )
         # 2026-08-25: 사실관계가 확인되지 않은 기존 기초자료를 한 번만 정리한다.
         # 사용자/권한과 화면 설정(kv)은 보존하고, 업무 데이터만 비운다.
         cleanup_key = "baseline_data_cleared_20260825"
