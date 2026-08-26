@@ -255,9 +255,9 @@ function Dashboard({
       count: rows.length
     };
     rows.forEach(c => {
-      g.정상 += c.normal_balance;
-      g.연체 += c.overdue_balance;
-      g.부실 += c.bad_balance;
+      g.정상 += Number(c.normal_balance) || 0;
+      g.연체 += Number(c.overdue_balance) || 0;
+      g.부실 += Number(c.bad_balance) || 0;
     });
     g.total = g.정상 + g.연체 + g.부실;
     return g;
