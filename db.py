@@ -291,8 +291,27 @@ CREATE TABLE IF NOT EXISTS uploads (
     row_count    INTEGER NOT NULL DEFAULT 0,
     uploaded_by  TEXT NOT NULL,
     uploaded_at  TEXT NOT NULL {NOW_DEFAULT},
-    replaced     INTEGER NOT NULL DEFAULT 0
+    replaced     INTEGER NOT NULL DEFAULT 0,
+    upload_type  TEXT NOT NULL DEFAULT 'snapshot'
 );
+
+CREATE TABLE IF NOT EXISTS monthly_shipments (
+    month              TEXT NOT NULL,
+    code               TEXT NOT NULL,
+    name               TEXT NOT NULL,
+    biz_unit           TEXT NOT NULL,
+    owner              TEXT NOT NULL DEFAULT '',
+    collection_period  INTEGER NOT NULL DEFAULT -1,
+    target_month       TEXT NOT NULL DEFAULT '',
+    bucket             TEXT NOT NULL DEFAULT 'current',
+    amount             {BIGINT} NOT NULL DEFAULT 0,
+    balance            {BIGINT} NOT NULL DEFAULT 0,
+    note               TEXT NOT NULL DEFAULT '',
+    uploaded_at        TEXT NOT NULL {NOW_DEFAULT},
+    PRIMARY KEY (month, code)
+);
+CREATE INDEX IF NOT EXISTS idx_ship_code ON monthly_shipments(code);
+CREATE INDEX IF NOT EXISTS idx_ship_target ON monthly_shipments(target_month);
 
 CREATE TABLE IF NOT EXISTS month_locks (
     month     TEXT PRIMARY KEY,
@@ -396,6 +415,15 @@ def init_db():
                     conn.execute("ALTER TABLE customers ADD COLUMN " + column
                                  + (" TEXT NOT NULL DEFAULT ''" if column == "collection_target_date"
                                     else " INTEGER NOT NULL DEFAULT 0"))
+        # 업로드 유형은 기존 운영 이력에는 snapshot 기본값을 적용한다.
+        if USE_PG:
+            conn.execute("ALTER TABLE uploads ADD COLUMN IF NOT EXISTS upload_type"
+                         " TEXT NOT NULL DEFAULT 'snapshot'")
+        else:
+            upload_columns = {r["name"] for r in conn.execute("PRAGMA table_info(uploads)")}
+            if "upload_type" not in upload_columns:
+                conn.execute("ALTER TABLE uploads ADD COLUMN upload_type"
+                             " TEXT NOT NULL DEFAULT 'snapshot'")
         existing = {r["username"] for r in conn.execute("SELECT username FROM users")}
         for username, name, title, role, unit in SEED_USERS:
             if username in existing:
