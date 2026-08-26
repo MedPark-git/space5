@@ -480,6 +480,9 @@ function BondSummary({ data, notify }) {
   const total = (key) => sum(summary, key);
   const rate = (value, base) => base ? (value / base * 100).toFixed(1) + "%" : "0.0%";
   const sourceMonth = (data.uploads[0] && data.uploads[0].month) || thisMonth();
+  const reportDate = data.meta.today || today();
+  const reportMonth = Number(reportDate.slice(5, 7));
+  const reportDay = Number(reportDate.slice(8, 10));
 
   async function exportReport(kind) {
     setExporting(true);
@@ -523,7 +526,7 @@ function BondSummary({ data, notify }) {
         <button className="btn btn--sm btn--primary" disabled={exporting} onClick={() => exportReport("pptx")}>PPT</button>
       </div>
       <div ref={reportRef} className="summary-export">
-      <Card title={"1. 사업부별 채권 분류 현황 (" + sourceMonth + " 기준)"} flush>
+      <Card title={"1. 사업부별 채권 분류 현황 (" + reportDate + " 기준)"} flush>
         <div className="tablewrap summary-table">
           <table>
             <thead>
@@ -553,10 +556,11 @@ function BondSummary({ data, notify }) {
               <td className="r num">{rate(total("overdue"), total("total"))}</td></tr></tfoot>
           </table>
         </div>
-        <div className="summary-note">현재 운영 기초자료 {data.customers.length}개 거래처 기준 · 금액 단위: 원</div>
+        <div className="summary-note" data-html2canvas-ignore="true">현재 운영 기초자료 {data.customers.length}개 거래처 기준 · 금액 단위: 원</div>
       </Card>
 
-      <Card title={"2. " + Number(sourceMonth.slice(5, 7)) + "월 수금실적"} flush>
+      <Card title={"2. " + reportMonth + "월 수금실적 (" + reportMonth + "월 1일 기초 대비, "
+        + reportMonth + "월 " + reportDay + "일 누계)"} flush>
         <div className="tablewrap summary-table">
           <table>
             <thead><tr><th rowSpan="2">사업부</th>
