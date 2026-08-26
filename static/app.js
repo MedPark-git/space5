@@ -610,8 +610,11 @@ function Dashboard({
 /* ══════════════════ 채권요약현황 ══════════════════ */
 
 function BondSummary({
-  data
+  data,
+  notify
 }) {
+  const reportRef = useRef(null);
+  const [exporting, setExporting] = useState(false);
   const unitNames = {
     덴탈: "국내덴탈",
     메디컬: "국내메디컬",
@@ -666,7 +669,85 @@ function BondSummary({
   const total = key => sum(summary, key);
   const rate = (value, base) => base ? (value / base * 100).toFixed(1) + "%" : "0.0%";
   const sourceMonth = data.uploads[0] && data.uploads[0].month || thisMonth();
-  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Card, {
+  async function exportReport(kind) {
+    setExporting(true);
+    try {
+      if (!window.html2canvas) throw new Error("이미지 변환 모듈을 불러오지 못했습니다.");
+      const canvas = await window.html2canvas(reportRef.current, {
+        scale: 2,
+        backgroundColor: "#eef1f6",
+        useCORS: true
+      });
+      const base = "채권요약현황_" + data.meta.today;
+      if (kind === "png") {
+        const link = document.createElement("a");
+        link.download = base + ".png";
+        link.href = canvas.toDataURL("image/png");
+        link.click();
+      } else {
+        if (!window.PptxGenJS) throw new Error("PPT 변환 모듈을 불러오지 못했습니다.");
+        const pptx = new window.PptxGenJS();
+        pptx.layout = "LAYOUT_WIDE";
+        pptx.author = "MEDPARK";
+        const slide = pptx.addSlide();
+        slide.background = {
+          color: "EEF1F6"
+        };
+        slide.addText("㈜메드파크 채권요약현황", {
+          x: .35,
+          y: .12,
+          w: 8,
+          h: .34,
+          fontFace: "Pretendard",
+          fontSize: 17,
+          bold: true,
+          color: "16202E"
+        });
+        slide.addText("기준일 " + data.meta.today, {
+          x: 10.2,
+          y: .18,
+          w: 2.75,
+          h: .22,
+          align: "right",
+          fontFace: "Pretendard",
+          fontSize: 9,
+          color: "5C6B80"
+        });
+        const ratio = Math.min(12.65 / canvas.width, 6.8 / canvas.height);
+        slide.addImage({
+          data: canvas.toDataURL("image/png"),
+          x: .34,
+          y: .52,
+          w: canvas.width * ratio,
+          h: canvas.height * ratio
+        });
+        await pptx.writeFile({
+          fileName: base + ".pptx"
+        });
+      }
+      notify((kind === "png" ? "그림파일" : "PPT") + " 다운로드를 시작했습니다.");
+    } catch (e) {
+      notify(e.message, true);
+    } finally {
+      setExporting(false);
+    }
+  }
+  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "export-actions"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "t-muted t-sm"
+  }, "결산회의용 다운로드"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn--sm",
+    disabled: exporting,
+    onClick: () => exportReport("png")
+  }, "그림파일(PNG)"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn--sm btn--primary",
+    disabled: exporting,
+    onClick: () => exportReport("pptx")
+  }, "PPT")), /*#__PURE__*/React.createElement("div", {
+    ref: reportRef,
+    className: "summary-export"
+  }, /*#__PURE__*/React.createElement(Card, {
     title: "1. 사업부별 채권 분류 현황 (" + sourceMonth + " 기준)",
     flush: true
   }, /*#__PURE__*/React.createElement("div", {
@@ -779,7 +860,7 @@ function BondSummary({
     className: "r num"
   }, won(total("overdue"))), /*#__PURE__*/React.createElement("td", {
     className: "r num"
-  }, rate(total("overdueCollected"), total("overdue") + total("overdueCollected")))))))));
+  }, rate(total("overdueCollected"), total("overdue") + total("overdueCollected"))))))))));
 }
 
 /* ══════════════════ 거래처별 현황 ══════════════════ */
@@ -833,6 +914,9 @@ function Customers({
   const [unit, setUnit] = useState(preset && preset.unit || "전체");
   const [type, setType] = useState(preset && preset.status || "전체");
   const [q, setQ] = useState("");
+  const [periodFilter, setPeriodFilter] = useState("전체");
+  const [ownerFilter, setOwnerFilter] = useState("전체");
+  const [ageFilter, setAgeFilter] = useState("전체");
   const [editingNote, setEditingNote] = useState(null);
   const [draftNote, setDraftNote] = useState("");
   const [receivableDetail, setReceivableDetail] = useState(null);
@@ -864,9 +948,19 @@ function Customers({
     }));
   }).filter(c => {
     if (type !== "전체" && c.status !== type) return false;
+    const missingPeriod = c.period == null || Number(c.period) < 0;
+    if (periodFilter === "미입력" && !missingPeriod) return false;
+    if (periodFilter === "입력" && missingPeriod) return false;
+    if (ownerFilter === "미배정" && c.owner) return false;
+    if (ownerFilter !== "전체" && ownerFilter !== "미배정" && c.owner !== ownerFilter) return false;
+    if (ageFilter === "0" && c.months !== 0) return false;
+    if (ageFilter === "1-3" && (c.months < 1 || c.months > 3)) return false;
+    if (ageFilter === "4-11" && (c.months < 4 || c.months > 11)) return false;
+    if (ageFilter === "12+" && c.months < 12) return false;
     if (q && !(c.name.includes(q) || c.code.includes(q) || code5(c.code).includes(q) || (c.owner || "").includes(q))) return false;
     return true;
-  }), [data.customers, unit, type, q]);
+  }), [data.customers, unit, type, q, periodFilter, ownerFilter, ageFilter]);
+  const owners = useMemo(() => [...new Set(data.customers.map(c => c.owner).filter(Boolean))].sort(), [data.customers]);
   async function updateCustomer(code, body, message) {
     try {
       const {
@@ -915,6 +1009,28 @@ function Customers({
       notify(e.message, true);
     }
   }
+  async function saveItemNote(itemId, note) {
+    try {
+      const result = await api("/api/receivables/" + itemId, {
+        method: "PATCH",
+        body: {
+          note
+        }
+      });
+      const items = receivableDetail.items.map(x => x.id === itemId ? result.item : x);
+      setReceivableDetail(d => ({
+        ...d,
+        items
+      }));
+      patchCustomer({
+        ...receivableDetail.customer,
+        detail_notes: [...new Set(items.map(x => x.note).filter(Boolean))]
+      });
+      notify("채권 비고를 저장하고 거래처 현황에 취합 반영했습니다.");
+    } catch (e) {
+      notify(e.message, true);
+    }
+  }
   const distinctCustomers = new Set(rows.map(r => r.code)).size;
   return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Card, {
     title: "조회 조건"
@@ -938,9 +1054,41 @@ function Customers({
     key: s,
     value: s
   }, STATUS_LABEL[s])))), /*#__PURE__*/React.createElement(Field, {
+    label: "회수기간"
+  }, /*#__PURE__*/React.createElement("select", {
+    className: "select",
+    value: periodFilter,
+    onChange: e => setPeriodFilter(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", null, "전체"), /*#__PURE__*/React.createElement("option", null, "미입력"), /*#__PURE__*/React.createElement("option", null, "입력"))), /*#__PURE__*/React.createElement(Field, {
+    label: "담당자"
+  }, /*#__PURE__*/React.createElement("select", {
+    className: "select",
+    value: ownerFilter,
+    onChange: e => setOwnerFilter(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", null, "전체"), /*#__PURE__*/React.createElement("option", null, "미배정"), owners.map(o => /*#__PURE__*/React.createElement("option", {
+    key: o
+  }, o)))), /*#__PURE__*/React.createElement(Field, {
+    label: "연체기간"
+  }, /*#__PURE__*/React.createElement("select", {
+    className: "select",
+    value: ageFilter,
+    onChange: e => setAgeFilter(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "전체"
+  }, "전체"), /*#__PURE__*/React.createElement("option", {
+    value: "0"
+  }, "0개월"), /*#__PURE__*/React.createElement("option", {
+    value: "1-3"
+  }, "1~3개월"), /*#__PURE__*/React.createElement("option", {
+    value: "4-11"
+  }, "4~11개월"), /*#__PURE__*/React.createElement("option", {
+    value: "12+"
+  }, "12개월 이상"))), /*#__PURE__*/React.createElement(Field, {
     label: "거래처 검색"
   }, /*#__PURE__*/React.createElement("input", {
     className: "input",
+    lang: "ko",
+    inputMode: "text",
     value: q,
     placeholder: "거래처명·코드·담당자",
     onChange: e => setQ(e.target.value)
@@ -949,14 +1097,15 @@ function Customers({
     onClick: () => {
       setUnit("전체");
       setType("전체");
+      setPeriodFilter("전체");
+      setOwnerFilter("전체");
+      setAgeFilter("전체");
       setQ("");
     }
   }, "초기화"))), /*#__PURE__*/React.createElement(Card, {
     title: (STATUS_LABEL[type] || type) + " · 거래처 " + distinctCustomers + "곳 / 채권 " + rows.length + "건",
     flush: true
-  }, rows.length === 0 ? /*#__PURE__*/React.createElement(Empty, {
-    title: "조건에 맞는 채권이 없습니다."
-  }, "상단 필터나 검색어를 바꿔보세요.") : /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("div", {
     className: "tablewrap customer-table"
   }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "코드"), /*#__PURE__*/React.createElement("th", null, "거래처명"), /*#__PURE__*/React.createElement("th", null, "사업부"), /*#__PURE__*/React.createElement("th", null, "채권유형"), /*#__PURE__*/React.createElement("th", null, "회수기간"), /*#__PURE__*/React.createElement("th", null, "담당자"), /*#__PURE__*/React.createElement("th", null, "수금목표일"), /*#__PURE__*/React.createElement("th", {
     className: "r"
@@ -1032,9 +1181,12 @@ function Customers({
       setEditingNote(c.rowKey);
       setDraftNote(c.note || "");
     }
-  }, c.note || /*#__PURE__*/React.createElement("span", {
+  }, [c.note, ...(c.detail_notes || [])].filter(Boolean).join(" · ") || /*#__PURE__*/React.createElement("span", {
     className: "t-muted"
-  }, "클릭해 입력")))))), /*#__PURE__*/React.createElement("tfoot", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
+  }, "클릭해 입력")))))), rows.length === 0 && /*#__PURE__*/React.createElement("tbody", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
+    colSpan: 12,
+    className: "zero-result"
+  }, "조회 결과 ", /*#__PURE__*/React.createElement("b", null, "0원")))), /*#__PURE__*/React.createElement("tfoot", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
     colSpan: 7
   }, "합계 · 거래처 ", distinctCustomers, "곳 / 채권 ", rows.length, "건"), /*#__PURE__*/React.createElement("td", {
     className: "r num"
@@ -1086,9 +1238,12 @@ function Customers({
     type: "date",
     canEdit: can("customer_info_edit"),
     onSave: value => saveItemTarget(item.id, value)
-  })), /*#__PURE__*/React.createElement("td", {
-    className: "t-sm t-muted"
-  }, item.note || "–")))))))));
+  })), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement(InlineEdit, {
+    value: item.note,
+    placeholder: "비고 입력",
+    canEdit: can("note_edit"),
+    onSave: value => saveItemNote(item.id, value)
+  }))))))))));
 }
 
 /* ══════════════════ 담당자별 채권현황 ══════════════════ */
@@ -1212,6 +1367,8 @@ function CustomerSearch({
     className: "customer-search"
   }, /*#__PURE__*/React.createElement("input", {
     className: "input",
+    lang: "ko",
+    inputMode: "text",
     value: query,
     placeholder: "거래처명 또는 코드 검색",
     role: "combobox",
@@ -2401,7 +2558,10 @@ function App() {
   }, "데이터를 준비하고 있습니다."));
   const patchCustomer = c => setData(d => ({
     ...d,
-    customers: d.customers.map(x => x.code === c.code ? c : x)
+    customers: d.customers.map(x => x.code === c.code ? {
+      ...x,
+      ...c
+    } : x)
   }));
   const applyUpload = res => setData(d => ({
     ...d,
@@ -2487,7 +2647,8 @@ function App() {
     setScreen: setScreen,
     setPreset: setPreset
   }), screen === "summary" && /*#__PURE__*/React.createElement(BondSummary, {
-    data: reportData
+    data: reportData,
+    notify: notify
   }), screen === "customers" && /*#__PURE__*/React.createElement(Customers, {
     data: reportData,
     can: can,
