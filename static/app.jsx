@@ -832,12 +832,8 @@ function Targets({ data, notify, refresh }) {
       <Card title="수금목표 추가">
         <div className="formrow">
           <Field label="거래처">
-            <select className="select" value={form.customer_code} onChange={set("customer_code")}>
-              <option value="">선택하세요</option>
-              {data.customers.map((c) => (
-                <option key={c.code} value={c.code}>{c.name} ({won(c.balance)}원)</option>
-              ))}
-            </select>
+            <CustomerSearch customers={data.customers} value={form.customer_code}
+              onChange={(code) => setForm({ ...form, customer_code: code })} />
           </Field>
           <Field label="목표금액 (원)">
             <input className="input num" inputMode="numeric" value={form.amount} onChange={set("amount")} />
