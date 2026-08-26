@@ -509,135 +509,115 @@ function BondSummary({ data }) {
 
 /* ══════════════════ 거래처별 현황 ══════════════════ */
 
+function InlineEdit({ value, type = "text", placeholder, canEdit, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value || "");
+  useEffect(() => { if (!editing) setDraft(value || ""); }, [value, editing]);
+
+  async function commit() {
+    setEditing(false);
+    if (draft === (value || "")) return;
+    await onSave(draft);
+  }
+
+  if (!editing) return (
+    <button type="button" className="inline-edit" disabled={!canEdit}
+      onClick={() => canEdit && setEditing(true)}>
+      {value || <span className="t-muted">{placeholder}</span>}
+    </button>
+  );
+  return <input className="input input--compact" type={type} value={draft} autoFocus
+    onChange={(e) => setDraft(e.target.value)} onBlur={commit}
+    onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") setEditing(false); }} />;
+}
+
 function Customers({ data, can, preset, notify, patchCustomer }) {
-  const [open, setOpen] = useState({});          // 사업부는 모두 접힌 상태로 시작
-  const [sel, setSel] = useState(preset || { unit: "전체", status: "전체" });
+  const [unit, setUnit] = useState((preset && preset.unit) || "전체");
+  const [type, setType] = useState((preset && preset.status) || "전체");
   const [q, setQ] = useState("");
-  const [editing, setEditing] = useState(null);
-  const [draft, setDraft] = useState("");
+  const [editingNote, setEditingNote] = useState(null);
+  const [draftNote, setDraftNote] = useState("");
 
-  useEffect(() => { if (preset) { setSel(preset); setOpen((o) => ({ ...o, [preset.unit]: true })); } }, [preset]);
+  useEffect(() => { if (preset) { setUnit(preset.unit); setType(preset.status); } }, [preset]);
 
-  const rows = useMemo(() => data.customers.filter((c) => {
-    if (sel.unit !== "전체" && c.biz_unit !== sel.unit) return false;
-    if (sel.status !== "전체" && c.status !== sel.status) return false;
-    if (q && !(c.name.includes(q) || c.code.includes(q) || code5(c.code).includes(q) || (c.owner || "").includes(q))) return false;
+  const rows = useMemo(() => data.customers.flatMap((c) => {
+    const parts = [
+      { status: "정상", balance: Number(c.normal_balance) || 0, months: 0 },
+      { status: "연체", balance: Number(c.overdue_balance) || 0, months: overdueMonths(c.overdue_days) },
+      { status: "부실", balance: Number(c.bad_balance) || 0, months: overdueMonths(c.overdue_days) },
+    ].filter((part) => part.balance !== 0);
+    return parts.map((part, index) => ({ ...c, ...part, advance: index === 0 ? c.advance : 0,
+      rowKey: c.code + "-" + part.status }));
+  }).filter((c) => {
+    if (unit !== "전체" && c.biz_unit !== unit) return false;
+    if (type !== "전체" && c.status !== type) return false;
+    if (q && !(c.name.includes(q) || c.code.includes(q) || code5(c.code).includes(q)
+      || (c.owner || "").includes(q))) return false;
     return true;
-  }), [data.customers, sel, q]);
+  }), [data.customers, unit, type, q]);
 
-  const countOf = (unit, status) => data.customers.filter(
-    (c) => (unit === "전체" || c.biz_unit === unit) && (status === "전체" || c.status === status)).length;
-
-  async function saveNote(code) {
+  async function updateCustomer(code, body, message) {
     try {
-      const { customer } = await api("/api/customers/" + encodeURIComponent(code),
-        { method: "PATCH", body: { note: draft } });
-      patchCustomer(customer);
-      setEditing(null);
-      notify("비고를 저장했습니다.");
+      const { customer } = await api("/api/customers/" + encodeURIComponent(code), { method: "PATCH", body });
+      patchCustomer(customer); notify(message);
     } catch (e) { notify(e.message, true); }
   }
 
+  async function saveNote(code) {
+    await updateCustomer(code, { note: draftNote }, "비고를 저장했습니다.");
+    setEditingNote(null);
+  }
+
+  const distinctCustomers = new Set(rows.map((r) => r.code)).size;
+
   return (
-    <div className="grid grid--split">
-      <Card title="분류">
-        <div className="tree">
-          <button className="tree__leaf" style={{ paddingLeft: 10, fontWeight: 600 }}
-            aria-current={sel.unit === "전체" && sel.status === "전체"}
-            onClick={() => setSel({ unit: "전체", status: "전체" })}>
-            <span>전체 거래처</span><span className="tree__count">{data.customers.length}</span>
-          </button>
-          {data.meta.units.map((u) => (
-            <div key={u}>
-              <button className="tree__unit" onClick={() => setOpen((o) => ({ ...o, [u]: !o[u] }))}
-                aria-expanded={!!open[u]}>
-                <span className={"tree__caret" + (open[u] ? " tree__caret--open" : "")}>▸</span>
-                {u}
-                <span className="spacer" style={{ flex: 1 }} />
-                <span className="tree__count">{countOf(u, "전체")}</span>
-              </button>
-              {open[u] && (
-                <>
-                  <button className="tree__leaf" aria-current={sel.unit === u && sel.status === "전체"}
-                    onClick={() => setSel({ unit: u, status: "전체" })}>
-                    <span>전체</span><span className="tree__count">{countOf(u, "전체")}</span>
-                  </button>
-                  {data.meta.statuses.map((s) => (
-                    <button key={s} className="tree__leaf" aria-current={sel.unit === u && sel.status === s}
-                      onClick={() => setSel({ unit: u, status: s })}>
-                      <span><Badge status={s} /></span>
-                      <span className="tree__count">{countOf(u, s)}</span>
-                    </button>
-                  ))}
-                </>
-              )}
-            </div>
-          ))}
+    <>
+      <Card title="조회 조건">
+        <div className="customer-filters">
+          <Field label="사업부별 필터"><select className="select" value={unit} onChange={(e) => setUnit(e.target.value)}>
+            <option>전체</option>{data.meta.units.map((u) => <option key={u}>{u}</option>)}
+          </select></Field>
+          <Field label="채권유형별 필터"><select className="select" value={type} onChange={(e) => setType(e.target.value)}>
+            <option>전체</option>{data.meta.statuses.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
+          </select></Field>
+          <Field label="거래처 검색"><input className="input" value={q} placeholder="거래처명·코드·담당자"
+            onChange={(e) => setQ(e.target.value)} /></Field>
+          <button className="btn btn--sm" onClick={() => { setUnit("전체"); setType("전체"); setQ(""); }}>초기화</button>
         </div>
       </Card>
 
-      <Card
-        title={sel.unit + " · " + (STATUS_LABEL[sel.status] || sel.status) + " (" + rows.length + "곳)"}
-        actions={<input className="input" style={{ width: 220 }} value={q} placeholder="거래처명·코드·담당자"
-          onChange={(e) => setQ(e.target.value)} />}
-        flush>
-        {rows.length === 0 ? (
-          <Empty title="조건에 맞는 거래처가 없습니다.">왼쪽 분류나 검색어를 바꿔보세요.</Empty>
-        ) : (
-          <div className="tablewrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>코드</th><th>거래처명</th><th>사업부</th><th>분류</th><th>담당자</th>
-                  <th className="r">채권잔액</th><th className="r">선수금</th>
-                  <th className="r">연체기간(개월)</th><th>최종수금일</th><th style={{ minWidth: 200 }}>비고</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((c) => (
-                  <tr key={c.code}>
-                    <td className="num t-muted">{code5(c.code)}</td>
-                    <td className="t-strong">{c.name}</td>
-                    <td>{c.biz_unit}</td>
-                    <td><Badge status={c.status} /></td>
-                    <td>{c.owner || <span className="t-muted">미지정</span>}</td>
-                    <td className="r num t-strong">{won(c.balance)}</td>
-                    <td className="r num">{c.advance ? won(c.advance) : "–"}</td>
-                    <td className="r num">{overdueMonths(c.overdue_days)}개월</td>
-                    <td className="num t-muted t-sm">{c.last_paid_at || "–"}</td>
-                    <td style={{ whiteSpace: "normal" }}>
-                      {editing === c.code ? (
-                        <div style={{ display: "flex", gap: 6 }}>
-                          <input className="input" value={draft} autoFocus
-                            onChange={(e) => setDraft(e.target.value)}
-                            onKeyDown={(e) => e.key === "Enter" && saveNote(c.code)} />
-                          <button className="btn btn--sm btn--primary" onClick={() => saveNote(c.code)}>저장</button>
-                          <button className="btn btn--sm" onClick={() => setEditing(null)}>취소</button>
-                        </div>
-                      ) : (
-                        <span onClick={() => { if (can("note_edit")) { setEditing(c.code); setDraft(c.note || ""); } }}
-                          style={{ cursor: can("note_edit") ? "text" : "default" }}
-                          className={c.note ? "" : "t-muted t-sm"}>
-                          {c.note || (can("note_edit") ? "클릭해 입력" : "–")}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td colSpan={5}>합계 {rows.length}곳</td>
-                  <td className="r num">{won(sum(rows, "balance"))}</td>
-                  <td className="r num">{won(sum(rows, "advance"))}</td>
-                  <td colSpan={3} />
-                </tr>
-              </tfoot>
-            </table>
-          </div>
+      <Card title={(STATUS_LABEL[type] || type) + " · 거래처 " + distinctCustomers + "곳 / 채권 " + rows.length + "건"} flush>
+        {rows.length === 0 ? <Empty title="조건에 맞는 채권이 없습니다.">상단 필터나 검색어를 바꿔보세요.</Empty> : (
+          <div className="tablewrap customer-table"><table>
+            <thead><tr><th>코드</th><th>거래처명</th><th>사업부</th><th>채권유형</th><th>담당자</th>
+              <th>수금목표일</th><th className="r">채권잔액</th><th className="r">선수금</th>
+              <th className="r">연체기간(개월)</th><th>최종수금일</th><th style={{ minWidth: 180 }}>비고</th></tr></thead>
+            <tbody>{rows.map((c) => <tr key={c.rowKey}>
+              <td className="num t-muted">{code5(c.code)}</td><td className="t-strong">{c.name}</td>
+              <td>{c.biz_unit}</td><td><Badge status={c.status} /></td>
+              <td><InlineEdit value={c.owner} placeholder="클릭해 입력" canEdit={can("note_edit")}
+                onSave={(owner) => updateCustomer(c.code, { owner }, "담당자를 저장했습니다.")} /></td>
+              <td><InlineEdit value={c.collection_target_date} placeholder="날짜 선택" type="date" canEdit={can("note_edit")}
+                onSave={(collection_target_date) => updateCustomer(c.code, { collection_target_date }, "수금목표일을 저장했습니다.")} /></td>
+              <td className="r num t-strong">{won(c.balance)}</td>
+              <td className="r num">{c.advance ? won(c.advance) : "–"}</td>
+              <td className="r num">{c.months}개월</td><td className="num t-muted t-sm">{c.last_paid_at || "–"}</td>
+              <td style={{ whiteSpace: "normal" }}>{editingNote === c.rowKey ? <div className="inline-note">
+                <input className="input" value={draftNote} autoFocus onChange={(e) => setDraftNote(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && saveNote(c.code)} />
+                <button className="btn btn--sm btn--primary" onClick={() => saveNote(c.code)}>저장</button>
+                <button className="btn btn--sm" onClick={() => setEditingNote(null)}>취소</button>
+              </div> : <button type="button" className="inline-edit" disabled={!can("note_edit")}
+                onClick={() => { setEditingNote(c.rowKey); setDraftNote(c.note || ""); }}>
+                {c.note || <span className="t-muted">클릭해 입력</span>}</button>}</td>
+            </tr>)}</tbody>
+            <tfoot><tr><td colSpan={6}>합계 · 거래처 {distinctCustomers}곳 / 채권 {rows.length}건</td>
+              <td className="r num">{won(sum(rows, "balance"))}</td><td className="r num">{won(sum(rows, "advance"))}</td>
+              <td colSpan={3} /></tr></tfoot>
+          </table></div>
         )}
       </Card>
-    </div>
+    </>
   );
 }
 
