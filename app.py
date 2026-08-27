@@ -375,6 +375,12 @@ def customer_receivables(code):
 def update_receivable(item_id):
     data = body()
     fields, values = [], []
+    requested_category = str(data.get("category") or "").strip() if "category" in data else ""
+    if "category" in data:
+        if "customer_info_edit" not in request.user["permissions"]:
+            return jsonify(error="'거래처 정보수정' 권한이 없습니다."), 403
+        if requested_category != "연체":
+            return jsonify(error="정상채권은 미수채권으로만 전환할 수 있습니다."), 400
     target_date = (data.get("target_date") or "").strip() if "target_date" in data else ""
     if "target_date" in data:
         if "customer_info_edit" not in request.user["permissions"]:
@@ -391,17 +397,64 @@ def update_receivable(item_id):
             return jsonify(error="'비고 편집' 권한이 없습니다."), 403
         fields.append("note=%s")
         values.append(str(data.get("note") or "").strip())
-    if not fields:
+    if not fields and not requested_category:
         return jsonify(error="변경할 항목이 없습니다."), 400
-    values.append(item_id)
     with connect() as conn:
+        current = conn.execute(
+            "SELECT * FROM receivable_items WHERE id=%s", (item_id,)).fetchone()
+        if not current:
+            return jsonify(error="채권 상세를 찾을 수 없습니다."), 404
+        if requested_category:
+            if current["category"] != "정상":
+                return jsonify(error="정상채권만 미수채권으로 전환할 수 있습니다."), 409
+            amount = current["balance"]
+            if amount <= 0:
+                return jsonify(error="잔액이 있는 정상채권만 전환할 수 있습니다."), 409
+
+            # 출고 원장의 정상채권 잔액에서도 제거해 이후 수금 시 이중 차감되지 않게 한다.
+            bucket = ""
+            if current["source_key"].startswith("shipment:"):
+                shipment = conn.execute(
+                    "SELECT bucket FROM monthly_shipment_units WHERE month=%s AND code=%s AND biz_unit=%s",
+                    (current["issue_month"], current["customer_code"], current["biz_unit"])).fetchone()
+                bucket = shipment["bucket"] if shipment else ""
+                conn.execute(
+                    "UPDATE monthly_shipment_units SET balance=CASE WHEN balance-%s<0 THEN 0 ELSE balance-%s END"
+                    " WHERE month=%s AND code=%s AND biz_unit=%s",
+                    (amount, amount, current["issue_month"], current["customer_code"], current["biz_unit"]))
+            elif current["source_key"].endswith(":current"):
+                bucket = "current"
+            elif current["source_key"].endswith(":next"):
+                bucket = "next"
+            elif current["source_key"].endswith(":later"):
+                bucket = "later"
+            bucket_column = {
+                "current": "normal_current_balance",
+                "next": "normal_next_balance",
+                "later": "normal_later_balance",
+            }.get(bucket, "normal_current_balance")
+            customer = conn.execute(
+                "UPDATE customers SET normal_balance=CASE WHEN normal_balance-%s<0 THEN 0 ELSE normal_balance-%s END,"
+                " " + bucket_column + "=CASE WHEN " + bucket_column + "-%s<0 THEN 0 ELSE " + bucket_column + "-%s END,"
+                " overdue_balance=overdue_balance+%s, overdue_source_balance=overdue_source_balance+%s,"
+                " overdue_days=CASE WHEN overdue_days<1 THEN 1 ELSE overdue_days END,"
+                " status=CASE WHEN bad_balance>0 THEN '부실' ELSE '연체' END, updated_at=" + db.NOW_SQL +
+                " WHERE code=%s RETURNING *",
+                (amount, amount, amount, amount, amount, amount, current["customer_code"])).fetchone()
+            fields.append("category=%s")
+            values.append("연체")
+        else:
+            customer = conn.execute(
+                "SELECT * FROM customers WHERE code=%s", (current["customer_code"],)).fetchone()
+        values.append(item_id)
         item = conn.execute(
             "UPDATE receivable_items SET " + ",".join(fields) + " WHERE id=%s RETURNING *",
             values).fetchone()
-        if not item:
-            return jsonify(error="채권 상세를 찾을 수 없습니다."), 404
         log(conn, request.user["username"], "receivable_update", str(item_id))
-    return jsonify(item=item)
+        if requested_category:
+            log(conn, request.user["username"], "receivable_reclassify",
+                "%s / 정상→연체 / %d" % (current["customer_code"], current["balance"]))
+    return jsonify(item=item, customer=customer)
 
 
 # ─────────────────────────────── 수금 ───────────────────────────────
