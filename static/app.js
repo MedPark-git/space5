@@ -353,6 +353,15 @@ function Dashboard({
   const yesterday = yesterdayDate.toISOString().slice(0, 10);
   const customerUnit = Object.fromEntries(customers.map(c => [c.code, c.biz_unit]));
   const yesterdayCollections = approved.filter(c => c.paid_at === yesterday);
+  const yesterdayCustomers = Object.values(yesterdayCollections.reduce((map, c) => {
+    const key = c.customer_code || c.customer_name;
+    if (!map[key]) map[key] = {
+      name: c.customer_name || key,
+      amount: 0
+    };
+    map[key].amount += Number(c.amount) || 0;
+    return map;
+  }, {})).sort((a, b) => b.amount - a.amount);
   const yesterdayByUnit = data.meta.units.map(u => ({
     unit: u,
     amount: sum(yesterdayCollections.filter(c => customerUnit[c.customer_code] === u), "amount")
@@ -396,7 +405,12 @@ function Dashboard({
     className: "kpi__label"
   }, "승인 건수"), /*#__PURE__*/React.createElement("div", {
     className: "kpi__value num"
-  }, yesterdayCollections.length, /*#__PURE__*/React.createElement("em", null, "건"))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  }, yesterdayCollections.length, /*#__PURE__*/React.createElement("em", null, "건")), /*#__PURE__*/React.createElement("div", {
+    className: "t-sm t-muted",
+    style: {
+      marginTop: 4
+    }
+  }, yesterdayCustomers.length ? /*#__PURE__*/React.createElement(React.Fragment, null, yesterdayCustomers.slice(0, 3).map(c => c.name).join(" · "), yesterdayCustomers.length > 3 ? " 외 " + (yesterdayCustomers.length - 3) + "개처" : "") : "수금 내역 없음")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "kpi__label"
   }, "사업부별 수금"), /*#__PURE__*/React.createElement("div", {
     className: "t-sm"
