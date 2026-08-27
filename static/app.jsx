@@ -46,6 +46,19 @@ function customersForUnit(customers, unit) {
 }
 const code5 = (code) => String(code || "").padStart(5, "0");
 const overdueMonths = (days) => Math.ceil(Math.max(0, Number(days) || 0) / 30);
+function normalizeShipmentDate(value) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10);
+  if (typeof value === "number") {
+    const parsed = XLSX.SSF.parse_date_code(value);
+    if (parsed) return [parsed.y, String(parsed.m).padStart(2, "0"), String(parsed.d).padStart(2, "0")].join("-");
+  }
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const digits = text.replace(/[^0-9]/g, "");
+  if (digits.length === 8) return digits.slice(0, 4) + "-" + digits.slice(4, 6) + "-" + digits.slice(6, 8);
+  const match = text.match(/^(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
+  return match ? match[1] + "-" + match[2].padStart(2, "0") + "-" + match[3].padStart(2, "0") : "";
+}
 
 async function api(path, options = {}) {
   const res = await fetch(path, {
@@ -1360,6 +1373,7 @@ const COLUMN_ALIASES = {
   status: ["채권분류", "분류", "채권상태", "상태", "status"],
   collection_period: ["회수기간(개월)", "회수기간", "collection_period"],
   shipment_amount: ["출고금액", "출고액", "합계액", "shipment_amount"],
+  shipment_date: ["출고일자", "출고일", "처리일자", "처리일", "출하일자", "출하일", "거래일자", "shipment_date"],
   balance: ["미수잔액", "미수금액", "채권잔액", "잔액", "미수금", "balance"],
   normal_balance: ["정상채권잔액", "정상채권", "normal_balance"],
   normal_later_balance: ["차차월이후정상채권", "차차월이후", "10월이후수금대상", "정상채권10월이후", "normal_later_balance"],
@@ -1464,6 +1478,11 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
           if (shipmentMode && period !== "" && (Number(period) < 0 || !Number.isFinite(Number(period)))) {
             issues.push((i + 1) + "행: 회수기간 오류");
           }
+          const rawShipmentDate = pick("shipment_date");
+          const rowShipmentDate = normalizeShipmentDate(rawShipmentDate);
+          if (shipmentMode && map.shipment_date !== undefined && !rowShipmentDate) {
+            issues.push((i + 1) + "행: 출고일 오류");
+          }
           rows.push({
             code: normalizedCode,
             name,
@@ -1472,6 +1491,8 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
             owner: "",
             collection_period: period,
             shipment_amount: pick("shipment_amount"),
+            shipment_date: rowShipmentDate,
+            shipment_month: rowShipmentDate ? rowShipmentDate.slice(0, 7) : "",
             balance: pick("balance"),
             normal_balance: pick("normal_balance"),
             normal_later_balance: pick("normal_later_balance"),
@@ -1494,9 +1515,12 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
         if (amaranthMode) {
           const grouped = new Map();
           rows.forEach((r) => {
-            const key = r.code + "|" + r.biz_unit;
+            const key = (r.shipment_month || month) + "|" + r.code + "|" + r.biz_unit;
             const current = grouped.get(key);
-            if (current) current.shipment_amount = Number(current.shipment_amount || 0) + Number(r.shipment_amount || 0);
+            if (current) {
+              current.shipment_amount = Number(current.shipment_amount || 0) + Number(r.shipment_amount || 0);
+              if (r.shipment_date > current.shipment_date) current.shipment_date = r.shipment_date;
+            }
             else grouped.set(key, { ...r, shipment_amount: Number(r.shipment_amount || 0) });
           });
           preparedRows = Array.from(grouped.values());
@@ -1513,8 +1537,11 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
           if (!amaranthMode && seen.has(r.code)) dupes.push(r.code);
           seen.add(r.code);
         });
+        const fileDated = shipmentMode && map.shipment_date !== undefined;
+        const shipmentMonths = [...new Set(preparedRows.map((r) => r.shipment_month).filter(Boolean))].sort();
         setParsed({ filename: file.name, rows: preparedRows, dupes, issues,
           mapped: Object.keys(map), amaranthMode, multiUnitCodes,
+          fileDated, shipmentMonths,
           mode: shipmentMode ? "shipment" : "snapshot" });
       } catch (err) {
         setError("파일을 읽지 못했습니다: " + err.message);
@@ -1526,13 +1553,35 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
   async function send() {
     setBusy(true);
     try {
-      const res = await api("/api/uploads", {
-        method: "POST",
-        body: { month, shipment_date: shipmentDate, filename: parsed.filename,
-          rows: parsed.rows, mode: parsed.mode },
-      });
-      applyUpload(res);
-      notify(res.inserted + "행을 반영했습니다. 기존 " + res.replaced + "행은 교체되었습니다.");
+      let res;
+      if (parsed.mode === "shipment" && parsed.fileDated) {
+        const groups = parsed.rows.reduce((result, row) => {
+          (result[row.shipment_month] ||= []).push(row); return result;
+        }, {});
+        const skipped = [], applied = [];
+        for (const targetMonth of Object.keys(groups).sort()) {
+          const lock = lockOf(targetMonth);
+          if (lock && lock.locked) { skipped.push(targetMonth); continue; }
+          const groupRows = groups[targetMonth];
+          const reflectedDate = groupRows.map((r) => r.shipment_date).sort().at(-1);
+          res = await api("/api/uploads", { method: "POST", body: {
+            month: targetMonth, shipment_date: reflectedDate, filename: parsed.filename,
+            rows: groupRows, mode: "shipment",
+          }});
+          applied.push(targetMonth + " " + res.inserted + "행");
+        }
+        if (!res) throw new Error("파일에 포함된 출고월이 모두 마감되어 반영할 데이터가 없습니다.");
+        applyUpload(res);
+        notify("반영: " + applied.join(" · ") + (skipped.length ? " · 마감월 제외: " + skipped.join(", ") : ""));
+      } else {
+        res = await api("/api/uploads", {
+          method: "POST",
+          body: { month, shipment_date: shipmentDate, filename: parsed.filename,
+            rows: parsed.rows, mode: parsed.mode },
+        });
+        applyUpload(res);
+        notify(res.inserted + "행을 반영했습니다. 기존 " + res.replaced + "행은 교체되었습니다.");
+      }
       setParsed(null);
       if (fileRef.current) fileRef.current.value = "";
     } catch (e) { notify(e.message, true); }
@@ -1581,7 +1630,7 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
         </div>
 
         {error && <div className="alert alert--bad" style={{ marginTop: 12 }}>{error}</div>}
-        {locked && (
+        {locked && (!parsed || !parsed.fileDated) && (
           <div className="alert alert--warn" style={{ marginTop: 12 }}>
             {month} 은 마감 잠금 상태라 업로드할 수 없습니다. 잠금을 해제한 뒤 다시 시도하세요.
           </div>
@@ -1592,6 +1641,7 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
             <div className="alert alert--info">
               <b>{parsed.filename}</b> — 유효한 {parsed.rows.length}행을 읽었습니다.
               {parsed.amaranthMode && " 아마란스10 원본 서식으로 인식했습니다."}
+              {parsed.fileDated && " 출고일 기준으로 " + parsed.shipmentMonths.join(", ") + " 월을 자동 분리합니다."}
               인식한 열: {parsed.mapped.length}개.
               {parsed.dupes.length > 0 && (parsed.amaranthMode
                 ? " 복수 사업부 코드 " + parsed.dupes.length + "건을 사업부별로 분리합니다."
@@ -1606,19 +1656,21 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
             )}
             <p className="t-sm t-muted">
               {parsed.mode === "shipment"
-                ? month + " 출고분만 재설정하며 회수기간에 따라 수금대상월을 자동 산출합니다."
+                ? (parsed.fileDated ? "각 행의 출고월별로 재설정하며 마감된 월은 자동 제외합니다."
+                  : month + " 출고분만 재설정하며 회수기간에 따라 수금대상월을 자동 산출합니다.")
                 : month + " 의 기존 확정 채권 데이터를 교체합니다."} 다른 월 데이터는 그대로 유지됩니다.
             </p>
             <div className="tablewrap" style={{ maxHeight: 260, overflowY: "auto", marginBottom: 12 }}>
               <table>
                 <thead>
-                  <tr><th>코드</th><th>거래처명</th><th>사업부</th>
+                  <tr>{parsed.fileDated && <th>출고일</th>}<th>코드</th><th>거래처명</th><th>사업부</th>
                     <th>{parsed.mode === "shipment" ? "회수기간" : "분류"}</th>
                     <th className="r">{parsed.mode === "shipment" ? "출고금액" : "채권잔액"}</th></tr>
                 </thead>
                 <tbody>
                   {parsed.rows.slice(0, 12).map((r, i) => (
                     <tr key={i}>
+                      {parsed.fileDated && <td className="num">{r.shipment_date}</td>}
                       <td className="num">{r.code}</td><td>{r.name}</td><td>{r.biz_unit || "–"}</td>
                       <td>{parsed.mode === "shipment" ? r.collection_period + "개월" : (r.status || "자동판정")}</td>
                       <td className="r num">{won(parsed.mode === "shipment" ? r.shipment_amount : r.balance)}</td>
@@ -1629,8 +1681,8 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
             </div>
             <div className="btnrow">
               <button className="btn btn--primary" onClick={send}
-                disabled={busy || locked || !shipmentDate || parsed.dupes.length > 0 || parsed.issues.length > 0}>
-                {month} 데이터로 반영
+                disabled={busy || (!parsed.fileDated && locked) || (!parsed.fileDated && !shipmentDate) || parsed.dupes.length > 0 || parsed.issues.length > 0}>
+                {parsed.fileDated ? "출고월별 데이터 반영" : month + " 데이터로 반영"}
               </button>
               <button className="btn" onClick={() => setParsed(null)}>취소</button>
             </div>
@@ -1902,8 +1954,8 @@ function Manual() {
     ["담당자별 채권현황", "담당자별 거래처와 채권잔액 확인", "미배정 거래처를 우선 점검"],
     ["수금 등록", "수금 등록·승인·반려", "거래처·금액·수금일 확인 후 등록"],
     ["수금목표 관리", "예정 수금액과 완료일 관리", "완료 시 실제 수금등록 여부도 확인"],
-    ["출고 데이터 업로드", "아마란스 출고자료 반영", "월·출고기준일·합계 확인 후 확정"],
-    ["수금계획 다운로드", "선택한 조회기준으로 계획서 생성", "다운로드 전 기준월 확인"],
+    ["출고 데이터 업로드", "아마란스 출고자료 반영", "출고일별 월 자동 분리·마감월 제외 확인 후 반영"],
+    ["수금계획 다운로드", "선택한 조회기준으로 계획서 생성", "카드수금은 입금예정 3영업일까지 포함"],
     ["계정·권한 관리", "사용자 계정과 업무권한 설정", "관리자만 변경하고 퇴사자는 사용 정지"],
   ];
   return <>
