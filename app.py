@@ -11,7 +11,7 @@ import base64
 import io
 import calendar
 from copy import copy, deepcopy
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from functools import wraps
 
 from flask import Flask, jsonify, request, session, render_template, send_file
@@ -107,6 +107,17 @@ def month_offset(base_month, target_month):
     by, bm = (int(x) for x in base_month.split("-"))
     ty, tm = (int(x) for x in target_month.split("-"))
     return (ty - by) * 12 + tm - bm
+
+
+def add_business_days(start, days):
+    """수금일은 제외하고 월~금 기준 영업일을 더한다."""
+    current = start
+    added = 0
+    while added < days:
+        current += timedelta(days=1)
+        if current.weekday() < 5:
+            added += 1
+    return current
 
 
 # ─────────────────────────────── 화면 ───────────────────────────────
@@ -683,6 +694,9 @@ def upload_rows():
                 return jsonify(error="출고기준일은 선택한 기준월 안의 날짜여야 합니다."), 400
             shipments = {}
             for r in rows:
+                row_month = str(r.get("shipment_month") or "").strip()
+                if row_month and row_month != month:
+                    return jsonify(error="%s 출고자료가 %s 반영 요청에 섞여 있습니다." % (row_month, month)), 400
                 code = str(r.get("code") or "").strip()
                 if not code:
                     continue
@@ -936,6 +950,10 @@ def export_cash_plan():
             "SELECT ri.*,c.name,COALESCE(NULLIF(ri.biz_unit,''),c.biz_unit) AS biz_unit FROM receivable_items ri"
             " JOIN customers c ON c.code=ri.customer_code" + item_where
             + " ORDER BY c.biz_unit,c.name,ri.issue_month,ri.id", item_params)]
+        card_collections = [r for r in conn.execute(
+            "SELECT col.id,col.customer_code,col.customer_name,col.amount,col.paid_at,"
+            " c.biz_unit FROM collections col JOIN customers c ON c.code=col.customer_code"
+            " WHERE col.state='approved' AND col.method='카드수금' ORDER BY col.paid_at,col.id")]
         snapshot = conn.execute(
             "SELECT month FROM uploads WHERE upload_type='snapshot' ORDER BY id DESC LIMIT 1"
         ).fetchone()
@@ -956,6 +974,20 @@ def export_cash_plan():
             rows.append((item, category, item["balance"]))
         elif category == "부실" and include_bad:
             rows.append((item, category, item["balance"]))
+
+    # 카드수금은 승인 시 채권에서 차감되지만 실제 입금일까지는 수금계획에 유지한다.
+    as_of = datetime.strptime(as_of_date, "%Y-%m-%d").date()
+    for collection in card_collections:
+        try:
+            paid = datetime.strptime(collection["paid_at"], "%Y-%m-%d").date()
+        except (TypeError, ValueError):
+            continue
+        settlement = add_business_days(paid, 3)
+        if settlement.strftime("%Y-%m") == month and as_of <= settlement:
+            card_item = dict(
+                name=collection["customer_name"], biz_unit=collection["biz_unit"],
+                target_date=settlement.isoformat(), settlement_date=settlement.isoformat())
+            rows.append((card_item, "카드", collection["amount"]))
 
     template_path = os.path.join(app.static_folder, "cash_plan_template.b64")
     with open(template_path, "rb") as fh:
@@ -984,6 +1016,7 @@ def export_cash_plan():
         "정상": "제품구매대금(%02d월 정상채권)" % mon,
         "연체": "제품구매대금(미수채권)",
         "부실": "제품구매대금(부실채권)",
+        "카드": "카드수금 입금예정(3영업일)",
     }
     for row_no, (item, category, amount) in enumerate(rows, start=7):
         target_text = (item.get("target_date") or "").strip()
