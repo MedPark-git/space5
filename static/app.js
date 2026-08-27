@@ -75,6 +75,19 @@ function customersForUnit(customers, unit) {
 }
 const code5 = code => String(code || "").padStart(5, "0");
 const overdueMonths = days => Math.ceil(Math.max(0, Number(days) || 0) / 30);
+function normalizeShipmentDate(value) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10);
+  if (typeof value === "number") {
+    const parsed = XLSX.SSF.parse_date_code(value);
+    if (parsed) return [parsed.y, String(parsed.m).padStart(2, "0"), String(parsed.d).padStart(2, "0")].join("-");
+  }
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const digits = text.replace(/[^0-9]/g, "");
+  if (digits.length === 8) return digits.slice(0, 4) + "-" + digits.slice(4, 6) + "-" + digits.slice(6, 8);
+  const match = text.match(/^(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
+  return match ? match[1] + "-" + match[2].padStart(2, "0") + "-" + match[3].padStart(2, "0") : "";
+}
 async function api(path, options = {}) {
   const res = await fetch(path, {
     credentials: "same-origin",
@@ -2070,6 +2083,7 @@ const COLUMN_ALIASES = {
   status: ["채권분류", "분류", "채권상태", "상태", "status"],
   collection_period: ["회수기간(개월)", "회수기간", "collection_period"],
   shipment_amount: ["출고금액", "출고액", "합계액", "shipment_amount"],
+  shipment_date: ["출고일자", "출고일", "처리일자", "처리일", "출하일자", "출하일", "거래일자", "shipment_date"],
   balance: ["미수잔액", "미수금액", "채권잔액", "잔액", "미수금", "balance"],
   normal_balance: ["정상채권잔액", "정상채권", "normal_balance"],
   normal_later_balance: ["차차월이후정상채권", "차차월이후", "10월이후수금대상", "정상채권10월이후", "normal_later_balance"],
@@ -2188,6 +2202,11 @@ function Upload({
           if (shipmentMode && period !== "" && (Number(period) < 0 || !Number.isFinite(Number(period)))) {
             issues.push(i + 1 + "행: 회수기간 오류");
           }
+          const rawShipmentDate = pick("shipment_date");
+          const rowShipmentDate = normalizeShipmentDate(rawShipmentDate);
+          if (shipmentMode && map.shipment_date !== undefined && !rowShipmentDate) {
+            issues.push(i + 1 + "행: 출고일 오류");
+          }
           rows.push({
             code: normalizedCode,
             name,
@@ -2196,6 +2215,8 @@ function Upload({
             owner: "",
             collection_period: period,
             shipment_amount: pick("shipment_amount"),
+            shipment_date: rowShipmentDate,
+            shipment_month: rowShipmentDate ? rowShipmentDate.slice(0, 7) : "",
             balance: pick("balance"),
             normal_balance: pick("normal_balance"),
             normal_later_balance: pick("normal_later_balance"),
@@ -2217,9 +2238,12 @@ function Upload({
         if (amaranthMode) {
           const grouped = new Map();
           rows.forEach(r => {
-            const key = r.code + "|" + r.biz_unit;
+            const key = (r.shipment_month || month) + "|" + r.code + "|" + r.biz_unit;
             const current = grouped.get(key);
-            if (current) current.shipment_amount = Number(current.shipment_amount || 0) + Number(r.shipment_amount || 0);else grouped.set(key, {
+            if (current) {
+              current.shipment_amount = Number(current.shipment_amount || 0) + Number(r.shipment_amount || 0);
+              if (r.shipment_date > current.shipment_date) current.shipment_date = r.shipment_date;
+            } else grouped.set(key, {
               ...r,
               shipment_amount: Number(r.shipment_amount || 0)
             });
@@ -2238,6 +2262,8 @@ function Upload({
           if (!amaranthMode && seen.has(r.code)) dupes.push(r.code);
           seen.add(r.code);
         });
+        const fileDated = shipmentMode && map.shipment_date !== undefined;
+        const shipmentMonths = [...new Set(preparedRows.map(r => r.shipment_month).filter(Boolean))].sort();
         setParsed({
           filename: file.name,
           rows: preparedRows,
@@ -2246,6 +2272,8 @@ function Upload({
           mapped: Object.keys(map),
           amaranthMode,
           multiUnitCodes,
+          fileDated,
+          shipmentMonths,
           mode: shipmentMode ? "shipment" : "snapshot"
         });
       } catch (err) {
@@ -2257,18 +2285,51 @@ function Upload({
   async function send() {
     setBusy(true);
     try {
-      const res = await api("/api/uploads", {
-        method: "POST",
-        body: {
-          month,
-          shipment_date: shipmentDate,
-          filename: parsed.filename,
-          rows: parsed.rows,
-          mode: parsed.mode
+      let res;
+      if (parsed.mode === "shipment" && parsed.fileDated) {
+        const groups = parsed.rows.reduce((result, row) => {
+          (result[row.shipment_month] ||= []).push(row);
+          return result;
+        }, {});
+        const skipped = [],
+          applied = [];
+        for (const targetMonth of Object.keys(groups).sort()) {
+          const lock = lockOf(targetMonth);
+          if (lock && lock.locked) {
+            skipped.push(targetMonth);
+            continue;
+          }
+          const groupRows = groups[targetMonth];
+          const reflectedDate = groupRows.map(r => r.shipment_date).sort().at(-1);
+          res = await api("/api/uploads", {
+            method: "POST",
+            body: {
+              month: targetMonth,
+              shipment_date: reflectedDate,
+              filename: parsed.filename,
+              rows: groupRows,
+              mode: "shipment"
+            }
+          });
+          applied.push(targetMonth + " " + res.inserted + "행");
         }
-      });
-      applyUpload(res);
-      notify(res.inserted + "행을 반영했습니다. 기존 " + res.replaced + "행은 교체되었습니다.");
+        if (!res) throw new Error("파일에 포함된 출고월이 모두 마감되어 반영할 데이터가 없습니다.");
+        applyUpload(res);
+        notify("반영: " + applied.join(" · ") + (skipped.length ? " · 마감월 제외: " + skipped.join(", ") : ""));
+      } else {
+        res = await api("/api/uploads", {
+          method: "POST",
+          body: {
+            month,
+            shipment_date: shipmentDate,
+            filename: parsed.filename,
+            rows: parsed.rows,
+            mode: parsed.mode
+          }
+        });
+        applyUpload(res);
+        notify(res.inserted + "행을 반영했습니다. 기존 " + res.replaced + "행은 교체되었습니다.");
+      }
       setParsed(null);
       if (fileRef.current) fileRef.current.value = "";
     } catch (e) {
@@ -2352,7 +2413,7 @@ function Upload({
     style: {
       marginTop: 12
     }
-  }, error), locked && /*#__PURE__*/React.createElement("div", {
+  }, error), locked && (!parsed || !parsed.fileDated) && /*#__PURE__*/React.createElement("div", {
     className: "alert alert--warn",
     style: {
       marginTop: 12
@@ -2363,25 +2424,27 @@ function Upload({
     }
   }, /*#__PURE__*/React.createElement("div", {
     className: "alert alert--info"
-  }, /*#__PURE__*/React.createElement("b", null, parsed.filename), " — 유효한 ", parsed.rows.length, "행을 읽었습니다.", parsed.amaranthMode && " 아마란스10 원본 서식으로 인식했습니다.", "인식한 열: ", parsed.mapped.length, "개.", parsed.dupes.length > 0 && (parsed.amaranthMode ? " 복수 사업부 코드 " + parsed.dupes.length + "건을 사업부별로 분리합니다." : " 중복 코드 " + parsed.dupes.length + "건이 있습니다.")), (parsed.dupes.length > 0 || parsed.issues.length > 0) && /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("b", null, parsed.filename), " — 유효한 ", parsed.rows.length, "행을 읽었습니다.", parsed.amaranthMode && " 아마란스10 원본 서식으로 인식했습니다.", parsed.fileDated && " 출고일 기준으로 " + parsed.shipmentMonths.join(", ") + " 월을 자동 분리합니다.", "인식한 열: ", parsed.mapped.length, "개.", parsed.dupes.length > 0 && (parsed.amaranthMode ? " 복수 사업부 코드 " + parsed.dupes.length + "건을 사업부별로 분리합니다." : " 중복 코드 " + parsed.dupes.length + "건이 있습니다.")), (parsed.dupes.length > 0 || parsed.issues.length > 0) && /*#__PURE__*/React.createElement("div", {
     className: "alert alert--bad",
     style: {
       marginTop: 10
     }
   }, "업로드 전 수정 필요: ", parsed.dupes.length > 0 && "중복 코드 " + parsed.dupes.join(", "), parsed.dupes.length > 0 && parsed.issues.length > 0 && " · ", parsed.issues.slice(0, 8).join(" · "), parsed.issues.length > 8 && " 외 " + (parsed.issues.length - 8) + "건"), /*#__PURE__*/React.createElement("p", {
     className: "t-sm t-muted"
-  }, parsed.mode === "shipment" ? month + " 출고분만 재설정하며 회수기간에 따라 수금대상월을 자동 산출합니다." : month + " 의 기존 확정 채권 데이터를 교체합니다.", " 다른 월 데이터는 그대로 유지됩니다."), /*#__PURE__*/React.createElement("div", {
+  }, parsed.mode === "shipment" ? parsed.fileDated ? "각 행의 출고월별로 재설정하며 마감된 월은 자동 제외합니다." : month + " 출고분만 재설정하며 회수기간에 따라 수금대상월을 자동 산출합니다." : month + " 의 기존 확정 채권 데이터를 교체합니다.", " 다른 월 데이터는 그대로 유지됩니다."), /*#__PURE__*/React.createElement("div", {
     className: "tablewrap",
     style: {
       maxHeight: 260,
       overflowY: "auto",
       marginBottom: 12
     }
-  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "코드"), /*#__PURE__*/React.createElement("th", null, "거래처명"), /*#__PURE__*/React.createElement("th", null, "사업부"), /*#__PURE__*/React.createElement("th", null, parsed.mode === "shipment" ? "회수기간" : "분류"), /*#__PURE__*/React.createElement("th", {
+  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, parsed.fileDated && /*#__PURE__*/React.createElement("th", null, "출고일"), /*#__PURE__*/React.createElement("th", null, "코드"), /*#__PURE__*/React.createElement("th", null, "거래처명"), /*#__PURE__*/React.createElement("th", null, "사업부"), /*#__PURE__*/React.createElement("th", null, parsed.mode === "shipment" ? "회수기간" : "분류"), /*#__PURE__*/React.createElement("th", {
     className: "r"
   }, parsed.mode === "shipment" ? "출고금액" : "채권잔액"))), /*#__PURE__*/React.createElement("tbody", null, parsed.rows.slice(0, 12).map((r, i) => /*#__PURE__*/React.createElement("tr", {
     key: i
-  }, /*#__PURE__*/React.createElement("td", {
+  }, parsed.fileDated && /*#__PURE__*/React.createElement("td", {
+    className: "num"
+  }, r.shipment_date), /*#__PURE__*/React.createElement("td", {
     className: "num"
   }, r.code), /*#__PURE__*/React.createElement("td", null, r.name), /*#__PURE__*/React.createElement("td", null, r.biz_unit || "–"), /*#__PURE__*/React.createElement("td", null, parsed.mode === "shipment" ? r.collection_period + "개월" : r.status || "자동판정"), /*#__PURE__*/React.createElement("td", {
     className: "r num"
@@ -2390,8 +2453,8 @@ function Upload({
   }, /*#__PURE__*/React.createElement("button", {
     className: "btn btn--primary",
     onClick: send,
-    disabled: busy || locked || !shipmentDate || parsed.dupes.length > 0 || parsed.issues.length > 0
-  }, month, " 데이터로 반영"), /*#__PURE__*/React.createElement("button", {
+    disabled: busy || !parsed.fileDated && locked || !parsed.fileDated && !shipmentDate || parsed.dupes.length > 0 || parsed.issues.length > 0
+  }, parsed.fileDated ? "출고월별 데이터 반영" : month + " 데이터로 반영"), /*#__PURE__*/React.createElement("button", {
     className: "btn",
     onClick: () => setParsed(null)
   }, "취소")))), /*#__PURE__*/React.createElement(Card, {
@@ -2760,7 +2823,7 @@ function Users({
 
 function Manual() {
   const steps = [["1", "조회기준 확인", "화면 상단에서 마감 기준 또는 최신 출고 포함 기준을 선택합니다."], ["2", "출고자료 반영", "관리자가 출고 데이터를 업로드하고 오류·합계·기준일을 확인합니다."], ["3", "거래처 관리", "회수기간·담당자·수금목표일·비고를 입력하고 미입력 거래처를 정리합니다."], ["4", "수금 등록·승인", "수금액과 수금일을 등록한 뒤 재무담당자가 승인하여 잔액에 반영합니다."], ["5", "현황 보고", "채권요약·결산회의 자료를 확인하고 PPT·PNG·Excel로 내려받습니다."]];
-  const menus = [["대시보드", "전체 채권과 전일 수금 확인", "조회기준과 사업부를 먼저 선택"], ["채권요약현황", "사업부별 채권·수금 실적 보고", "결산자료는 PPT 또는 PNG 다운로드"], ["결산회의 미수채권", "잔액이 있는 미수채권만 회의자료로 확인", "사업부 선택 후 PPT·PNG 다운로드"], ["거래처별 현황", "회수기간·담당자·연체기간 조회 및 수정", "회수기간 미입력 필터로 누락 거래처 정리"], ["담당자별 채권현황", "담당자별 거래처와 채권잔액 확인", "미배정 거래처를 우선 점검"], ["수금 등록", "수금 등록·승인·반려", "거래처·금액·수금일 확인 후 등록"], ["수금목표 관리", "예정 수금액과 완료일 관리", "완료 시 실제 수금등록 여부도 확인"], ["출고 데이터 업로드", "아마란스 출고자료 반영", "월·출고기준일·합계 확인 후 확정"], ["수금계획 다운로드", "선택한 조회기준으로 계획서 생성", "다운로드 전 기준월 확인"], ["계정·권한 관리", "사용자 계정과 업무권한 설정", "관리자만 변경하고 퇴사자는 사용 정지"]];
+  const menus = [["대시보드", "전체 채권과 전일 수금 확인", "조회기준과 사업부를 먼저 선택"], ["채권요약현황", "사업부별 채권·수금 실적 보고", "결산자료는 PPT 또는 PNG 다운로드"], ["결산회의 미수채권", "잔액이 있는 미수채권만 회의자료로 확인", "사업부 선택 후 PPT·PNG 다운로드"], ["거래처별 현황", "회수기간·담당자·연체기간 조회 및 수정", "회수기간 미입력 필터로 누락 거래처 정리"], ["담당자별 채권현황", "담당자별 거래처와 채권잔액 확인", "미배정 거래처를 우선 점검"], ["수금 등록", "수금 등록·승인·반려", "거래처·금액·수금일 확인 후 등록"], ["수금목표 관리", "예정 수금액과 완료일 관리", "완료 시 실제 수금등록 여부도 확인"], ["출고 데이터 업로드", "아마란스 출고자료 반영", "출고일별 월 자동 분리·마감월 제외 확인 후 반영"], ["수금계획 다운로드", "선택한 조회기준으로 계획서 생성", "카드수금은 입금예정 3영업일까지 포함"], ["계정·권한 관리", "사용자 계정과 업무권한 설정", "관리자만 변경하고 퇴사자는 사용 정지"]];
   return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Card, {
     title: "처음 사용할 때 · 기본 업무 순서"
   }, /*#__PURE__*/React.createElement("div", {
