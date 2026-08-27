@@ -9,6 +9,28 @@ const {
 /* ══════════════════ 유틸 ══════════════════ */
 
 const won = n => (Number(n) || 0).toLocaleString("ko-KR");
+const amountNumber = value => Number(String(value || "").replace(/[^0-9]/g, "")) || 0;
+const formatAmountInput = value => {
+  const digits = String(value || "").replace(/[^0-9]/g, "");
+  return digits ? Number(digits).toLocaleString("ko-KR") : "";
+};
+function koreanAmountUnit(value) {
+  let amount = amountNumber(value);
+  if (!amount) return "";
+  const parts = [];
+  const eok = Math.floor(amount / 100000000);
+  if (eok) {
+    parts.push(won(eok) + "억");
+    amount %= 100000000;
+  }
+  const man = Math.floor(amount / 10000);
+  if (man) {
+    parts.push(won(man) + "만");
+    amount %= 10000;
+  }
+  if (amount) parts.push(won(amount));
+  return parts.join(" ") + "원";
+}
 function short(n) {
   const v = Number(n) || 0;
   if (Math.abs(v) >= 1e8) return {
@@ -1694,6 +1716,10 @@ function Collections({
     ...form,
     [k]: e.target.value
   });
+  const setAmount = e => setForm({
+    ...form,
+    amount: formatAmountInput(e.target.value)
+  });
   const pending = data.collections.filter(c => c.state === "pending");
   const decided = data.collections.filter(c => c.state !== "pending").slice(0, 40);
   const target = data.customers.find(c => c.code === form.customer_code);
@@ -1751,9 +1777,13 @@ function Collections({
     className: "input num",
     inputMode: "numeric",
     value: form.amount,
-    onChange: set("amount"),
-    placeholder: "0"
-  })), /*#__PURE__*/React.createElement(Field, {
+    onChange: setAmount,
+    placeholder: "0",
+    "aria-describedby": "collection-amount-unit"
+  }), /*#__PURE__*/React.createElement("small", {
+    id: "collection-amount-unit",
+    className: "amount-unit-check"
+  }, form.amount ? "입력금액 · " + koreanAmountUnit(form.amount) : "숫자를 입력하면 금액 단위가 표시됩니다.")), /*#__PURE__*/React.createElement(Field, {
     label: "수금방법"
   }, /*#__PURE__*/React.createElement("select", {
     className: "select",
@@ -1775,7 +1805,7 @@ function Collections({
     value: form.note,
     onChange: set("note"),
     placeholder: "입금자명, 분할 회차 등"
-  })), target && Number(form.amount) > target.balance && /*#__PURE__*/React.createElement("div", {
+  })), target && amountNumber(form.amount) > target.balance && /*#__PURE__*/React.createElement("div", {
     className: "alert alert--warn"
   }, "입력한 수금액이 현재 미수잔액(", won(target.balance), "원)보다 큽니다. 금액을 확인하세요."), /*#__PURE__*/React.createElement("button", {
     className: "btn btn--primary",
