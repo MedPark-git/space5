@@ -1884,6 +1884,50 @@ function Users({ data, notify, refresh }) {
   );
 }
 
+/* ══════════════════ 사용 매뉴얼 ══════════════════ */
+
+function Manual() {
+  const steps = [
+    ["1", "조회기준 확인", "화면 상단에서 마감 기준 또는 최신 출고 포함 기준을 선택합니다."],
+    ["2", "출고자료 반영", "관리자가 출고 데이터를 업로드하고 오류·합계·기준일을 확인합니다."],
+    ["3", "거래처 관리", "회수기간·담당자·수금목표일·비고를 입력하고 미입력 거래처를 정리합니다."],
+    ["4", "수금 등록·승인", "수금액과 수금일을 등록한 뒤 재무담당자가 승인하여 잔액에 반영합니다."],
+    ["5", "현황 보고", "채권요약·결산회의 자료를 확인하고 PPT·PNG·Excel로 내려받습니다."],
+  ];
+  const menus = [
+    ["대시보드", "전체 채권과 전일 수금 확인", "조회기준과 사업부를 먼저 선택"],
+    ["채권요약현황", "사업부별 채권·수금 실적 보고", "결산자료는 PPT 또는 PNG 다운로드"],
+    ["결산회의 미수채권", "잔액이 있는 미수채권만 회의자료로 확인", "사업부 선택 후 PPT·PNG 다운로드"],
+    ["거래처별 현황", "회수기간·담당자·연체기간 조회 및 수정", "회수기간 미입력 필터로 누락 거래처 정리"],
+    ["담당자별 채권현황", "담당자별 거래처와 채권잔액 확인", "미배정 거래처를 우선 점검"],
+    ["수금 등록", "수금 등록·승인·반려", "거래처·금액·수금일 확인 후 등록"],
+    ["수금목표 관리", "예정 수금액과 완료일 관리", "완료 시 실제 수금등록 여부도 확인"],
+    ["출고 데이터 업로드", "아마란스 출고자료 반영", "월·출고기준일·합계 확인 후 확정"],
+    ["수금계획 다운로드", "선택한 조회기준으로 계획서 생성", "다운로드 전 기준월 확인"],
+    ["계정·권한 관리", "사용자 계정과 업무권한 설정", "관리자만 변경하고 퇴사자는 사용 정지"],
+  ];
+  return <>
+    <Card title="처음 사용할 때 · 기본 업무 순서">
+      <div className="manual-steps">{steps.map(([no, title, text]) =>
+        <div className="manual-step" key={no}><b>{no}</b><span><strong>{title}</strong><small>{text}</small></span></div>)}</div>
+    </Card>
+    <Card title="메뉴별 사용법" flush>
+      <div className="tablewrap"><table className="manual-table">
+        <thead><tr><th>메뉴</th><th>주요 기능</th><th>간단 사용법</th></tr></thead>
+        <tbody>{menus.map((row) => <tr key={row[0]}><td className="t-strong">{row[0]}</td><td>{row[1]}</td><td>{row[2]}</td></tr>)}</tbody>
+      </table></div>
+    </Card>
+    <Card title="꼭 확인하세요">
+      <div className="manual-notices">
+        <div><b>조회기준</b><span>보고 화면은 선택한 조회기준을 따르며, 수금·업로드 화면은 항상 최신 운영데이터를 사용합니다.</span></div>
+        <div><b>수금 승인</b><span>수금은 등록만으로 잔액이 줄지 않습니다. 재무담당자의 승인 후 반영됩니다.</span></div>
+        <div><b>미수 전환</b><span>거래가 종료된 정상채권은 채권 상세에서 미수채권으로 전환할 수 있습니다.</span></div>
+        <div><b>권한</b><span>계정 권한에 따라 사용할 수 없는 메뉴는 보이지 않을 수 있습니다.</span></div>
+      </div>
+    </Card>
+  </>;
+}
+
 /* ══════════════════ 셸 ══════════════════ */
 
 const SCREENS = [
@@ -1897,6 +1941,7 @@ const SCREENS = [
   { key: "upload",    label: "출고 데이터 업로드", perm: "upload_data",        group: "관리" },
   { key: "cashplan",  label: "수금계획 다운로드", perm: "data_export",          group: "관리" },
   { key: "users",     label: "계정·권한 관리",    perm: "user_manage",         group: "관리" },
+  { key: "manual",    label: "사용 매뉴얼",       perm: null,                  group: "도움말" },
 ];
 const REPORT_SCREENS = new Set(["dashboard", "summary", "closing", "customers", "owners", "targets", "cashplan"]);
 
@@ -1928,7 +1973,7 @@ function App() {
   const can = useCallback((perm) => !!(user && user.permissions.includes(perm)), [user]);
 
   const visible = useMemo(
-    () => SCREENS.filter((s) => can(s.perm) || (s.alt && can(s.alt))), [can]);
+    () => SCREENS.filter((s) => !s.perm || can(s.perm) || (s.alt && can(s.alt))), [can]);
 
   useEffect(() => {
     if (visible.length && !visible.some((s) => s.key === screen)) setScreen(visible[0].key);
@@ -2034,6 +2079,7 @@ function App() {
             applyUpload={applyUpload} refresh={load} />}
           {screen === "cashplan" && <CashPlan data={reportData} dataView={effectiveView} notify={notify} />}
           {screen === "users" && <Users data={data} notify={notify} refresh={load} />}
+          {screen === "manual" && <Manual />}
         </div>
       </main>
 
