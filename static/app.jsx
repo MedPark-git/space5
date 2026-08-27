@@ -102,6 +102,42 @@ function Field({ label, children }) {
   return <div className="field"><label>{label}</label>{children}</div>;
 }
 
+function ChangePassword({ user, onClose, notify }) {
+  const [form, setForm] = useState({ current: "", password: "", confirm: "" });
+  const [busy, setBusy] = useState(false);
+  const set = (key) => (e) => setForm({ ...form, [key]: e.target.value });
+  async function submit(e) {
+    e.preventDefault();
+    if (!form.current) { notify("현재 비밀번호를 입력하세요.", true); return; }
+    if (form.password.length < 8) { notify("새 비밀번호는 8자 이상이어야 합니다.", true); return; }
+    if (form.password !== form.confirm) { notify("새 비밀번호 확인이 일치하지 않습니다.", true); return; }
+    if (form.current === form.password) { notify("현재 비밀번호와 다른 비밀번호를 입력하세요.", true); return; }
+    setBusy(true);
+    try {
+      await api("/api/password", { method: "POST", body: { current: form.current, password: form.password } });
+      notify("비밀번호를 변경했습니다."); onClose();
+    } catch (e) { notify(e.message, true); }
+    setBusy(false);
+  }
+  return <div className="modal-backdrop" onMouseDown={onClose}>
+    <section className="modal-card password-modal" onMouseDown={(e) => e.stopPropagation()}>
+      <header className="card__head"><h3>내 비밀번호 변경</h3><div className="spacer" />
+        <button className="btn btn--sm" onClick={onClose}>닫기</button></header>
+      <form className="card__body" onSubmit={submit}>
+        <Field label="아이디"><input className="input" value={user.username} readOnly disabled /></Field>
+        <Field label="현재 비밀번호"><input className="input" type="password" autoComplete="current-password"
+          value={form.current} onChange={set("current")} autoFocus /></Field>
+        <Field label="새 비밀번호"><input className="input" type="password" autoComplete="new-password"
+          value={form.password} onChange={set("password")} placeholder="8자 이상" /></Field>
+        <Field label="새 비밀번호 확인"><input className="input" type="password" autoComplete="new-password"
+          value={form.confirm} onChange={set("confirm")} /></Field>
+        <button className="btn btn--primary" type="submit" disabled={busy}>
+          {busy ? "변경 중" : "비밀번호 변경"}</button>
+      </form>
+    </section>
+  </div>;
+}
+
 /* ══════════════════ 로그인 ══════════════════ */
 
 function Login({ onDone }) {
@@ -1974,7 +2010,7 @@ function Manual() {
         <div><b>조회기준</b><span>보고 화면은 선택한 조회기준을 따르며, 수금·업로드 화면은 항상 최신 운영데이터를 사용합니다.</span></div>
         <div><b>수금 승인</b><span>수금은 등록만으로 잔액이 줄지 않습니다. 재무담당자의 승인 후 반영됩니다.</span></div>
         <div><b>미수 전환</b><span>거래가 종료된 정상채권은 채권 상세에서 미수채권으로 전환할 수 있습니다.</span></div>
-        <div><b>권한</b><span>계정 권한에 따라 사용할 수 없는 메뉴는 보이지 않을 수 있습니다.</span></div>
+        <div><b>계정 보안</b><span>아이디는 고정되며, 로그인 후 상단의 비밀번호 변경에서 본인이 직접 변경할 수 있습니다.</span></div>
       </div>
     </Card>
   </>;
@@ -2003,6 +2039,7 @@ function App() {
   const [screen, setScreen] = useState("dashboard");
   const [preset, setPreset] = useState(null);
   const [toast, setToast] = useState(null);
+  const [passwordOpen, setPasswordOpen] = useState(false);
   const [dataView, setDataView] = useState(() => localStorage.getItem("ar_data_view") || "combined");
 
   const notify = useCallback((message, bad) => {
@@ -2115,6 +2152,7 @@ function App() {
             <b>{user.name}{user.title && " " + user.title}</b>
             <span>{data.meta.roles[user.role].label} · {user.username}</span>
           </div>
+          <button className="btn btn--sm" onClick={() => setPasswordOpen(true)}>비밀번호 변경</button>
           <button className="btn btn--sm" onClick={signOut}>로그아웃</button>
         </header>
 
@@ -2136,6 +2174,7 @@ function App() {
       </main>
 
       {toast && <div className={"toast" + (toast.bad ? " toast--bad" : "")}>{toast.message}</div>}
+      {passwordOpen && <ChangePassword user={user} onClose={() => setPasswordOpen(false)} notify={notify} />}
     </div>
   );
 }
