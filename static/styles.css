@@ -208,6 +208,19 @@ tfoot td { background: var(--surface-2); font-weight: 700; border-top: 1px solid
 .field { display: grid; gap: 5px; margin-bottom: 12px; }
 .field > label { font-size: 12.5px; color: var(--ink-2); font-weight: 600; }
 .amount-unit-check { min-height: 16px; color: var(--brand); font-size: 12px; font-weight: 600; }
+.manual-steps { display: grid; gap: 10px; }
+.manual-step { display: flex; align-items: flex-start; gap: 11px; padding: 10px 12px; border: 1px solid var(--line-soft); border-radius: var(--radius); }
+.manual-step > b { flex: 0 0 25px; height: 25px; display: grid; place-items: center; border-radius: 50%; background: var(--brand); color: #fff; font-size: 12px; }
+.manual-step span { display: grid; gap: 3px; }
+.manual-step strong { font-size: 13.5px; }
+.manual-step small { color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+.manual-table td { white-space: normal; line-height: 1.45; }
+.manual-table td:first-child { min-width: 145px; }
+.manual-notices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.manual-notices > div { display: grid; gap: 4px; padding: 11px 12px; background: var(--surface-2); border-radius: var(--radius); }
+.manual-notices b { color: var(--brand); font-size: 12.5px; }
+.manual-notices span { color: var(--ink-2); font-size: 12.5px; line-height: 1.45; }
+@media (max-width: 700px) { .manual-notices { grid-template-columns: 1fr; } }
 .input, .select, .textarea {
   width: 100%; padding: 8px 10px; border: 1px solid var(--line);
   border-radius: var(--radius); background: var(--surface); transition: border-color .12s;
