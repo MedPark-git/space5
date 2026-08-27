@@ -1283,6 +1283,29 @@ function Customers({
       notify(e.message, true);
     }
   }
+  async function reclassifyAsOverdue(item) {
+    if (!window.confirm(won(item.balance) + "원을 정상채권에서 미수채권으로 전환할까요?")) return;
+    try {
+      const result = await api("/api/receivables/" + item.id, {
+        method: "PATCH",
+        body: {
+          category: "연체"
+        }
+      });
+      setReceivableDetail(d => ({
+        ...d,
+        customer: result.customer,
+        items: d.items.map(x => x.id === item.id ? {
+          ...result.item,
+          as_of_status: "연체"
+        } : x)
+      }));
+      patchCustomer(result.customer);
+      notify("정상채권을 미수채권으로 전환했습니다.");
+    } catch (e) {
+      notify(e.message, true);
+    }
+  }
   const distinctCustomers = new Set(rows.map(r => r.code)).size;
   return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Card, {
     title: "조회 조건"
@@ -1470,7 +1493,7 @@ function Customers({
     className: "r"
   }, "최초금액"), /*#__PURE__*/React.createElement("th", {
     className: "r"
-  }, "현재잔액"), /*#__PURE__*/React.createElement("th", null, "수금목표일"), /*#__PURE__*/React.createElement("th", null, "비고"))), /*#__PURE__*/React.createElement("tbody", null, receivableDetail.items.map(item => /*#__PURE__*/React.createElement("tr", {
+  }, "현재잔액"), /*#__PURE__*/React.createElement("th", null, "수금목표일"), /*#__PURE__*/React.createElement("th", null, "비고"), /*#__PURE__*/React.createElement("th", null, "관리"))), /*#__PURE__*/React.createElement("tbody", null, receivableDetail.items.map(item => /*#__PURE__*/React.createElement("tr", {
     key: item.id
   }, /*#__PURE__*/React.createElement("td", {
     className: "t-strong"
@@ -1495,7 +1518,11 @@ function Customers({
     placeholder: "비고 입력",
     canEdit: can("note_edit"),
     onSave: value => saveItemNote(item.id, value)
-  }))))))))));
+  })), /*#__PURE__*/React.createElement("td", null, item.category === "정상" && Number(item.balance) > 0 ? /*#__PURE__*/React.createElement("button", {
+    className: "btn btn--sm btn--warn",
+    disabled: !can("customer_info_edit"),
+    onClick: () => reclassifyAsOverdue(item)
+  }, "미수 전환") : "–")))))))));
 }
 
 /* ══════════════════ 담당자별 채권현황 ══════════════════ */
