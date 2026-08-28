@@ -1825,8 +1825,8 @@ function CustomerSearch({
     className: "customer-search__empty"
   }, "검색 결과가 없습니다.")));
 }
-function QuickCustomerModal({ onClose, onCreated }) {
-  const [form, setForm] = useState({ code: "", name: "" });
+function QuickCustomerModal({ units, onClose, onCreated }) {
+  const [form, setForm] = useState({ code: "", name: "", biz_unit: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function submit(e) {
@@ -1842,7 +1842,7 @@ function QuickCustomerModal({ onClose, onCreated }) {
         /*#__PURE__*/React.createElement("h3", null, "신규 거래처 간편등록"), /*#__PURE__*/React.createElement("div", { className: "spacer" }),
         /*#__PURE__*/React.createElement("button", { className: "btn btn--sm", type: "button", onClick: onClose }, "닫기")),
       /*#__PURE__*/React.createElement("form", { className: "card__body", onSubmit: submit },
-        /*#__PURE__*/React.createElement("div", { className: "alert alert--info" }, "선수금 등록을 위해 고객코드와 고객명만 먼저 등록합니다. 채권잔액은 0원으로 시작합니다."),
+        /*#__PURE__*/React.createElement("div", { className: "alert alert--info" }, "선수금 등록을 위해 고객코드·고객명·사업부를 먼저 등록합니다. 채권잔액은 0원으로 시작합니다."),
         error && /*#__PURE__*/React.createElement("div", { className: "alert alert--bad" }, error),
         /*#__PURE__*/React.createElement(Field, { label: "고객코드" }, /*#__PURE__*/React.createElement("input", {
           className: "input", value: form.code, autoFocus: true, placeholder: "예: 00123",
@@ -1852,8 +1852,11 @@ function QuickCustomerModal({ onClose, onCreated }) {
           className: "input", lang: "ko", value: form.name, placeholder: "거래처명 입력",
           onChange: e => setForm({ ...form, name: e.target.value })
         })),
+        /*#__PURE__*/React.createElement(Field, { label: "사업부" }, /*#__PURE__*/React.createElement("select", {
+          className: "select", value: form.biz_unit, onChange: e => setForm({ ...form, biz_unit: e.target.value })
+        }, /*#__PURE__*/React.createElement("option", { value: "" }, "사업부 선택"), units.map(unit => /*#__PURE__*/React.createElement("option", { key: unit }, unit)))),
         /*#__PURE__*/React.createElement("button", {
-          className: "btn btn--primary", type: "submit", disabled: busy || !form.code.trim() || !form.name.trim()
+          className: "btn btn--primary", type: "submit", disabled: busy || !form.code.trim() || !form.name.trim() || !form.biz_unit
         }, busy ? "등록 중" : "등록 후 선택"))));
 }
 function CollectionReceivableTable({ target, detail, busy }) {
@@ -2091,6 +2094,7 @@ function Collections({
       whiteSpace: "normal"
     }
   }, c.reject_reason || c.note || "–"))))))), quickCustomerOpen && /*#__PURE__*/React.createElement(QuickCustomerModal, {
+    units: data.meta.units,
     onClose: () => setQuickCustomerOpen(false),
     onCreated: async customer => {
       await refresh();
