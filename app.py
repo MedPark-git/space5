@@ -103,6 +103,33 @@ def add_months(month, offset):
     return "%04d-%02d" % (total // 12, total % 12 + 1)
 
 
+def apply_preserved_shipment_payments(shipments, previous_rows):
+    """재업로드 전 해당 월 출고채권에 이미 배분된 수금액을 신규 원장에 승계한다."""
+    paid_by_key = {}
+    paid_by_code = {}
+    for old in previous_rows:
+        paid = max(as_int(old.get("amount")) - as_int(old.get("balance")), 0)
+        key = (old["code"], old["biz_unit"])
+        paid_by_key[key] = paid_by_key.get(key, 0) + paid
+        paid_by_code[old["code"]] = paid_by_code.get(old["code"], 0) + paid
+
+    items = list(shipments.values())
+    # 먼저 동일 사업부에 배분됐던 수금을 그대로 승계한다.
+    for item in items:
+        key = (item["code"], item["biz_unit"])
+        paid = min(item["amount"], paid_by_key.get(key, 0))
+        item["preserved_paid"] = paid
+        paid_by_code[item["code"]] = max(paid_by_code.get(item["code"], 0) - paid, 0)
+
+    # 업로드 파일에서 사업부가 변경된 경우 남은 기수금액을 같은 거래처 채권에 이어서 반영한다.
+    for item in items:
+        capacity = max(item["amount"] - item["preserved_paid"], 0)
+        extra = min(capacity, paid_by_code.get(item["code"], 0))
+        item["preserved_paid"] += extra
+        paid_by_code[item["code"]] = max(paid_by_code.get(item["code"], 0) - extra, 0)
+    return sum(item["preserved_paid"] for item in items)
+
+
 def month_offset(base_month, target_month):
     by, bm = (int(x) for x in base_month.split("-"))
     ty, tm = (int(x) for x in target_month.split("-"))
@@ -743,6 +770,7 @@ def upload_rows():
                 x["customer_code"]: x["target_date"] for x in previous_target_rows
             }
             previous = len(previous_rows)
+            preserved_paid = apply_preserved_shipment_payments(shipments, previous_rows)
             bucket_columns = {
                 "current": "normal_current_balance",
                 "next": "normal_next_balance",
@@ -765,36 +793,37 @@ def upload_rows():
             for item in shipments.values():
                 current = conn.execute("SELECT 1 FROM customers WHERE code=%s", (item["code"],)).fetchone()
                 column = bucket_columns[item["bucket"]]
+                net_amount = max(item["amount"] - item.get("preserved_paid", 0), 0)
                 if current:
                     conn.execute(
                         "UPDATE customers SET name=%s, period=%s,"
                         " balance=balance+%s, normal_balance=normal_balance+%s,"
                         " " + column + "=" + column + "+%s, source_month=%s,"
                         " updated_at=" + db.NOW_SQL + " WHERE code=%s",
-                        (item["name"], item["period"], item["amount"], item["amount"], item["amount"],
+                        (item["name"], item["period"], net_amount, net_amount, net_amount,
                          month, item["code"]))
                 else:
                     values = dict(current=0, next=0, later=0)
-                    values[item["bucket"]] = item["amount"]
+                    values[item["bucket"]] = net_amount
                     conn.execute(
                         "INSERT INTO customers (code,name,biz_unit,status,owner,balance,normal_balance,"
                         " normal_current_balance,normal_next_balance,normal_later_balance,period,source_month,note)"
                         " VALUES (%s,%s,%s,'정상',%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                         (item["code"], item["name"], item["biz_unit"], "",
-                         item["amount"], item["amount"], values["current"], values["next"],
+                         net_amount, net_amount, values["current"], values["next"],
                          values["later"], item["period"], month, item["note"]))
                 conn.execute(
                     "INSERT INTO monthly_shipment_units (month,code,name,biz_unit,owner,collection_period,"
                     " target_month,bucket,amount,balance,note) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                     (month, item["code"], item["name"], item["biz_unit"], "",
                      item["period"], item["target_month"], item["bucket"], item["amount"],
-                     item["amount"], item["note"]))
+                     net_amount, item["note"]))
                 conn.execute(
                     "INSERT INTO receivable_items (customer_code,biz_unit,source_key,issue_month,target_month,category,"
                     " original_amount,balance,target_date,note) VALUES (%s,%s,%s,%s,%s,'정상',%s,%s,%s,%s)",
                     (item["code"], item["biz_unit"],
                      "shipment:%s:%s:%s" % (month, item["code"], item["biz_unit"]), month,
-                     item["target_month"], item["amount"], item["amount"],
+                     item["target_month"], item["amount"], net_amount,
                      previous_targets.get((item["code"], item["biz_unit"]),
                                           previous_targets_by_code.get(item["code"], "")), item["note"]))
             conn.execute(
@@ -802,10 +831,12 @@ def upload_rows():
                 " VALUES (%s,%s,%s,%s,%s,'shipment',%s)",
                 (month, filename, len(shipments), request.user["username"], previous, shipment_date))
             log(conn, request.user["username"], "shipment_upload",
-                "%s / %d행 (기존 %d행 교체)" % (month, len(shipments), previous))
+                "%s / %d행 (기존 %d행 교체, 기수금 %d원 승계)" %
+                (month, len(shipments), previous, preserved_paid))
             customers = [x for x in conn.execute("SELECT * FROM customers ORDER BY balance DESC")]
             uploads = [x for x in conn.execute("SELECT * FROM uploads ORDER BY id DESC LIMIT 200")]
             return jsonify(inserted=len(shipments), replaced=previous,
+                           preserved_paid=preserved_paid,
                            customers=customers, uploads=uploads)
 
         prev = conn.execute(
