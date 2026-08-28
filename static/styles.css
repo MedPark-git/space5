@@ -211,6 +211,7 @@ tfoot td { background: var(--surface-2); font-weight: 700; border-top: 1px solid
 .collection-receivables { margin: 14px 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
 .collection-receivables__head { display: flex; gap: 12px; justify-content: space-between; align-items: center; padding: 12px 14px; background: var(--surface-2); }
 .collection-receivables__head span { color: var(--muted); font-size: 12px; text-align: right; }
+.collection-receivables tbody tr.is-selected { background: var(--brand-soft); }
 @media (max-width: 900px) {
   .collection-receivables__head { align-items: flex-start; flex-direction: column; }
   .collection-receivables__head span { text-align: left; }
