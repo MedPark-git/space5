@@ -353,14 +353,15 @@ def quick_create_customer():
     data = body()
     code = str(data.get("code") or "").strip()
     name = str(data.get("name") or "").strip()
+    biz_unit = str(data.get("biz_unit") or "").strip()
     if not code:
         return jsonify(error="고객코드를 입력하세요."), 400
     if code.isdigit():
         code = code.zfill(5)
     if not name:
         return jsonify(error="고객명을 입력하세요."), 400
-    user_unit = str(request.user.get("biz_unit") or "").strip()
-    biz_unit = user_unit if user_unit in UNITS else ""
+    if biz_unit not in UNITS:
+        return jsonify(error="사업부를 선택하세요."), 400
     with connect() as conn:
         existing = conn.execute("SELECT * FROM customers WHERE code=%s", (code,)).fetchone()
         if existing:
