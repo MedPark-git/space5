@@ -1783,8 +1783,9 @@ function CustomerSearch({
     return customers.filter(c => !keyword || c.name.toLowerCase().includes(keyword) || String(c.code).toLowerCase().includes(keyword) || code5(c.code).includes(keyword)).slice(0, 12);
   }, [customers, query]);
   useEffect(() => {
-    if (!value) setQuery("");
-  }, [value]);
+    const current = customers.find(c => c.code === value);
+    setQuery(current ? current.name : "");
+  }, [customers, value]);
   function choose(customer) {
     onChange(customer.code);
     setQuery(customer.name);
@@ -1823,6 +1824,37 @@ function CustomerSearch({
   }, won(c.balance), "원"))), matches.length === 0 && /*#__PURE__*/React.createElement("div", {
     className: "customer-search__empty"
   }, "검색 결과가 없습니다.")));
+}
+function QuickCustomerModal({ onClose, onCreated }) {
+  const [form, setForm] = useState({ code: "", name: "" });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function submit(e) {
+    e.preventDefault(); setBusy(true); setError("");
+    try {
+      const result = await api("/api/customers/quick", { method: "POST", body: form });
+      await onCreated(result.customer);
+    } catch (err) { setError(err.message); setBusy(false); }
+  }
+  return /*#__PURE__*/React.createElement("div", { className: "modal-backdrop", onMouseDown: onClose },
+    /*#__PURE__*/React.createElement("section", { className: "modal-card quick-customer-modal", onMouseDown: e => e.stopPropagation() },
+      /*#__PURE__*/React.createElement("header", { className: "card__head" },
+        /*#__PURE__*/React.createElement("h3", null, "신규 거래처 간편등록"), /*#__PURE__*/React.createElement("div", { className: "spacer" }),
+        /*#__PURE__*/React.createElement("button", { className: "btn btn--sm", type: "button", onClick: onClose }, "닫기")),
+      /*#__PURE__*/React.createElement("form", { className: "card__body", onSubmit: submit },
+        /*#__PURE__*/React.createElement("div", { className: "alert alert--info" }, "선수금 등록을 위해 고객코드와 고객명만 먼저 등록합니다. 채권잔액은 0원으로 시작합니다."),
+        error && /*#__PURE__*/React.createElement("div", { className: "alert alert--bad" }, error),
+        /*#__PURE__*/React.createElement(Field, { label: "고객코드" }, /*#__PURE__*/React.createElement("input", {
+          className: "input", value: form.code, autoFocus: true, placeholder: "예: 00123",
+          onChange: e => setForm({ ...form, code: e.target.value })
+        })),
+        /*#__PURE__*/React.createElement(Field, { label: "고객명" }, /*#__PURE__*/React.createElement("input", {
+          className: "input", lang: "ko", value: form.name, placeholder: "거래처명 입력",
+          onChange: e => setForm({ ...form, name: e.target.value })
+        })),
+        /*#__PURE__*/React.createElement("button", {
+          className: "btn btn--primary", type: "submit", disabled: busy || !form.code.trim() || !form.name.trim()
+        }, busy ? "등록 중" : "등록 후 선택"))));
 }
 function CollectionReceivableTable({ target, detail, busy }) {
   return /*#__PURE__*/React.createElement("div", { className: "collection-receivables" },
@@ -1868,6 +1900,7 @@ function Collections({
   const [busy, setBusy] = useState(false);
   const [receivables, setReceivables] = useState(null);
   const [receivablesBusy, setReceivablesBusy] = useState(false);
+  const [quickCustomerOpen, setQuickCustomerOpen] = useState(false);
   const set = k => e => setForm({
     ...form,
     [k]: e.target.value
@@ -1935,14 +1968,16 @@ function Collections({
     className: "formrow"
   }, /*#__PURE__*/React.createElement(Field, {
     label: "거래처"
-  }, /*#__PURE__*/React.createElement(CustomerSearch, {
+  }, /*#__PURE__*/React.createElement("div", { className: "customer-pick" }, /*#__PURE__*/React.createElement(CustomerSearch, {
     customers: data.customers,
     value: form.customer_code,
     onChange: code => setForm({
       ...form,
       customer_code: code
     })
-  })), /*#__PURE__*/React.createElement(Field, {
+  }), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn--sm", type: "button", onClick: () => setQuickCustomerOpen(true)
+  }, "신규"))), /*#__PURE__*/React.createElement(Field, {
     label: "수금액 (원)"
   }, /*#__PURE__*/React.createElement("input", {
     className: "input num",
@@ -2055,7 +2090,15 @@ function Collections({
     style: {
       whiteSpace: "normal"
     }
-  }, c.reject_reason || c.note || "–"))))))));
+  }, c.reject_reason || c.note || "–"))))))), quickCustomerOpen && /*#__PURE__*/React.createElement(QuickCustomerModal, {
+    onClose: () => setQuickCustomerOpen(false),
+    onCreated: async customer => {
+      await refresh();
+      setForm(current => ({ ...current, customer_code: customer.code }));
+      setQuickCustomerOpen(false);
+      notify(customer.name + " 거래처를 등록하고 선택했습니다.");
+    }
+  }));
 }
 
 /* ══════════════════ 수금목표 관리 ══════════════════ */
