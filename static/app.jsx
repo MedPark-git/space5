@@ -1690,9 +1690,13 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
             const current = grouped.get(key);
             if (current) {
               current.shipment_amount = parseUploadAmount(current.shipment_amount) + parseUploadAmount(r.shipment_amount);
+              current.total_amount = current.shipment_amount;
               if (r.shipment_date > current.shipment_date) current.shipment_date = r.shipment_date;
             }
-            else grouped.set(key, { ...r, shipment_amount: parseUploadAmount(r.shipment_amount) });
+            else {
+              const amount = parseUploadAmount(r.shipment_amount);
+              grouped.set(key, { ...r, shipment_amount: amount, total_amount: amount });
+            }
           });
           preparedRows = Array.from(grouped.values());
           const unitsByCode = new Map();
@@ -1765,6 +1769,20 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
       notify(locked ? month + " 잠금을 해제했습니다." : month + " 을 마감 잠금했습니다.");
       await refresh();
     } catch (e) { notify(e.message, true); }
+  }
+
+  async function rollbackUpload(upload) {
+    const restored = upload.restore_filename || "직전 상태";
+    if (!window.confirm(
+      `최근 업로드 '${upload.filename}'을 삭제하고 '${restored}' 상태로 복원할까요?\n복원 후에는 되돌릴 수 없습니다.`
+    )) return;
+    setBusy(true);
+    try {
+      const res = await api("/api/uploads/" + upload.id, { method: "DELETE" });
+      applyUpload(res);
+      notify(`'${res.removed_filename}'을 삭제하고 '${res.restored_filename}' 상태로 복원했습니다.`);
+    } catch (e) { notify(e.message, true); }
+    setBusy(false);
   }
 
   return (
@@ -1866,7 +1884,7 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
           <table>
             <thead>
               <tr><th>업로드 일시</th><th>출고기준일</th><th>기준월</th><th>파일명</th><th className="r">반영 행</th>
-                <th className="r">교체된 행</th><th>업로더</th><th>마감</th></tr>
+                <th className="r">교체된 행</th><th>업로더</th><th>마감</th><th>관리</th></tr>
             </thead>
             <tbody>
               {data.uploads.map((u) => {
@@ -1884,6 +1902,14 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
                       <span className={"badge badge--" + (l && l.locked ? "bad" : "mute")}>
                         {l && l.locked ? "잠김" : "열림"}
                       </span>
+                    </td>
+                    <td>
+                      {u.can_restore ? (
+                        <button className="btn btn--sm btn--danger" disabled={busy || (l && l.locked)}
+                          onClick={() => rollbackUpload(u)} title={l && l.locked ? "마감 잠금을 먼저 해제하세요." : "최근 업로드 삭제 및 직전 파일 복원"}>
+                          삭제·복원
+                        </button>
+                      ) : <span className="t-muted">–</span>}
                     </td>
                   </tr>
                 );
