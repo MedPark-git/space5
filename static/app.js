@@ -3024,10 +3024,19 @@ const SCREENS = [{
   group: "도움말"
 }];
 const REPORT_SCREENS = new Set(["dashboard", "summary", "closing", "customers", "owners", "targets", "cashplan"]);
+const SCREEN_STORAGE_KEY = "ar_active_screen";
+function initialScreen() {
+  try {
+    const navigation = performance.getEntriesByType("navigation")[0];
+    return navigation && navigation.type === "reload" ? sessionStorage.getItem(SCREEN_STORAGE_KEY) || "dashboard" : "dashboard";
+  } catch (_) {
+    return "dashboard";
+  }
+}
 function App() {
   const [user, setUser] = useState(undefined);
   const [data, setData] = useState(null);
-  const [screen, setScreen] = useState("dashboard");
+  const [screen, setScreen] = useState(initialScreen);
   const [preset, setPreset] = useState(null);
   const [toast, setToast] = useState(null);
   const [passwordOpen, setPasswordOpen] = useState(false);
@@ -3046,14 +3055,25 @@ function App() {
   }, []);
   useEffect(() => {
     api("/api/me").then(r => {
-      if (r.user) load().catch(e => notify(e.message, true));else setUser(null);
-    }).catch(() => setUser(null));
+      if (r.user) load().catch(e => notify(e.message, true));else {
+        sessionStorage.removeItem(SCREEN_STORAGE_KEY);
+        setScreen("dashboard");
+        setUser(null);
+      }
+    }).catch(() => {
+      sessionStorage.removeItem(SCREEN_STORAGE_KEY);
+      setScreen("dashboard");
+      setUser(null);
+    });
   }, [load, notify]);
   const can = useCallback(perm => !!(user && user.permissions.includes(perm)), [user]);
   const visible = useMemo(() => SCREENS.filter(s => !s.perm || can(s.perm) || s.alt && can(s.alt)), [can]);
   useEffect(() => {
-    if (visible.length && !visible.some(s => s.key === screen)) setScreen(visible[0].key);
-  }, [visible, screen]);
+    if (user && visible.length && !visible.some(s => s.key === screen)) setScreen(visible[0].key);
+  }, [user, visible, screen]);
+  useEffect(() => {
+    if (user && data) sessionStorage.setItem(SCREEN_STORAGE_KEY, screen);
+  }, [user, data, screen]);
   useEffect(() => {
     if (!data) return;
     const options = data.meta.dashboard_views || [];
@@ -3075,7 +3095,11 @@ function App() {
     }, "불러오는 중입니다."));
   }
   if (user === null) return /*#__PURE__*/React.createElement(Login, {
-    onDone: () => load()
+    onDone: () => {
+      sessionStorage.removeItem(SCREEN_STORAGE_KEY);
+      setScreen("dashboard");
+      load();
+    }
   });
   if (!data) return /*#__PURE__*/React.createElement("div", {
     className: "boot"
@@ -3115,6 +3139,8 @@ function App() {
     await api("/api/logout", {
       method: "POST"
     });
+    sessionStorage.removeItem(SCREEN_STORAGE_KEY);
+    setScreen("dashboard");
     setUser(null);
     setData(null);
   }
