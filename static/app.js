@@ -88,6 +88,15 @@ function normalizeShipmentDate(value) {
   const match = text.match(/^(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
   return match ? match[1] + "-" + match[2].padStart(2, "0") + "-" + match[3].padStart(2, "0") : "";
 }
+function parseUploadAmount(value) {
+  const text = String(value ?? "").trim();
+  if (!text || text === "-" || text === "—") return 0;
+  const wrappedNegative = /^\(.*\)$/.test(text);
+  const normalized = text.replace(/[,\s원₩()]/g, "");
+  const amount = Number(normalized);
+  if (!Number.isFinite(amount)) return 0;
+  return wrappedNegative ? -amount : amount;
+}
 async function api(path, options = {}) {
   const res = await fetch(path, {
     credentials: "same-origin",
@@ -2186,7 +2195,8 @@ const COLUMN_ALIASES = {
   biz_unit: ["사업부", "사업부문", "부문", "대분류", "unit"],
   status: ["채권분류", "분류", "채권상태", "상태", "status"],
   collection_period: ["회수기간(개월)", "회수기간", "collection_period"],
-  shipment_amount: ["출고금액", "출고액", "합계액", "shipment_amount"],
+  total_amount: ["합계액", "합계금액", "총금액", "total_amount"],
+  shipment_amount: ["출고금액", "출고액", "shipment_amount"],
   shipment_date: ["출고일자", "출고일", "처리일자", "처리일", "출하일자", "출하일", "거래일자", "shipment_date"],
   balance: ["미수잔액", "미수금액", "채권잔액", "잔액", "미수금", "balance"],
   normal_balance: ["정상채권잔액", "정상채권", "normal_balance"],
@@ -2266,7 +2276,7 @@ function Upload({
           setError("머리글 행을 찾지 못했습니다. '거래처코드'와 '거래처명' 열이 있는지 확인하세요.");
           return;
         }
-        const shipmentMode = map.shipment_amount !== undefined;
+        const shipmentMode = map.total_amount !== undefined || map.shipment_amount !== undefined;
         const cleanHeaders = (grid[headerRow] || []).map(h => String(h || "").replace(/\s/g, ""));
         const amaranthMode = ["고객코드", "고객", "대분류", "합계액"].every(header => cleanHeaders.includes(header));
         const required = shipmentMode ? ["code", "name", "biz_unit"] : ["code", "name", "biz_unit", "normal_balance", "overdue_balance", "bad_balance"];
@@ -2318,7 +2328,8 @@ function Upload({
             status: String(pick("status") || "").trim(),
             owner: "",
             collection_period: period,
-            shipment_amount: pick("shipment_amount"),
+            total_amount: map.total_amount !== undefined ? parseUploadAmount(pick("total_amount")) : null,
+            shipment_amount: parseUploadAmount(map.total_amount !== undefined ? pick("total_amount") : pick("shipment_amount")),
             shipment_date: rowShipmentDate,
             shipment_month: rowShipmentDate ? rowShipmentDate.slice(0, 7) : "",
             balance: pick("balance"),
@@ -2345,11 +2356,11 @@ function Upload({
             const key = (r.shipment_month || month) + "|" + r.code + "|" + r.biz_unit;
             const current = grouped.get(key);
             if (current) {
-              current.shipment_amount = Number(current.shipment_amount || 0) + Number(r.shipment_amount || 0);
+              current.shipment_amount = parseUploadAmount(current.shipment_amount) + parseUploadAmount(r.shipment_amount);
               if (r.shipment_date > current.shipment_date) current.shipment_date = r.shipment_date;
             } else grouped.set(key, {
               ...r,
-              shipment_amount: Number(r.shipment_amount || 0)
+              shipment_amount: parseUploadAmount(r.shipment_amount)
             });
           });
           preparedRows = Array.from(grouped.values());
