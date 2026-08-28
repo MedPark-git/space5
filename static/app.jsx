@@ -1149,8 +1149,8 @@ function CustomerSearch({ customers, value, onChange }) {
   );
 }
 
-function QuickCustomerModal({ onClose, onCreated }) {
-  const [form, setForm] = useState({ code: "", name: "" });
+function QuickCustomerModal({ units, onClose, onCreated }) {
+  const [form, setForm] = useState({ code: "", name: "", biz_unit: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function submit(e) {
@@ -1165,13 +1165,18 @@ function QuickCustomerModal({ onClose, onCreated }) {
       <header className="card__head"><h3>신규 거래처 간편등록</h3><div className="spacer" />
         <button className="btn btn--sm" type="button" onClick={onClose}>닫기</button></header>
       <form className="card__body" onSubmit={submit}>
-        <div className="alert alert--info">선수금 등록을 위해 고객코드와 고객명만 먼저 등록합니다. 채권잔액은 0원으로 시작합니다.</div>
+        <div className="alert alert--info">선수금 등록을 위해 고객코드·고객명·사업부를 먼저 등록합니다. 채권잔액은 0원으로 시작합니다.</div>
         {error && <div className="alert alert--bad">{error}</div>}
         <Field label="고객코드"><input className="input" value={form.code} autoFocus
           onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="예: 00123" /></Field>
         <Field label="고객명"><input className="input" lang="ko" value={form.name}
           onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="거래처명 입력" /></Field>
-        <button className="btn btn--primary" type="submit" disabled={busy || !form.code.trim() || !form.name.trim()}>
+        <Field label="사업부"><select className="select" value={form.biz_unit}
+          onChange={(e) => setForm({ ...form, biz_unit: e.target.value })}>
+          <option value="">사업부 선택</option>{units.map((unit) => <option key={unit}>{unit}</option>)}
+        </select></Field>
+        <button className="btn btn--primary" type="submit"
+          disabled={busy || !form.code.trim() || !form.name.trim() || !form.biz_unit}>
           {busy ? "등록 중" : "등록 후 선택"}</button>
       </form>
     </section>
@@ -1359,7 +1364,7 @@ function Collections({ data, can, notify, refresh }) {
           </div>
         )}
       </Card>
-      {quickCustomerOpen && <QuickCustomerModal onClose={() => setQuickCustomerOpen(false)}
+      {quickCustomerOpen && <QuickCustomerModal units={data.meta.units} onClose={() => setQuickCustomerOpen(false)}
         onCreated={async (customer) => {
           await refresh();
           setForm((current) => ({ ...current, customer_code: customer.code }));
