@@ -296,6 +296,15 @@ CREATE TABLE IF NOT EXISTS uploads (
     shipment_date TEXT NOT NULL DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS upload_backups (
+    upload_id       {BIGINT} PRIMARY KEY,
+    previous_filename TEXT NOT NULL DEFAULT '',
+    customers_json  TEXT NOT NULL DEFAULT '[]',
+    shipments_json  TEXT NOT NULL DEFAULT '[]',
+    receivables_json TEXT NOT NULL DEFAULT '[]',
+    created_at      TEXT NOT NULL {NOW_DEFAULT}
+);
+
 CREATE TABLE IF NOT EXISTS monthly_shipments (
     month              TEXT NOT NULL,
     code               TEXT NOT NULL,
