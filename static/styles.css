@@ -208,6 +208,13 @@ tfoot td { background: var(--surface-2); font-weight: 700; border-top: 1px solid
 .field { display: grid; gap: 5px; margin-bottom: 12px; }
 .field > label { font-size: 12.5px; color: var(--ink-2); font-weight: 600; }
 .amount-unit-check { min-height: 16px; color: var(--brand); font-size: 12px; font-weight: 600; }
+.collection-receivables { margin: 14px 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.collection-receivables__head { display: flex; gap: 12px; justify-content: space-between; align-items: center; padding: 12px 14px; background: var(--surface-2); }
+.collection-receivables__head span { color: var(--muted); font-size: 12px; text-align: right; }
+@media (max-width: 900px) {
+  .collection-receivables__head { align-items: flex-start; flex-direction: column; }
+  .collection-receivables__head span { text-align: left; }
+}
 .manual-steps { display: grid; gap: 10px; }
 .manual-step { display: flex; align-items: flex-start; gap: 11px; padding: 10px 12px; border: 1px solid var(--line-soft); border-radius: var(--radius); }
 .manual-step > b { flex: 0 0 25px; height: 25px; display: grid; place-items: center; border-radius: 50%; background: var(--brand); color: #fff; font-size: 12px; }
