@@ -236,6 +236,8 @@ tfoot td { background: var(--surface-2); font-weight: 700; border-top: 1px solid
 .textarea { min-height: 64px; resize: vertical; }
 .formrow { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0 12px; }
 .customer-search { position: relative; }
+.customer-pick { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; align-items: start; }
+.quick-customer-modal { width: min(460px, 96vw); }
 .customer-search__menu {
   position: absolute; z-index: 30; top: calc(100% + 4px); left: 0; right: 0;
   max-height: 310px; overflow-y: auto; border: 1px solid var(--line);
