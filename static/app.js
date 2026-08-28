@@ -49,12 +49,14 @@ function short(n) {
 const STATUS_STYLE = {
   정상: "ok",
   연체: "warn",
-  부실: "bad"
+  부실: "bad",
+  선수금: "brand"
 };
 const STATUS_LABEL = {
   정상: "정상채권",
   연체: "미수채권",
-  부실: "부실채권"
+  부실: "부실채권",
+  선수금: "선수금"
 };
 const today = () => new Date().toISOString().slice(0, 10);
 const thisMonth = () => new Date().toISOString().slice(0, 7);
@@ -62,7 +64,7 @@ const sum = (list, key) => list.reduce((a, x) => a + (Number(x[key]) || 0), 0);
 function customerForUnit(customer, unit) {
   if (unit === "전체") return customer;
   const part = customer.unit_breakdown && customer.unit_breakdown[unit];
-  if (!part) return null;
+  if (!part) return customer.biz_unit === unit && Number(customer.advance) > 0 ? customer : null;
   return {
     ...customer,
     ...part,
@@ -1327,6 +1329,7 @@ function Customers({
     }
   }, [preset]);
   const rows = useMemo(() => customersForUnit(data.customers, unit).flatMap(c => {
+    const advance = Number(c.advance) || 0;
     const parts = [{
       status: "정상",
       balance: Number(c.normal_balance) || 0,
@@ -1340,10 +1343,15 @@ function Customers({
       balance: Number(c.bad_balance) || 0,
       months: overdueMonths(c.overdue_days)
     }].filter(part => part.balance !== 0);
+    if (parts.length === 0 && advance > 0) parts.push({
+      status: "선수금",
+      balance: -advance,
+      months: 0
+    });
     return parts.map((part, index) => ({
       ...c,
       ...part,
-      advance: index === 0 ? c.advance : 0,
+      advance: part.status === "선수금" || index === 0 ? advance : 0,
       rowKey: c.code + "-" + c.biz_unit + "-" + part.status
     }));
   }).filter(c => {
@@ -1476,7 +1484,9 @@ function Customers({
   }, /*#__PURE__*/React.createElement("option", null, "전체"), data.meta.statuses.map(s => /*#__PURE__*/React.createElement("option", {
     key: s,
     value: s
-  }, STATUS_LABEL[s])))), /*#__PURE__*/React.createElement(Field, {
+  }, STATUS_LABEL[s])), /*#__PURE__*/React.createElement("option", {
+    value: "선수금"
+  }, "선수금"))), /*#__PURE__*/React.createElement(Field, {
     label: "회수기간"
   }, /*#__PURE__*/React.createElement("select", {
     className: "select",
@@ -1566,7 +1576,7 @@ function Customers({
     onSave: owner => updateCustomer(c.code, {
       owner
     }, "담당자를 저장했습니다.")
-  })), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("button", {
+  })), /*#__PURE__*/React.createElement("td", null, c.status === "선수금" ? "–" : /*#__PURE__*/React.createElement("button", {
     type: "button",
     className: "inline-edit",
     onClick: () => openReceivables(c)
@@ -1859,7 +1869,23 @@ function QuickCustomerModal({ units, onClose, onCreated }) {
           className: "btn btn--primary", type: "submit", disabled: busy || !form.code.trim() || !form.name.trim() || !form.biz_unit
         }, busy ? "등록 중" : "등록 후 선택"))));
 }
-function CollectionReceivableTable({ target, detail, busy }) {
+function collectionSelectionNote(items) {
+  const normalByMonth = new Map();
+  let overdue = 0, bad = 0;
+  items.forEach(item => {
+    const amount = Number(item.balance) || 0;
+    const status = item.as_of_status || item.category;
+    if (status === "정상") {
+      const month = item.issue_month ? item.issue_month.slice(5, 7) + "월" : "발생월 미확인";
+      normalByMonth.set(month, (normalByMonth.get(month) || 0) + amount);
+    } else if (status === "부실") bad += amount;else overdue += amount;
+  });
+  const notes = [...normalByMonth.entries()].map(([month, amount]) => month + " 매출채권 " + won(amount) + "원 수금");
+  if (overdue) notes.push("미수채권 " + won(overdue) + "원 수금");
+  if (bad) notes.push("부실채권 " + won(bad) + "원 수금");
+  return notes.join(" / ");
+}
+function CollectionReceivableTable({ target, detail, busy, selectedIds, onToggle }) {
   return /*#__PURE__*/React.createElement("div", { className: "collection-receivables" },
     /*#__PURE__*/React.createElement("div", { className: "collection-receivables__head" },
       /*#__PURE__*/React.createElement("b", null, target.name, " · 채권 상세현황"),
@@ -1868,11 +1894,17 @@ function CollectionReceivableTable({ target, detail, busy }) {
     detail && detail.items.length ? /*#__PURE__*/React.createElement("div", { className: "tablewrap" },
       /*#__PURE__*/React.createElement("table", null,
         /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null,
-          ["사업부", "발생월", "정상회수월", "현재 구분"].map(label => /*#__PURE__*/React.createElement("th", { key: label }, label)),
+          ["선택", "사업부", "발생월", "정상회수월", "현재 구분"].map(label => /*#__PURE__*/React.createElement("th", { key: label }, label)),
           /*#__PURE__*/React.createElement("th", { className: "r" }, "최초금액"),
           /*#__PURE__*/React.createElement("th", { className: "r" }, "현재잔액"),
           /*#__PURE__*/React.createElement("th", null, "수금목표일"), /*#__PURE__*/React.createElement("th", null, "비고"))),
-        /*#__PURE__*/React.createElement("tbody", null, detail.items.map(item => /*#__PURE__*/React.createElement("tr", { key: item.id },
+        /*#__PURE__*/React.createElement("tbody", null, detail.items.map(item => /*#__PURE__*/React.createElement("tr", {
+          key: item.id, className: selectedIds.includes(item.id) ? "is-selected" : ""
+        },
+          /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("input", {
+            type: "checkbox", checked: selectedIds.includes(item.id), disabled: Number(item.balance) <= 0,
+            onChange: () => onToggle(item), "aria-label": (item.issue_month || "채권") + " " + won(item.balance) + "원 선택"
+          })),
           /*#__PURE__*/React.createElement("td", null, item.biz_unit || target.biz_unit),
           /*#__PURE__*/React.createElement("td", { className: "num" }, item.issue_month || "미확인"),
           /*#__PURE__*/React.createElement("td", { className: "num" }, item.target_month || "미입력"),
@@ -1882,7 +1914,7 @@ function CollectionReceivableTable({ target, detail, busy }) {
           /*#__PURE__*/React.createElement("td", { className: "num" }, item.target_date || "–"),
           /*#__PURE__*/React.createElement("td", { style: { whiteSpace: "normal" } }, item.note || "–")))),
         /*#__PURE__*/React.createElement("tfoot", null, /*#__PURE__*/React.createElement("tr", null,
-          /*#__PURE__*/React.createElement("td", { colSpan: 5 }, "채권 ", detail.items.length, "건 합계"),
+          /*#__PURE__*/React.createElement("td", { colSpan: 6 }, "채권 ", detail.items.length, "건 합계"),
           /*#__PURE__*/React.createElement("td", { className: "r num" }, won(sum(detail.items, "balance"))),
           /*#__PURE__*/React.createElement("td", { colSpan: 2 }))))) :
       /*#__PURE__*/React.createElement("div", { className: "zero-result" }, "현재 남아 있는 채권 ", /*#__PURE__*/React.createElement("b", null, "0원")));
@@ -1904,6 +1936,7 @@ function Collections({
   const [receivables, setReceivables] = useState(null);
   const [receivablesBusy, setReceivablesBusy] = useState(false);
   const [quickCustomerOpen, setQuickCustomerOpen] = useState(false);
+  const [selectedReceivableIds, setSelectedReceivableIds] = useState([]);
   const set = k => e => setForm({
     ...form,
     [k]: e.target.value
@@ -1917,6 +1950,7 @@ function Collections({
   const target = data.customers.find(c => c.code === form.customer_code);
   useEffect(() => {
     let active = true;
+    setSelectedReceivableIds([]);
     if (!form.customer_code) {
       setReceivables(null);
       setReceivablesBusy(false);
@@ -1930,6 +1964,17 @@ function Collections({
       .finally(() => { if (active) setReceivablesBusy(false); });
     return () => { active = false; };
   }, [form.customer_code, notify]);
+  function toggleReceivable(item) {
+    const selected = selectedReceivableIds.includes(item.id);
+    const nextIds = selected ? selectedReceivableIds.filter(id => id !== item.id) : [...selectedReceivableIds, item.id];
+    const nextItems = (receivables?.items || []).filter(row => nextIds.includes(row.id));
+    setSelectedReceivableIds(nextIds);
+    setForm(current => ({
+      ...current,
+      amount: nextItems.length ? formatAmountInput(sum(nextItems, "balance")) : "",
+      note: collectionSelectionNote(nextItems)
+    }));
+  }
   async function register() {
     setBusy(true);
     try {
@@ -2019,7 +2064,9 @@ function Collections({
   }, "입력한 수금액이 현재 미수잔액(", won(target.balance), "원)보다 큽니다. 금액을 확인하세요."), target && /*#__PURE__*/React.createElement(CollectionReceivableTable, {
     target: target,
     detail: receivables,
-    busy: receivablesBusy
+    busy: receivablesBusy,
+    selectedIds: selectedReceivableIds,
+    onToggle: toggleReceivable
   }), /*#__PURE__*/React.createElement("button", {
     className: "btn btn--primary",
     onClick: register,
