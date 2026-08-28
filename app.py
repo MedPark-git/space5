@@ -347,6 +347,31 @@ def bootstrap():
 
 # ─────────────────────────────── 거래처 ─────────────────────────────
 
+@app.post("/api/customers/quick")
+@requires("collection_register")
+def quick_create_customer():
+    data = body()
+    code = str(data.get("code") or "").strip()
+    name = str(data.get("name") or "").strip()
+    if not code:
+        return jsonify(error="고객코드를 입력하세요."), 400
+    if code.isdigit():
+        code = code.zfill(5)
+    if not name:
+        return jsonify(error="고객명을 입력하세요."), 400
+    user_unit = str(request.user.get("biz_unit") or "").strip()
+    biz_unit = user_unit if user_unit in UNITS else ""
+    with connect() as conn:
+        existing = conn.execute("SELECT * FROM customers WHERE code=%s", (code,)).fetchone()
+        if existing:
+            return jsonify(error="이미 등록된 고객코드입니다. 기존 거래처를 선택하세요."), 409
+        customer = conn.execute(
+            "INSERT INTO customers (code,name,biz_unit,status,owner,period,source_month,note)"
+            " VALUES (%s,%s,%s,'정상','',-1,'','') RETURNING *",
+            (code, name, biz_unit)).fetchone()
+        log(conn, request.user["username"], "customer_quick_create", "%s / %s" % (code, name))
+    return jsonify(customer=customer), 201
+
 @app.patch("/api/customers/<code>")
 @login_required
 def update_customer(code):
@@ -541,7 +566,7 @@ def approve_collection(cid):
     """
     with connect() as conn:
         before = conn.execute(
-            "SELECT bad_balance, overdue_balance, normal_balance FROM customers WHERE code=("
+            "SELECT balance,advance,bad_balance,overdue_balance,normal_balance FROM customers WHERE code=("
             "SELECT customer_code FROM collections WHERE id=%s)", (cid,)).fetchone()
         row = conn.execute(
             "UPDATE collections SET state='approved', approved_by=%s,"
@@ -571,6 +596,7 @@ def approve_collection(cid):
             if item_remaining <= 0:
                 break
         normal_paid = 0
+        advance_paid = max(amount - before["balance"], 0) if before else amount
         if before:
             normal_paid = min(
                 max(amount - before["bad_balance"] - before["overdue_balance"], 0),
@@ -588,6 +614,7 @@ def approve_collection(cid):
             "   WHEN %s - bad_balance - overdue_balance <= normal_balance"
             "     THEN normal_balance - (%s - bad_balance - overdue_balance)"
             "   ELSE 0 END,"
+            " advance = advance + %s,"
             " status = CASE WHEN balance - %s <= 0 THEN '정상' ELSE status END,"
             " overdue_days = CASE WHEN balance - %s <= 0 THEN 0 ELSE overdue_days END,"
             " last_paid_at = %s, updated_at = " + db.NOW_SQL +
@@ -595,7 +622,7 @@ def approve_collection(cid):
             (amount, amount, amount, amount,
              amount, amount, amount,
              amount, amount, amount,
-             amount, amount, row["paid_at"], row["customer_code"])).fetchone()
+             advance_paid, amount, amount, row["paid_at"], row["customer_code"])).fetchone()
         # 정상채권까지 차감된 경우 수금대상월이 오래된 출고분부터 잔액을 줄인다.
         remaining = normal_paid
         if remaining > 0:
