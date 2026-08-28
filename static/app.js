@@ -2500,11 +2500,16 @@ function Upload({
             const current = grouped.get(key);
             if (current) {
               current.shipment_amount = parseUploadAmount(current.shipment_amount) + parseUploadAmount(r.shipment_amount);
+              current.total_amount = current.shipment_amount;
               if (r.shipment_date > current.shipment_date) current.shipment_date = r.shipment_date;
-            } else grouped.set(key, {
-              ...r,
-              shipment_amount: parseUploadAmount(r.shipment_amount)
-            });
+            } else {
+              const amount = parseUploadAmount(r.shipment_amount);
+              grouped.set(key, {
+                ...r,
+                shipment_amount: amount,
+                total_amount: amount
+              });
+            }
           });
           preparedRows = Array.from(grouped.values());
           const unitsByCode = new Map();
@@ -2608,6 +2613,21 @@ function Upload({
     } catch (e) {
       notify(e.message, true);
     }
+  }
+  async function rollbackUpload(upload) {
+    const restored = upload.restore_filename || "직전 상태";
+    if (!window.confirm(`최근 업로드 '${upload.filename}'을 삭제하고 '${restored}' 상태로 복원할까요?\n복원 후에는 되돌릴 수 없습니다.`)) return;
+    setBusy(true);
+    try {
+      const res = await api("/api/uploads/" + upload.id, {
+        method: "DELETE"
+      });
+      applyUpload(res);
+      notify(`'${res.removed_filename}'을 삭제하고 '${res.restored_filename}' 상태로 복원했습니다.`);
+    } catch (e) {
+      notify(e.message, true);
+    }
+    setBusy(false);
   }
   return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Card, {
     title: "출고 데이터 업로드"
@@ -2724,7 +2744,7 @@ function Upload({
     className: "r"
   }, "반영 행"), /*#__PURE__*/React.createElement("th", {
     className: "r"
-  }, "교체된 행"), /*#__PURE__*/React.createElement("th", null, "업로더"), /*#__PURE__*/React.createElement("th", null, "마감"))), /*#__PURE__*/React.createElement("tbody", null, data.uploads.map(u => {
+  }, "교체된 행"), /*#__PURE__*/React.createElement("th", null, "업로더"), /*#__PURE__*/React.createElement("th", null, "마감"), /*#__PURE__*/React.createElement("th", null, "관리"))), /*#__PURE__*/React.createElement("tbody", null, data.uploads.map(u => {
     const l = lockOf(u.month);
     return /*#__PURE__*/React.createElement("tr", {
       key: u.id
@@ -2740,7 +2760,14 @@ function Upload({
       className: "r num t-muted"
     }, u.replaced), /*#__PURE__*/React.createElement("td", null, u.uploaded_by), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("span", {
       className: "badge badge--" + (l && l.locked ? "bad" : "mute")
-    }, l && l.locked ? "잠김" : "열림")));
+    }, l && l.locked ? "잠김" : "열림")), /*#__PURE__*/React.createElement("td", null, u.can_restore ? /*#__PURE__*/React.createElement("button", {
+      className: "btn btn--sm btn--danger",
+      disabled: busy || l && l.locked,
+      onClick: () => rollbackUpload(u),
+      title: l && l.locked ? "마감 잠금을 먼저 해제하세요." : "최근 업로드 삭제 및 직전 파일 복원"
+    }, "삭제·복원") : /*#__PURE__*/React.createElement("span", {
+      className: "t-muted"
+    }, "–")));
   }))))));
 }
 
