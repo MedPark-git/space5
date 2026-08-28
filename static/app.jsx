@@ -1153,12 +1153,25 @@ function Collections({ data, can, notify, refresh }) {
     customer_code: "", amount: "", method: "계좌수금", paid_at: today(), note: "",
   });
   const [busy, setBusy] = useState(false);
+  const [receivables, setReceivables] = useState(null);
+  const [receivablesBusy, setReceivablesBusy] = useState(false);
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
   const setAmount = (e) => setForm({ ...form, amount: formatAmountInput(e.target.value) });
 
   const pending = data.collections.filter((c) => c.state === "pending");
   const decided = data.collections.filter((c) => c.state !== "pending").slice(0, 40);
   const target = data.customers.find((c) => c.code === form.customer_code);
+
+  useEffect(() => {
+    let active = true;
+    if (!form.customer_code) { setReceivables(null); setReceivablesBusy(false); return () => { active = false; }; }
+    setReceivables(null); setReceivablesBusy(true);
+    api("/api/customers/" + encodeURIComponent(form.customer_code) + "/receivables")
+      .then((result) => { if (active) setReceivables(result); })
+      .catch((e) => { if (active) notify(e.message, true); })
+      .finally(() => { if (active) setReceivablesBusy(false); });
+    return () => { active = false; };
+  }, [form.customer_code, notify]);
 
   async function register() {
     setBusy(true);
@@ -1214,6 +1227,25 @@ function Collections({ data, can, notify, refresh }) {
               입력한 수금액이 현재 미수잔액({won(target.balance)}원)보다 큽니다. 금액을 확인하세요.
             </div>
           )}
+          {target && <div className="collection-receivables">
+            <div className="collection-receivables__head">
+              <b>{target.name} · 채권 상세현황</b>
+              <span>정상 {won(target.normal_balance)}원 · 미수 {won(target.overdue_balance)}원 · 부실 {won(target.bad_balance)}원 · 합계 {won(target.balance)}원</span>
+            </div>
+            {receivablesBusy ? <div className="empty"><b>채권 상세를 불러오는 중입니다.</b></div> :
+              receivables && receivables.items.length ? <div className="tablewrap"><table>
+                <thead><tr><th>사업부</th><th>발생월</th><th>정상회수월</th><th>현재 구분</th>
+                  <th className="r">최초금액</th><th className="r">현재잔액</th><th>수금목표일</th><th>비고</th></tr></thead>
+                <tbody>{receivables.items.map((item) => <tr key={item.id}>
+                  <td>{item.biz_unit || target.biz_unit}</td><td className="num">{item.issue_month || "미확인"}</td>
+                  <td className="num">{item.target_month || "미입력"}</td><td><Badge status={item.as_of_status || item.category} /></td>
+                  <td className="r num">{won(item.original_amount)}</td><td className="r num t-strong">{won(item.balance)}</td>
+                  <td className="num">{item.target_date || "–"}</td><td style={{ whiteSpace: "normal" }}>{item.note || "–"}</td>
+                </tr>)}</tbody>
+                <tfoot><tr><td colSpan={5}>채권 {receivables.items.length}건 합계</td>
+                  <td className="r num">{won(sum(receivables.items, "balance"))}</td><td colSpan={2} /></tr></tfoot>
+              </table></div> : <div className="zero-result">현재 남아 있는 채권 <b>0원</b></div>}
+          </div>}
           <button className="btn btn--primary" onClick={register}
             disabled={busy || !form.customer_code || !form.amount}>
             승인 요청으로 등록
