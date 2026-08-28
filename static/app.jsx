@@ -1115,8 +1115,9 @@ function CustomerSearch({ customers, value, onChange }) {
   }, [customers, query]);
 
   useEffect(() => {
-    if (!value) setQuery("");
-  }, [value]);
+    const current = customers.find((c) => c.code === value);
+    setQuery(current ? current.name : "");
+  }, [customers, value]);
 
   function choose(customer) {
     onChange(customer.code);
@@ -1148,6 +1149,35 @@ function CustomerSearch({ customers, value, onChange }) {
   );
 }
 
+function QuickCustomerModal({ onClose, onCreated }) {
+  const [form, setForm] = useState({ code: "", name: "" });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function submit(e) {
+    e.preventDefault(); setBusy(true); setError("");
+    try {
+      const result = await api("/api/customers/quick", { method: "POST", body: form });
+      await onCreated(result.customer);
+    } catch (err) { setError(err.message); setBusy(false); }
+  }
+  return <div className="modal-backdrop" onMouseDown={onClose}>
+    <section className="modal-card quick-customer-modal" onMouseDown={(e) => e.stopPropagation()}>
+      <header className="card__head"><h3>신규 거래처 간편등록</h3><div className="spacer" />
+        <button className="btn btn--sm" type="button" onClick={onClose}>닫기</button></header>
+      <form className="card__body" onSubmit={submit}>
+        <div className="alert alert--info">선수금 등록을 위해 고객코드와 고객명만 먼저 등록합니다. 채권잔액은 0원으로 시작합니다.</div>
+        {error && <div className="alert alert--bad">{error}</div>}
+        <Field label="고객코드"><input className="input" value={form.code} autoFocus
+          onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="예: 00123" /></Field>
+        <Field label="고객명"><input className="input" lang="ko" value={form.name}
+          onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="거래처명 입력" /></Field>
+        <button className="btn btn--primary" type="submit" disabled={busy || !form.code.trim() || !form.name.trim()}>
+          {busy ? "등록 중" : "등록 후 선택"}</button>
+      </form>
+    </section>
+  </div>;
+}
+
 function Collections({ data, can, notify, refresh }) {
   const [form, setForm] = useState({
     customer_code: "", amount: "", method: "계좌수금", paid_at: today(), note: "",
@@ -1155,6 +1185,7 @@ function Collections({ data, can, notify, refresh }) {
   const [busy, setBusy] = useState(false);
   const [receivables, setReceivables] = useState(null);
   const [receivablesBusy, setReceivablesBusy] = useState(false);
+  const [quickCustomerOpen, setQuickCustomerOpen] = useState(false);
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
   const setAmount = (e) => setForm({ ...form, amount: formatAmountInput(e.target.value) });
 
@@ -1199,8 +1230,11 @@ function Collections({ data, can, notify, refresh }) {
         <Card title="수금 등록">
           <div className="formrow">
             <Field label="거래처">
-              <CustomerSearch customers={data.customers} value={form.customer_code}
-                onChange={(code) => setForm({ ...form, customer_code: code })} />
+              <div className="customer-pick">
+                <CustomerSearch customers={data.customers} value={form.customer_code}
+                  onChange={(code) => setForm({ ...form, customer_code: code })} />
+                <button className="btn btn--sm" type="button" onClick={() => setQuickCustomerOpen(true)}>신규</button>
+              </div>
             </Field>
             <Field label="수금액 (원)">
               <input className="input num" inputMode="numeric" value={form.amount}
@@ -1325,6 +1359,13 @@ function Collections({ data, can, notify, refresh }) {
           </div>
         )}
       </Card>
+      {quickCustomerOpen && <QuickCustomerModal onClose={() => setQuickCustomerOpen(false)}
+        onCreated={async (customer) => {
+          await refresh();
+          setForm((current) => ({ ...current, customer_code: customer.code }));
+          setQuickCustomerOpen(false);
+          notify(customer.name + " 거래처를 등록하고 선택했습니다.");
+        }} />}
     </>
   );
 }
