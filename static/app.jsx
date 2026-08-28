@@ -27,15 +27,15 @@ function short(n) {
   return { value: v.toLocaleString("ko-KR"), unit: "원" };
 }
 
-const STATUS_STYLE = { 정상: "ok", 연체: "warn", 부실: "bad" };
-const STATUS_LABEL = { 정상: "정상채권", 연체: "미수채권", 부실: "부실채권" };
+const STATUS_STYLE = { 정상: "ok", 연체: "warn", 부실: "bad", 선수금: "brand" };
+const STATUS_LABEL = { 정상: "정상채권", 연체: "미수채권", 부실: "부실채권", 선수금: "선수금" };
 const today = () => new Date().toISOString().slice(0, 10);
 const thisMonth = () => new Date().toISOString().slice(0, 7);
 const sum = (list, key) => list.reduce((a, x) => a + (Number(x[key]) || 0), 0);
 function customerForUnit(customer, unit) {
   if (unit === "전체") return customer;
   const part = customer.unit_breakdown && customer.unit_breakdown[unit];
-  if (!part) return null;
+  if (!part) return customer.biz_unit === unit && Number(customer.advance) > 0 ? customer : null;
   return {
     ...customer, ...part, biz_unit: unit,
     status: Number(part.bad_balance) ? "부실" : Number(part.overdue_balance) ? "연체" : "정상",
@@ -852,12 +852,15 @@ function Customers({ data, can, preset, notify, patchCustomer }) {
   useEffect(() => { if (preset) { setUnit(preset.unit); setType(preset.status); } }, [preset]);
 
   const rows = useMemo(() => customersForUnit(data.customers, unit).flatMap((c) => {
+    const advance = Number(c.advance) || 0;
     const parts = [
       { status: "정상", balance: Number(c.normal_balance) || 0, months: 0 },
       { status: "연체", balance: Number(c.overdue_balance) || 0, months: overdueMonths(c.overdue_days) },
       { status: "부실", balance: Number(c.bad_balance) || 0, months: overdueMonths(c.overdue_days) },
     ].filter((part) => part.balance !== 0);
-    return parts.map((part, index) => ({ ...c, ...part, advance: index === 0 ? c.advance : 0,
+    if (parts.length === 0 && advance > 0) parts.push({ status: "선수금", balance: -advance, months: 0 });
+    return parts.map((part, index) => ({ ...c, ...part,
+      advance: part.status === "선수금" || index === 0 ? advance : 0,
       rowKey: c.code + "-" + c.biz_unit + "-" + part.status }));
   }).filter((c) => {
     if (type !== "전체" && c.status !== type) return false;
@@ -939,6 +942,7 @@ function Customers({ data, can, preset, notify, patchCustomer }) {
           </select></Field>
           <Field label="채권유형별 필터"><select className="select" value={type} onChange={(e) => setType(e.target.value)}>
             <option>전체</option>{data.meta.statuses.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
+            <option value="선수금">선수금</option>
           </select></Field>
           <Field label="회수기간"><select className="select" value={periodFilter} onChange={(e) => setPeriodFilter(e.target.value)}>
             <option>전체</option><option>미입력</option><option>입력</option>
@@ -973,8 +977,8 @@ function Customers({ data, can, preset, notify, patchCustomer }) {
               </td>
               <td><InlineEdit value={c.owner} placeholder="클릭해 입력" canEdit={can("note_edit")}
                 onSave={(owner) => updateCustomer(c.code, { owner }, "담당자를 저장했습니다.")} /></td>
-              <td><button type="button" className="inline-edit" onClick={() => openReceivables(c)}>
-                채권별 목표 설정</button></td>
+              <td>{c.status === "선수금" ? "–" : <button type="button" className="inline-edit" onClick={() => openReceivables(c)}>
+                채권별 목표 설정</button>}</td>
               <td className="r num t-strong">{won(c.balance)}</td>
               <td className="r num">{c.advance ? won(c.advance) : "–"}</td>
               <td className="r num">{c.months}개월</td><td className="num t-muted t-sm">{c.last_paid_at || "–"}</td>
@@ -1183,6 +1187,25 @@ function QuickCustomerModal({ units, onClose, onCreated }) {
   </div>;
 }
 
+function collectionSelectionNote(items) {
+  const normalByMonth = new Map();
+  let overdue = 0, bad = 0;
+  items.forEach((item) => {
+    const amount = Number(item.balance) || 0;
+    const status = item.as_of_status || item.category;
+    if (status === "정상") {
+      const month = item.issue_month ? item.issue_month.slice(5, 7) + "월" : "발생월 미확인";
+      normalByMonth.set(month, (normalByMonth.get(month) || 0) + amount);
+    } else if (status === "부실") bad += amount;
+    else overdue += amount;
+  });
+  const notes = [...normalByMonth.entries()].map(([month, amount]) =>
+    month + " 매출채권 " + won(amount) + "원 수금");
+  if (overdue) notes.push("미수채권 " + won(overdue) + "원 수금");
+  if (bad) notes.push("부실채권 " + won(bad) + "원 수금");
+  return notes.join(" / ");
+}
+
 function Collections({ data, can, notify, refresh }) {
   const [form, setForm] = useState({
     customer_code: "", amount: "", method: "계좌수금", paid_at: today(), note: "",
@@ -1191,6 +1214,7 @@ function Collections({ data, can, notify, refresh }) {
   const [receivables, setReceivables] = useState(null);
   const [receivablesBusy, setReceivablesBusy] = useState(false);
   const [quickCustomerOpen, setQuickCustomerOpen] = useState(false);
+  const [selectedReceivableIds, setSelectedReceivableIds] = useState([]);
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
   const setAmount = (e) => setForm({ ...form, amount: formatAmountInput(e.target.value) });
 
@@ -1200,6 +1224,7 @@ function Collections({ data, can, notify, refresh }) {
 
   useEffect(() => {
     let active = true;
+    setSelectedReceivableIds([]);
     if (!form.customer_code) { setReceivables(null); setReceivablesBusy(false); return () => { active = false; }; }
     setReceivables(null); setReceivablesBusy(true);
     api("/api/customers/" + encodeURIComponent(form.customer_code) + "/receivables")
@@ -1208,6 +1233,18 @@ function Collections({ data, can, notify, refresh }) {
       .finally(() => { if (active) setReceivablesBusy(false); });
     return () => { active = false; };
   }, [form.customer_code, notify]);
+
+  function toggleReceivable(item) {
+    const selected = selectedReceivableIds.includes(item.id);
+    const nextIds = selected ? selectedReceivableIds.filter((id) => id !== item.id)
+      : [...selectedReceivableIds, item.id];
+    const nextItems = (receivables?.items || []).filter((row) => nextIds.includes(row.id));
+    setSelectedReceivableIds(nextIds);
+    setForm((current) => ({ ...current,
+      amount: nextItems.length ? formatAmountInput(sum(nextItems, "balance")) : "",
+      note: collectionSelectionNote(nextItems),
+    }));
+  }
 
   async function register() {
     setBusy(true);
@@ -1273,15 +1310,19 @@ function Collections({ data, can, notify, refresh }) {
             </div>
             {receivablesBusy ? <div className="empty"><b>채권 상세를 불러오는 중입니다.</b></div> :
               receivables && receivables.items.length ? <div className="tablewrap"><table>
-                <thead><tr><th>사업부</th><th>발생월</th><th>정상회수월</th><th>현재 구분</th>
+                <thead><tr><th>선택</th><th>사업부</th><th>발생월</th><th>정상회수월</th><th>현재 구분</th>
                   <th className="r">최초금액</th><th className="r">현재잔액</th><th>수금목표일</th><th>비고</th></tr></thead>
-                <tbody>{receivables.items.map((item) => <tr key={item.id}>
+                <tbody>{receivables.items.map((item) => <tr key={item.id}
+                  className={selectedReceivableIds.includes(item.id) ? "is-selected" : ""}>
+                  <td><input type="checkbox" checked={selectedReceivableIds.includes(item.id)}
+                    disabled={Number(item.balance) <= 0} onChange={() => toggleReceivable(item)}
+                    aria-label={(item.issue_month || "채권") + " " + won(item.balance) + "원 선택"} /></td>
                   <td>{item.biz_unit || target.biz_unit}</td><td className="num">{item.issue_month || "미확인"}</td>
                   <td className="num">{item.target_month || "미입력"}</td><td><Badge status={item.as_of_status || item.category} /></td>
                   <td className="r num">{won(item.original_amount)}</td><td className="r num t-strong">{won(item.balance)}</td>
                   <td className="num">{item.target_date || "–"}</td><td style={{ whiteSpace: "normal" }}>{item.note || "–"}</td>
                 </tr>)}</tbody>
-                <tfoot><tr><td colSpan={5}>채권 {receivables.items.length}건 합계</td>
+                <tfoot><tr><td colSpan={6}>채권 {receivables.items.length}건 합계</td>
                   <td className="r num">{won(sum(receivables.items, "balance"))}</td><td colSpan={2} /></tr></tfoot>
               </table></div> : <div className="zero-result">현재 남아 있는 채권 <b>0원</b></div>}
           </div>}
