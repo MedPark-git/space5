@@ -130,6 +130,59 @@ def apply_preserved_shipment_payments(shipments, previous_rows):
     return sum(item["preserved_paid"] for item in items)
 
 
+CUSTOMER_RESTORE_COLUMNS = (
+    "code", "name", "biz_unit", "status", "owner", "balance", "normal_balance",
+    "normal_later_balance", "normal_next_balance", "normal_current_balance", "normal_collected",
+    "overdue_balance", "overdue_source_balance", "overdue_collected", "bad_balance", "advance",
+    "overdue_days", "collection_target_date", "last_paid_at", "period", "source_month", "note", "updated_at",
+)
+SHIPMENT_RESTORE_COLUMNS = (
+    "month", "code", "name", "biz_unit", "owner", "collection_period", "target_month",
+    "bucket", "amount", "balance", "note", "uploaded_at",
+)
+RECEIVABLE_RESTORE_COLUMNS = (
+    "id", "customer_code", "biz_unit", "source_key", "issue_month", "target_month", "category",
+    "original_amount", "balance", "target_date", "note", "created_at",
+)
+
+
+def capture_upload_checkpoint(conn):
+    return {
+        "customers_json": json.dumps([r for r in conn.execute("SELECT * FROM customers")], ensure_ascii=False),
+        "shipments_json": json.dumps([r for r in conn.execute("SELECT * FROM monthly_shipment_units")], ensure_ascii=False),
+        "receivables_json": json.dumps([r for r in conn.execute("SELECT * FROM receivable_items")], ensure_ascii=False),
+    }
+
+
+def restore_table_rows(conn, table, columns, rows):
+    if not rows:
+        return
+    placeholders = ",".join(["%s"] * len(columns))
+    conn.executemany(
+        "INSERT INTO " + table + " (" + ",".join(columns) + ") VALUES (" + placeholders + ")",
+        [tuple(row.get(column) for column in columns) for row in rows])
+
+
+def save_upload_checkpoint(conn, upload_id, previous_filename, checkpoint):
+    conn.execute(
+        "INSERT INTO upload_backups (upload_id,previous_filename,customers_json,shipments_json,receivables_json)"
+        " VALUES (%s,%s,%s,%s,%s)",
+        (upload_id, previous_filename or "초기 상태", checkpoint["customers_json"],
+         checkpoint["shipments_json"], checkpoint["receivables_json"]))
+
+
+def upload_history(conn):
+    uploads = [r for r in conn.execute("SELECT * FROM uploads ORDER BY id DESC LIMIT 200")]
+    backup_meta = {r["upload_id"]: r for r in conn.execute(
+        "SELECT upload_id,previous_filename FROM upload_backups")}
+    latest_upload_id = uploads[0]["id"] if uploads else None
+    for upload in uploads:
+        backup = backup_meta.get(upload["id"])
+        upload["can_restore"] = bool(backup and upload["id"] == latest_upload_id)
+        upload["restore_filename"] = backup["previous_filename"] if backup else ""
+    return uploads
+
+
 def month_offset(base_month, target_month):
     by, bm = (int(x) for x in base_month.split("-"))
     ty, tm = (int(x) for x in target_month.split("-"))
@@ -233,8 +286,7 @@ def bootstrap():
             "SELECT * FROM collections ORDER BY id DESC LIMIT 800")]
         targets = [r for r in conn.execute(
             "SELECT * FROM targets ORDER BY target_date ASC LIMIT 800")]
-        uploads = [r for r in conn.execute(
-            "SELECT * FROM uploads ORDER BY id DESC LIMIT 200")]
+        uploads = upload_history(conn)
         locks = [r for r in conn.execute("SELECT * FROM month_locks")]
         finalized = sorted([r["month"] for r in locks if r.get("locked")])
         latest_snapshot = next((u["month"] for u in uploads
@@ -742,6 +794,9 @@ def upload_rows():
         lock = conn.execute("SELECT locked FROM month_locks WHERE month = %s", (month,)).fetchone()
         if lock and lock["locked"]:
             return jsonify(error="%s 은 마감 잠금 상태입니다. 잠금을 해제한 뒤 업로드하세요." % month), 423
+        checkpoint = capture_upload_checkpoint(conn)
+        previous_upload = conn.execute("SELECT filename FROM uploads ORDER BY id DESC LIMIT 1").fetchone()
+        previous_filename = previous_upload["filename"] if previous_upload else "초기 상태"
 
         if upload_type == "shipment":
             try:
@@ -766,9 +821,12 @@ def upload_rows():
                           else as_int(period_raw, -1))
                 # 합계액을 출고채권 원금으로 우선 사용한다. 유상·무상·견본 열이
                 # 공란 또는 0이어도 합계액만 정상적이면 업로드할 수 있다.
-                total_amount = r.get("total_amount")
-                amount = as_int(total_amount if total_amount not in (None, "")
-                                else r.get("shipment_amount"))
+                # 화면에서 동일 거래처·사업부의 여러 출고행을 합산한 shipment_amount를
+                # 우선 사용한다. 원본 첫 행의 total_amount를 다시 선택하면 중복행 합계가
+                # 누락될 수 있으므로, API 직접 호출처럼 합산값이 없을 때만 원본 합계액을 쓴다.
+                shipment_amount = r.get("shipment_amount")
+                amount = as_int(shipment_amount if shipment_amount not in (None, "")
+                                else r.get("total_amount"))
                 if amount < 0:
                     return jsonify(error="%s 거래처의 출고금액은 0 이상이어야 합니다." % code), 400
                 target_month = add_months(month, period) if period >= 0 else ""
@@ -854,15 +912,16 @@ def upload_rows():
                      item["target_month"], item["amount"], net_amount,
                      previous_targets.get((item["code"], item["biz_unit"]),
                                           previous_targets_by_code.get(item["code"], "")), item["note"]))
-            conn.execute(
+            upload_id = conn.execute(
                 "INSERT INTO uploads (month,filename,row_count,uploaded_by,replaced,upload_type,shipment_date)"
-                " VALUES (%s,%s,%s,%s,%s,'shipment',%s)",
-                (month, filename, len(shipments), request.user["username"], previous, shipment_date))
+                " VALUES (%s,%s,%s,%s,%s,'shipment',%s) RETURNING id",
+                (month, filename, len(shipments), request.user["username"], previous, shipment_date)).fetchone()["id"]
+            save_upload_checkpoint(conn, upload_id, previous_filename, checkpoint)
             log(conn, request.user["username"], "shipment_upload",
                 "%s / %d행 (기존 %d행 교체, 기수금 %d원 승계)" %
                 (month, len(shipments), previous, preserved_paid))
             customers = [x for x in conn.execute("SELECT * FROM customers ORDER BY balance DESC")]
-            uploads = [x for x in conn.execute("SELECT * FROM uploads ORDER BY id DESC LIMIT 200")]
+            uploads = upload_history(conn)
             return jsonify(inserted=len(shipments), replaced=previous,
                            preserved_paid=preserved_paid,
                            customers=customers, uploads=uploads)
@@ -968,18 +1027,69 @@ def upload_rows():
                         " original_amount,balance,target_date,note) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                         (code, customer["biz_unit"], key, issue_month, add_months(issue_month, period), category, amount, amount,
                          old_targets.get(key, customer["collection_target_date"]), "확정 %s" % category))
-        conn.execute(
+        upload_id = conn.execute(
             "INSERT INTO uploads (month, filename, row_count, uploaded_by, replaced, upload_type)"
-            " VALUES (%s,%s,%s,%s,%s,'snapshot')",
-            (month, filename, len(payload), request.user["username"], prev))
+            " VALUES (%s,%s,%s,%s,%s,'snapshot') RETURNING id",
+            (month, filename, len(payload), request.user["username"], prev)).fetchone()["id"]
+        save_upload_checkpoint(conn, upload_id, previous_filename, checkpoint)
         log(conn, request.user["username"], "upload",
             "%s / %d행 (기존 %d행 교체)" % (month, len(payload), prev))
         customers = [x for x in conn.execute(
             "SELECT * FROM customers ORDER BY balance DESC")]
-        uploads = [x for x in conn.execute(
-            "SELECT * FROM uploads ORDER BY id DESC LIMIT 200")]
+        uploads = upload_history(conn)
     return jsonify(inserted=len(payload), replaced=prev,
                    customers=customers, uploads=uploads)
+
+
+@app.delete("/api/uploads/<int:upload_id>")
+@requires("upload_data")
+def rollback_upload(upload_id):
+    with connect() as conn:
+        upload = conn.execute("SELECT * FROM uploads WHERE id=%s", (upload_id,)).fetchone()
+        if not upload:
+            return jsonify(error="업로드 이력을 찾을 수 없습니다."), 404
+        latest = conn.execute("SELECT id FROM uploads ORDER BY id DESC LIMIT 1").fetchone()
+        if not latest or latest["id"] != upload_id:
+            return jsonify(error="가장 최근 업로드부터 순서대로 삭제할 수 있습니다."), 409
+        lock = conn.execute("SELECT locked FROM month_locks WHERE month=%s", (upload["month"],)).fetchone()
+        if lock and lock["locked"]:
+            return jsonify(error="마감된 월의 업로드는 삭제할 수 없습니다. 잠금을 먼저 해제하세요."), 423
+        backup = conn.execute("SELECT * FROM upload_backups WHERE upload_id=%s", (upload_id,)).fetchone()
+        if not backup:
+            return jsonify(error="이 업로드는 복원 체크포인트가 없어 삭제할 수 없습니다."), 409
+
+        changed_audit = conn.execute(
+            "SELECT COUNT(*) AS c FROM audit WHERE created_at>%s AND action IN"
+            " ('customer_quick_create','customer_update','receivable_update','receivable_reclassify',"
+            "  'collection_register','collection_approve','collection_reject')",
+            (upload["uploaded_at"],)).fetchone()["c"]
+        later_collections = conn.execute(
+            "SELECT COUNT(*) AS c FROM collections WHERE created_at>%s",
+            (upload["uploaded_at"],)).fetchone()["c"]
+        later_targets = conn.execute(
+            "SELECT COUNT(*) AS c FROM targets WHERE created_at>%s",
+            (upload["uploaded_at"],)).fetchone()["c"]
+        if changed_audit or later_collections or later_targets:
+            return jsonify(error="업로드 이후 수금·거래처·채권·목표 변경이 있어 삭제할 수 없습니다."), 409
+
+        customers = json.loads(backup["customers_json"] or "[]")
+        shipments = json.loads(backup["shipments_json"] or "[]")
+        receivables = json.loads(backup["receivables_json"] or "[]")
+        conn.execute("DELETE FROM receivable_items")
+        conn.execute("DELETE FROM monthly_shipment_units")
+        conn.execute("DELETE FROM customers")
+        restore_table_rows(conn, "customers", CUSTOMER_RESTORE_COLUMNS, customers)
+        restore_table_rows(conn, "monthly_shipment_units", SHIPMENT_RESTORE_COLUMNS, shipments)
+        restore_table_rows(conn, "receivable_items", RECEIVABLE_RESTORE_COLUMNS, receivables)
+        conn.execute("DELETE FROM upload_backups WHERE upload_id=%s", (upload_id,))
+        conn.execute("DELETE FROM uploads WHERE id=%s", (upload_id,))
+        log(conn, request.user["username"], "upload_rollback",
+            "%s 삭제 → %s 복원" % (upload["filename"], backup["previous_filename"]))
+        refreshed_customers = [x for x in conn.execute("SELECT * FROM customers ORDER BY balance DESC")]
+        refreshed_uploads = upload_history(conn)
+    return jsonify(ok=True, removed_filename=upload["filename"],
+                   restored_filename=backup["previous_filename"],
+                   customers=refreshed_customers, uploads=refreshed_uploads)
 
 
 # ───────────────────────── 수금계획 다운로드 ──────────────────────
