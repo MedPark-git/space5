@@ -706,7 +706,11 @@ def upload_rows():
                 period_raw = r.get("collection_period")
                 period = (existing["period"] if period_raw in (None, "") and existing
                           else as_int(period_raw, -1))
-                amount = as_int(r.get("shipment_amount"))
+                # 합계액을 출고채권 원금으로 우선 사용한다. 유상·무상·견본 열이
+                # 공란 또는 0이어도 합계액만 정상적이면 업로드할 수 있다.
+                total_amount = r.get("total_amount")
+                amount = as_int(total_amount if total_amount not in (None, "")
+                                else r.get("shipment_amount"))
                 if amount < 0:
                     return jsonify(error="%s 거래처의 출고금액은 0 이상이어야 합니다." % code), 400
                 target_month = add_months(month, period) if period >= 0 else ""
