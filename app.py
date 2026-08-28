@@ -362,8 +362,11 @@ def update_customer(code):
 
 
 @app.get("/api/customers/<code>/receivables")
-@requires("customer_view")
+@login_required
 def customer_receivables(code):
+    allowed = {"customer_view", "collection_register", "collection_approve"}
+    if not allowed.intersection(request.user["permissions"]):
+        return jsonify(error="채권 상세를 조회할 권한이 없습니다."), 403
     as_of = request.args.get("as_of") or date.today().isoformat()
     with connect() as conn:
         customer = conn.execute("SELECT * FROM customers WHERE code=%s", (code,)).fetchone()
