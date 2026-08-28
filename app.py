@@ -117,7 +117,8 @@ def apply_preserved_shipment_payments(shipments, previous_rows):
     # 먼저 동일 사업부에 배분됐던 수금을 그대로 승계한다.
     for item in items:
         key = (item["code"], item["biz_unit"])
-        paid = min(item["amount"], paid_by_key.get(key, 0))
+        # 반품·취소로 출고 합계가 음수인 행에는 기수금을 배분하지 않는다.
+        paid = min(max(item["amount"], 0), paid_by_key.get(key, 0))
         item["preserved_paid"] = paid
         paid_by_code[item["code"]] = max(paid_by_code.get(item["code"], 0) - paid, 0)
 
@@ -827,8 +828,8 @@ def upload_rows():
                 shipment_amount = r.get("shipment_amount")
                 amount = as_int(shipment_amount if shipment_amount not in (None, "")
                                 else r.get("total_amount"))
-                if amount < 0:
-                    return jsonify(error="%s 거래처의 출고금액은 0 이상이어야 합니다." % code), 400
+                # 반품·취소·매출조정으로 합계액이 음수인 행도 허용한다.
+                # 음수 금액은 해당 월 정상채권을 감소시키는 조정액으로 반영된다.
                 target_month = add_months(month, period) if period >= 0 else ""
                 bucket = "current" if period == 0 else ("next" if period == 1 else "later")
                 unit = str(r.get("biz_unit") or "").strip() or "덴탈"
@@ -879,7 +880,8 @@ def upload_rows():
             for item in shipments.values():
                 current = conn.execute("SELECT 1 FROM customers WHERE code=%s", (item["code"],)).fetchone()
                 column = bucket_columns[item["bucket"]]
-                net_amount = max(item["amount"] - item.get("preserved_paid", 0), 0)
+                net_amount = (item["amount"] - item.get("preserved_paid", 0)
+                              if item["amount"] >= 0 else item["amount"])
                 if current:
                     conn.execute(
                         "UPDATE customers SET name=%s, period=%s,"
