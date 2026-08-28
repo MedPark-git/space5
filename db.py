@@ -434,6 +434,20 @@ def init_db():
         if USE_PG:
             conn.execute("SELECT pg_advisory_xact_lock(%s)", (778101,))
         conn.executescript(SCHEMA)
+        # 2026-08-28 간편등록 거래처 사업부 보정. 성공 시 kv에 기록해 한 번만 실행한다.
+        heaven_fix = conn.execute(
+            "SELECT 1 AS applied FROM kv WHERE scope='data_migration'"
+            " AND key='20260828_heaven_medical_unit'"
+        ).fetchone()
+        if not heaven_fix:
+            fixed = conn.execute(
+                "UPDATE customers SET biz_unit='메디컬', updated_at=" + NOW_SQL
+                + " WHERE name='헤븐메디칼' AND biz_unit<>'메디컬'")
+            if fixed.rowcount:
+                conn.execute(
+                    "INSERT INTO kv (scope,key,value) VALUES"
+                    " ('data_migration','20260828_heaven_medical_unit','applied')"
+                    " ON CONFLICT(scope,key) DO NOTHING")
         # 기존 운영 DB에도 채권 분류별 잔액 열을 안전하게 추가한다.
         split_columns = (
             "normal_balance", "normal_later_balance", "normal_next_balance",
