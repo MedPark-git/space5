@@ -1824,6 +1824,34 @@ function CustomerSearch({
     className: "customer-search__empty"
   }, "검색 결과가 없습니다.")));
 }
+function CollectionReceivableTable({ target, detail, busy }) {
+  return /*#__PURE__*/React.createElement("div", { className: "collection-receivables" },
+    /*#__PURE__*/React.createElement("div", { className: "collection-receivables__head" },
+      /*#__PURE__*/React.createElement("b", null, target.name, " · 채권 상세현황"),
+      /*#__PURE__*/React.createElement("span", null, "정상 ", won(target.normal_balance), "원 · 미수 ", won(target.overdue_balance), "원 · 부실 ", won(target.bad_balance), "원 · 합계 ", won(target.balance), "원")),
+    busy ? /*#__PURE__*/React.createElement("div", { className: "empty" }, /*#__PURE__*/React.createElement("b", null, "채권 상세를 불러오는 중입니다.")) :
+    detail && detail.items.length ? /*#__PURE__*/React.createElement("div", { className: "tablewrap" },
+      /*#__PURE__*/React.createElement("table", null,
+        /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null,
+          ["사업부", "발생월", "정상회수월", "현재 구분"].map(label => /*#__PURE__*/React.createElement("th", { key: label }, label)),
+          /*#__PURE__*/React.createElement("th", { className: "r" }, "최초금액"),
+          /*#__PURE__*/React.createElement("th", { className: "r" }, "현재잔액"),
+          /*#__PURE__*/React.createElement("th", null, "수금목표일"), /*#__PURE__*/React.createElement("th", null, "비고"))),
+        /*#__PURE__*/React.createElement("tbody", null, detail.items.map(item => /*#__PURE__*/React.createElement("tr", { key: item.id },
+          /*#__PURE__*/React.createElement("td", null, item.biz_unit || target.biz_unit),
+          /*#__PURE__*/React.createElement("td", { className: "num" }, item.issue_month || "미확인"),
+          /*#__PURE__*/React.createElement("td", { className: "num" }, item.target_month || "미입력"),
+          /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement(Badge, { status: item.as_of_status || item.category })),
+          /*#__PURE__*/React.createElement("td", { className: "r num" }, won(item.original_amount)),
+          /*#__PURE__*/React.createElement("td", { className: "r num t-strong" }, won(item.balance)),
+          /*#__PURE__*/React.createElement("td", { className: "num" }, item.target_date || "–"),
+          /*#__PURE__*/React.createElement("td", { style: { whiteSpace: "normal" } }, item.note || "–")))),
+        /*#__PURE__*/React.createElement("tfoot", null, /*#__PURE__*/React.createElement("tr", null,
+          /*#__PURE__*/React.createElement("td", { colSpan: 5 }, "채권 ", detail.items.length, "건 합계"),
+          /*#__PURE__*/React.createElement("td", { className: "r num" }, won(sum(detail.items, "balance"))),
+          /*#__PURE__*/React.createElement("td", { colSpan: 2 }))))) :
+      /*#__PURE__*/React.createElement("div", { className: "zero-result" }, "현재 남아 있는 채권 ", /*#__PURE__*/React.createElement("b", null, "0원")));
+}
 function Collections({
   data,
   can,
@@ -1838,6 +1866,8 @@ function Collections({
     note: ""
   });
   const [busy, setBusy] = useState(false);
+  const [receivables, setReceivables] = useState(null);
+  const [receivablesBusy, setReceivablesBusy] = useState(false);
   const set = k => e => setForm({
     ...form,
     [k]: e.target.value
@@ -1849,6 +1879,21 @@ function Collections({
   const pending = data.collections.filter(c => c.state === "pending");
   const decided = data.collections.filter(c => c.state !== "pending").slice(0, 40);
   const target = data.customers.find(c => c.code === form.customer_code);
+  useEffect(() => {
+    let active = true;
+    if (!form.customer_code) {
+      setReceivables(null);
+      setReceivablesBusy(false);
+      return () => { active = false; };
+    }
+    setReceivables(null);
+    setReceivablesBusy(true);
+    api("/api/customers/" + encodeURIComponent(form.customer_code) + "/receivables")
+      .then(result => { if (active) setReceivables(result); })
+      .catch(e => { if (active) notify(e.message, true); })
+      .finally(() => { if (active) setReceivablesBusy(false); });
+    return () => { active = false; };
+  }, [form.customer_code, notify]);
   async function register() {
     setBusy(true);
     try {
@@ -1933,7 +1978,11 @@ function Collections({
     placeholder: "입금자명, 분할 회차 등"
   })), target && amountNumber(form.amount) > target.balance && /*#__PURE__*/React.createElement("div", {
     className: "alert alert--warn"
-  }, "입력한 수금액이 현재 미수잔액(", won(target.balance), "원)보다 큽니다. 금액을 확인하세요."), /*#__PURE__*/React.createElement("button", {
+  }, "입력한 수금액이 현재 미수잔액(", won(target.balance), "원)보다 큽니다. 금액을 확인하세요."), target && /*#__PURE__*/React.createElement(CollectionReceivableTable, {
+    target: target,
+    detail: receivables,
+    busy: receivablesBusy
+  }), /*#__PURE__*/React.createElement("button", {
     className: "btn btn--primary",
     onClick: register,
     disabled: busy || !form.customer_code || !form.amount
