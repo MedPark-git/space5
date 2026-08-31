@@ -860,6 +860,7 @@ function Customers({ data, can, preset, notify, patchCustomer }) {
     const [editingNote, setEditingNote] = useState(null);
     const [draftNote, setDraftNote] = useState("");
     const [receivableDetail, setReceivableDetail] = useState(null);
+    const [unitChange, setUnitChange] = useState(null);
     useEffect(() => { if (preset) {
         setUnit(preset.unit);
         setType(preset.status);
@@ -944,6 +945,29 @@ function Customers({ data, can, preset, notify, patchCustomer }) {
             patchCustomer({ ...receivableDetail.customer,
                 detail_notes: [...new Set(items.map((x) => x.note).filter(Boolean))] });
             notify("채권 비고를 저장하고 거래처 현황에 취합 반영했습니다.");
+        }
+        catch (e) {
+            notify(e.message, true);
+        }
+    }
+    async function saveItemUnit() {
+        if (!unitChange || !unitChange.target || unitChange.target === unitChange.item.biz_unit) {
+            notify("현재 사업부와 다른 사업부를 선택하세요.", true);
+            return;
+        }
+        if (!unitChange.reason.trim()) {
+            notify("사업부 변경 사유를 입력하세요.", true);
+            return;
+        }
+        try {
+            const result = await api("/api/receivables/" + unitChange.item.id, {
+                method: "PATCH", body: { biz_unit: unitChange.target, unit_change_reason: unitChange.reason.trim() },
+            });
+            setReceivableDetail((d) => ({ ...d, customer: result.customer,
+                items: d.items.map((x) => x.id === result.item.id ? { ...x, ...result.item } : x) }));
+            patchCustomer(result.customer);
+            setUnitChange(null);
+            notify("채권 사업부를 변경하고 사업부별 합계를 다시 계산했습니다.");
         }
         catch (e) {
             notify(e.message, true);
@@ -1079,7 +1103,10 @@ function Customers({ data, can, preset, notify, patchCustomer }) {
                                 React.createElement("th", null, "\uBE44\uACE0"),
                                 React.createElement("th", null, "\uAD00\uB9AC"))),
                         React.createElement("tbody", null, receivableDetail.items.map((item) => React.createElement("tr", { key: item.id },
-                            React.createElement("td", { className: "t-strong" }, item.biz_unit || receivableDetail.customer.biz_unit),
+                            React.createElement("td", null,
+                                React.createElement("button", { type: "button", className: "inline-edit t-strong", disabled: !can("customer_info_edit"), onClick: () => setUnitChange({ item, target: item.biz_unit || receivableDetail.customer.biz_unit, reason: "" }) },
+                                    item.biz_unit || receivableDetail.customer.biz_unit,
+                                    " \u00B7 \uBCC0\uACBD")),
                             React.createElement("td", { className: "num t-strong" }, item.issue_month || "미확인"),
                             React.createElement("td", { className: "num" }, item.target_month || "미입력"),
                             React.createElement("td", null,
@@ -1091,7 +1118,30 @@ function Customers({ data, can, preset, notify, patchCustomer }) {
                             React.createElement("td", null,
                                 React.createElement(InlineEdit, { value: item.note, placeholder: "\uBE44\uACE0 \uC785\uB825", canEdit: can("note_edit"), onSave: (value) => saveItemNote(item.id, value) })),
                             React.createElement("td", null, item.category === "정상" && Number(item.balance) > 0 ?
-                                React.createElement("button", { className: "btn btn--sm btn--warn", disabled: !can("customer_info_edit"), onClick: () => reclassifyAsOverdue(item) }, "\uBBF8\uC218 \uC804\uD658") : "–"))))))))));
+                                React.createElement("button", { className: "btn btn--sm btn--warn", disabled: !can("customer_info_edit"), onClick: () => reclassifyAsOverdue(item) }, "\uBBF8\uC218 \uC804\uD658") : "–")))))))),
+        unitChange && React.createElement("div", { className: "modal-backdrop", onMouseDown: () => setUnitChange(null) },
+            React.createElement("section", { className: "modal-card", onMouseDown: (e) => e.stopPropagation() },
+                React.createElement("header", { className: "card__head" },
+                    React.createElement("h3", null, "\uCC44\uAD8C \uC0AC\uC5C5\uBD80 \uBCC0\uACBD"),
+                    React.createElement("div", { className: "spacer" }),
+                    React.createElement("button", { className: "btn btn--sm", onClick: () => setUnitChange(null) }, "\uB2EB\uAE30")),
+                React.createElement("div", { className: "card__body" },
+                    React.createElement("div", { className: "alert alert--warn" },
+                        React.createElement("b", null, "\uC8FC\uC758\uC0AC\uD56D"),
+                        React.createElement("br", null),
+                        "\uC120\uD0DD\uD55C \uCC44\uAD8C \uAC74\uC758 \uC0AC\uC5C5\uBD80\uBCC4 \uD569\uACC4\u00B7\uB300\uC2DC\uBCF4\uB4DC\u00B7\uBCF4\uACE0\uC11C\uAC00 \uC989\uC2DC \uBCC0\uACBD\uB429\uB2C8\uB2E4.",
+                        React.createElement("br", null),
+                        "\uAC70\uB798\uCC98\uC758 \uB2E4\uB978 \uCC44\uAD8C\uC5D0\uB294 \uC601\uD5A5\uC744 \uC8FC\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.",
+                        React.createElement("br", null),
+                        "\uAC19\uC740 \uCD9C\uACE0\uD30C\uC77C\uC744 \uB2E4\uC2DC \uC62C\uB824\uB3C4 \uC774 \uC9C1\uC811 \uC218\uC815\uAC12\uC774 \uC720\uC9C0\uB418\uC9C0\uB9CC, \uC6D0\uBCF8 \uCD9C\uACE0\uC790\uB8CC\uB3C4 \uD568\uAED8 \uC815\uC815\uD574 \uC8FC\uC138\uC694."),
+                    React.createElement("div", { className: "form-grid", style: { marginTop: 14 } },
+                        React.createElement(Field, { label: "\uD604\uC7AC \uC0AC\uC5C5\uBD80" },
+                            React.createElement("input", { className: "input", value: unitChange.item.biz_unit || "", readOnly: true, disabled: true })),
+                        React.createElement(Field, { label: "\uBCC0\uACBD \uC0AC\uC5C5\uBD80" },
+                            React.createElement("select", { className: "select", value: unitChange.target, onChange: (e) => setUnitChange({ ...unitChange, target: e.target.value }) }, data.meta.units.map((u) => React.createElement("option", { key: u }, u))))),
+                    React.createElement(Field, { label: "\uBCC0\uACBD \uC0AC\uC720 (\uD544\uC218)" },
+                        React.createElement("textarea", { className: "textarea", rows: "3", value: unitChange.reason, onChange: (e) => setUnitChange({ ...unitChange, reason: e.target.value }), placeholder: "\uC608: \uAE30\uCD08\uC790\uB8CC \uC0AC\uC5C5\uBD80 \uC624\uBD84\uB958 \uC815\uC815" })),
+                    React.createElement("button", { className: "btn btn--primary", disabled: !unitChange.reason.trim() || unitChange.target === unitChange.item.biz_unit, onClick: saveItemUnit }, "\uC8FC\uC758\uC0AC\uD56D \uD655\uC778 \uD6C4 \uBCC0\uACBD"))))));
 }
 /* ══════════════════ 담당자별 채권현황 ══════════════════ */
 function Owners({ data }) {
@@ -2117,7 +2167,7 @@ function Manual() {
     const steps = [
         ["1", "조회기준 확인", "화면 상단에서 마감 기준 또는 최신 출고 포함 기준을 선택합니다."],
         ["2", "출고자료 반영", "관리자가 아마란스 출고자료를 올리고 월별 분리·합계·제외된 마감월을 확인합니다."],
-        ["3", "거래처 관리", "회수기간·담당자·수금목표일·비고를 입력합니다. 공란은 임시 익월로 계산되며 미입력 상태로 관리됩니다."],
+        ["3", "거래처 관리", "회수기간·담당자·수금목표일·비고를 입력합니다. 상세에서는 채권 건별 사업부를 사유와 함께 정정할 수 있습니다."],
         ["4", "수금 등록·승인", "채권 상세를 선택해 금액과 적요를 자동 입력하고, 승인된 수금만 잔액에 반영합니다."],
         ["5", "현황 보고", "채권요약·결산회의 자료를 확인하고 PPT·PNG·Excel로 내려받습니다."],
     ];
@@ -2125,7 +2175,7 @@ function Manual() {
         ["대시보드", "전체 채권·전일 수금·거래처 확인", "조회기준과 사업부를 먼저 선택"],
         ["채권요약현황", "사업부별 채권·수금 실적 보고", "결산자료는 PPT 또는 PNG 다운로드"],
         ["결산회의 미수채권", "잔액이 있는 미수채권만 회의자료로 확인", "부실·0원 거래처는 제외하고 PPT·PNG 다운로드"],
-        ["거래처별 현황", "채권 상세·회수기간·담당자·비고 관리", "음수잔액도 조회하며 정상채권은 미수로 전환 가능"],
+        ["거래처별 현황", "채권 상세·회수기간·담당자·비고·사업부 관리", "사업부 변경 시 합계·보고서가 즉시 변경되므로 원본자료도 함께 정정"],
         ["담당자별 채권현황", "담당자별 거래처와 채권잔액 확인", "미배정 거래처를 우선 점검"],
         ["수금 등록", "채권 선택·자동 적요·승인·반려", "미등록 거래처 선수금은 간편등록 후 처리"],
         ["수금목표 관리", "예정 수금액과 완료일 관리", "완료 시 실제 수금등록 여부도 확인"],
