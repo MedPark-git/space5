@@ -805,8 +805,9 @@ function ClosingReceivables({ data, notify }) {
           <th>채권구분</th><th className="r">채권잔액</th><th>특이사항</th>
         </tr></thead><tbody>{report.detail.map((row) => <tr key={row.code + row.category}>
           <td className="t-strong">{row.name}</td><td>{report.unit}</td>
-          <td className={(row.period == null || Number(row.period) < 0) ? "customer-period--missing" : "r num"}>
-            {row.grouped ? "합산" : row.period == null || Number(row.period) < 0 ? "미입력" : Number(row.period) + "개월"}</td>
+          <td className={!row.grouped && !Number(row.period_confirmed) ? "customer-period--missing" : "r num"}>
+            {row.grouped ? "합산" : !Number(row.period_confirmed)
+              ? "임시 1개월 · 입력 필요" : Number(row.period) + "개월"}</td>
           <td className="r num">{row.months}개월</td><td><Badge status="연체" /></td>
           <td className="r num closing-amount">{won(row.amount)}</td>
           <td className="closing-notes">{row.notes.join(" · ") || "–"}</td>
@@ -868,7 +869,7 @@ function Customers({ data, can, preset, notify, patchCustomer }) {
       rowKey: c.code + "-" + c.biz_unit + "-" + part.status }));
   }).filter((c) => {
     if (type !== "전체" && c.status !== type) return false;
-    const missingPeriod = c.period == null || Number(c.period) < 0;
+    const missingPeriod = !Number(c.period_confirmed);
     if (periodFilter === "미입력" && !missingPeriod) return false;
     if (periodFilter === "입력" && missingPeriod) return false;
     if (ownerFilter === "미배정" && c.owner) return false;
@@ -973,9 +974,9 @@ function Customers({ data, can, preset, notify, patchCustomer }) {
             <tbody>{rows.map((c) => <tr key={c.rowKey}>
               <td className="num t-muted">{code5(c.code)}</td><td className="t-strong">{c.name}</td>
               <td>{c.biz_unit}</td><td><Badge status={c.status} /></td>
-              <td className={"num" + (c.period == null || Number(c.period) < 0 ? " customer-period--missing" : "")}>
-                <InlineEdit value={c.period == null || Number(c.period) < 0 ? "" : String(c.period)}
-                  placeholder="미입력" type="number" canEdit={can("customer_info_edit")}
+              <td className={"num" + (!Number(c.period_confirmed) ? " customer-period--missing" : "")}>
+                <InlineEdit value={!Number(c.period_confirmed) ? "" : String(c.period)}
+                  placeholder="임시 1개월 · 입력 필요" type="number" canEdit={can("customer_info_edit")}
                   formatValue={(value) => Number(value) === 0 ? "0개월 (당월)" :
                     Number(value) === 1 ? "1개월 (익월)" : value + "개월"}
                   onSave={(period) => updateCustomer(c.code, { period }, "회수기간을 저장했습니다.")} />
@@ -1662,6 +1663,7 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
             status: String(pick("status") || "").trim(),
             owner: "",
             collection_period: period,
+            collection_period_confirmed: !(rawPeriod === "" || rawPeriod == null),
             // 아마란스 유상·무상·견본 값과 무관하게 합계액을 출고채권 원금으로 사용한다.
             // 합계액이 없는 과거 서식만 기존 출고금액 열을 사용하며 공란과 0은 모두 0으로 처리한다.
             total_amount: map.total_amount !== undefined ? parseUploadAmount(pick("total_amount")) : null,
@@ -2145,7 +2147,7 @@ function Manual() {
   const steps = [
     ["1", "조회기준 확인", "화면 상단에서 마감 기준 또는 최신 출고 포함 기준을 선택합니다."],
     ["2", "출고자료 반영", "관리자가 아마란스 출고자료를 올리고 월별 분리·합계·제외된 마감월을 확인합니다."],
-    ["3", "거래처 관리", "회수기간·담당자·수금목표일·비고를 입력합니다. 회수기간 공란은 익월로 처리됩니다."],
+    ["3", "거래처 관리", "회수기간·담당자·수금목표일·비고를 입력합니다. 공란은 임시 익월로 계산되며 미입력 상태로 관리됩니다."],
     ["4", "수금 등록·승인", "채권 상세를 선택해 금액과 적요를 자동 입력하고, 승인된 수금만 잔액에 반영합니다."],
     ["5", "현황 보고", "채권요약·결산회의 자료를 확인하고 PPT·PNG·Excel로 내려받습니다."],
   ];
@@ -2163,7 +2165,7 @@ function Manual() {
   ];
   const implementation = [
     ["① 출고 입력", "출고파일의 합계액을 거래처·사업부·발생월별 원장으로 저장합니다. 마감된 월은 다시 반영하지 않습니다."],
-    ["② 채권 계산", "발생월에 회수기간을 더해 정상회수월을 계산합니다. 미입력은 1개월(익월)이며, 변경 시 관련 정상채권을 자동 재계산합니다."],
+    ["② 채권 계산", "발생월에 회수기간을 더해 정상회수월을 계산합니다. 미입력은 임시 1개월(익월)로 계산하되 미입력 필터에 유지하며, 직접 저장하면 관련 정상채권을 자동 재계산합니다."],
     ["③ 수금·선수금", "승인된 수금은 상세 원장에서 차감하고, 채권보다 많은 금액은 선수금으로 보관합니다. 새 출고채권이 생기면 선수금을 자동 상계합니다."],
     ["④ 재업로드", "같은 월 출고분을 새 파일로 교체할 때 기존 수금과 선수금 상계를 되돌린 후 최신 금액으로 다시 대사합니다. 직전 파일 상태 복원도 가능합니다."],
     ["⑤ 조회·보고", "상세 원장을 기준으로 거래처·담당자·사업부 합계를 만들며, 보고 화면에는 선택한 조회기준을 공통 적용합니다."],
