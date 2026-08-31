@@ -853,6 +853,7 @@ function Customers({ data, can, preset, notify, patchCustomer }) {
   const [editingNote, setEditingNote] = useState(null);
   const [draftNote, setDraftNote] = useState("");
   const [receivableDetail, setReceivableDetail] = useState(null);
+  const [unitChange, setUnitChange] = useState(null);
 
   useEffect(() => { if (preset) { setUnit(preset.unit); setType(preset.status); } }, [preset]);
 
@@ -921,6 +922,22 @@ function Customers({ data, can, preset, notify, patchCustomer }) {
       patchCustomer({ ...receivableDetail.customer,
         detail_notes: [...new Set(items.map((x) => x.note).filter(Boolean))] });
       notify("채권 비고를 저장하고 거래처 현황에 취합 반영했습니다.");
+    } catch (e) { notify(e.message, true); }
+  }
+
+  async function saveItemUnit() {
+    if (!unitChange || !unitChange.target || unitChange.target === unitChange.item.biz_unit) {
+      notify("현재 사업부와 다른 사업부를 선택하세요.", true); return;
+    }
+    if (!unitChange.reason.trim()) { notify("사업부 변경 사유를 입력하세요.", true); return; }
+    try {
+      const result = await api("/api/receivables/" + unitChange.item.id, {
+        method: "PATCH", body: { biz_unit: unitChange.target, unit_change_reason: unitChange.reason.trim() },
+      });
+      setReceivableDetail((d) => ({ ...d, customer: result.customer,
+        items: d.items.map((x) => x.id === result.item.id ? { ...x, ...result.item } : x) }));
+      patchCustomer(result.customer); setUnitChange(null);
+      notify("채권 사업부를 변경하고 사업부별 합계를 다시 계산했습니다.");
     } catch (e) { notify(e.message, true); }
   }
 
@@ -1014,7 +1031,10 @@ function Customers({ data, can, preset, notify, patchCustomer }) {
             <thead><tr><th>사업부</th><th>채권발생월</th><th>정상회수월</th><th>현재 구분</th>
               <th className="r">최초금액</th><th className="r">현재잔액</th><th>수금목표일</th><th>비고</th><th>관리</th></tr></thead>
             <tbody>{receivableDetail.items.map((item) => <tr key={item.id}>
-              <td className="t-strong">{item.biz_unit || receivableDetail.customer.biz_unit}</td>
+              <td><button type="button" className="inline-edit t-strong"
+                disabled={!can("customer_info_edit")}
+                onClick={() => setUnitChange({ item, target: item.biz_unit || receivableDetail.customer.biz_unit, reason: "" })}>
+                {item.biz_unit || receivableDetail.customer.biz_unit} · 변경</button></td>
               <td className="num t-strong">{item.issue_month || "미확인"}</td>
               <td className="num">{item.target_month || "미입력"}</td><td><Badge status={item.as_of_status || item.category} /></td>
               <td className="r num">{won(item.original_amount)}</td><td className="r num t-strong">{won(item.balance)}</td>
@@ -1027,6 +1047,31 @@ function Customers({ data, can, preset, notify, patchCustomer }) {
                   onClick={() => reclassifyAsOverdue(item)}>미수 전환</button> : "–"}</td>
             </tr>)}</tbody>
           </table></div>
+        </section>
+      </div>}
+      {unitChange && <div className="modal-backdrop" onMouseDown={() => setUnitChange(null)}>
+        <section className="modal-card" onMouseDown={(e) => e.stopPropagation()}>
+          <header className="card__head"><h3>채권 사업부 변경</h3><div className="spacer" />
+            <button className="btn btn--sm" onClick={() => setUnitChange(null)}>닫기</button></header>
+          <div className="card__body">
+            <div className="alert alert--warn">
+              <b>주의사항</b><br />
+              선택한 채권 건의 사업부별 합계·대시보드·보고서가 즉시 변경됩니다.<br />
+              거래처의 다른 채권에는 영향을 주지 않습니다.<br />
+              같은 출고파일을 다시 올려도 이 직접 수정값이 유지되지만, 원본 출고자료도 함께 정정해 주세요.
+            </div>
+            <div className="form-grid" style={{ marginTop: 14 }}>
+              <Field label="현재 사업부"><input className="input" value={unitChange.item.biz_unit || ""} readOnly disabled /></Field>
+              <Field label="변경 사업부"><select className="select" value={unitChange.target}
+                onChange={(e) => setUnitChange({ ...unitChange, target: e.target.value })}>
+                {data.meta.units.map((u) => <option key={u}>{u}</option>)}</select></Field>
+            </div>
+            <Field label="변경 사유 (필수)"><textarea className="textarea" rows="3" value={unitChange.reason}
+              onChange={(e) => setUnitChange({ ...unitChange, reason: e.target.value })}
+              placeholder="예: 기초자료 사업부 오분류 정정" /></Field>
+            <button className="btn btn--primary" disabled={!unitChange.reason.trim() || unitChange.target === unitChange.item.biz_unit}
+              onClick={saveItemUnit}>주의사항 확인 후 변경</button>
+          </div>
         </section>
       </div>}
     </>
@@ -2147,7 +2192,7 @@ function Manual() {
   const steps = [
     ["1", "조회기준 확인", "화면 상단에서 마감 기준 또는 최신 출고 포함 기준을 선택합니다."],
     ["2", "출고자료 반영", "관리자가 아마란스 출고자료를 올리고 월별 분리·합계·제외된 마감월을 확인합니다."],
-    ["3", "거래처 관리", "회수기간·담당자·수금목표일·비고를 입력합니다. 공란은 임시 익월로 계산되며 미입력 상태로 관리됩니다."],
+    ["3", "거래처 관리", "회수기간·담당자·수금목표일·비고를 입력합니다. 상세에서는 채권 건별 사업부를 사유와 함께 정정할 수 있습니다."],
     ["4", "수금 등록·승인", "채권 상세를 선택해 금액과 적요를 자동 입력하고, 승인된 수금만 잔액에 반영합니다."],
     ["5", "현황 보고", "채권요약·결산회의 자료를 확인하고 PPT·PNG·Excel로 내려받습니다."],
   ];
@@ -2155,7 +2200,7 @@ function Manual() {
     ["대시보드", "전체 채권·전일 수금·거래처 확인", "조회기준과 사업부를 먼저 선택"],
     ["채권요약현황", "사업부별 채권·수금 실적 보고", "결산자료는 PPT 또는 PNG 다운로드"],
     ["결산회의 미수채권", "잔액이 있는 미수채권만 회의자료로 확인", "부실·0원 거래처는 제외하고 PPT·PNG 다운로드"],
-    ["거래처별 현황", "채권 상세·회수기간·담당자·비고 관리", "음수잔액도 조회하며 정상채권은 미수로 전환 가능"],
+    ["거래처별 현황", "채권 상세·회수기간·담당자·비고·사업부 관리", "사업부 변경 시 합계·보고서가 즉시 변경되므로 원본자료도 함께 정정"],
     ["담당자별 채권현황", "담당자별 거래처와 채권잔액 확인", "미배정 거래처를 우선 점검"],
     ["수금 등록", "채권 선택·자동 적요·승인·반려", "미등록 거래처 선수금은 간편등록 후 처리"],
     ["수금목표 관리", "예정 수금액과 완료일 관리", "완료 시 실제 수금등록 여부도 확인"],
