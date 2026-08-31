@@ -340,6 +340,7 @@ CREATE TABLE IF NOT EXISTS monthly_shipment_units (
     bucket             TEXT NOT NULL DEFAULT 'current',
     amount             {BIGINT} NOT NULL DEFAULT 0,
     balance            {BIGINT} NOT NULL DEFAULT 0,
+    advance_applied    {BIGINT} NOT NULL DEFAULT 0,
     note               TEXT NOT NULL DEFAULT '',
     uploaded_at        TEXT NOT NULL {NOW_DEFAULT},
     PRIMARY KEY (month, code, biz_unit)
@@ -501,11 +502,18 @@ def init_db():
         if USE_PG:
             conn.execute("ALTER TABLE receivable_items ADD COLUMN IF NOT EXISTS biz_unit"
                          " TEXT NOT NULL DEFAULT ''")
+            conn.execute("ALTER TABLE monthly_shipment_units ADD COLUMN IF NOT EXISTS advance_applied"
+                         " BIGINT NOT NULL DEFAULT 0")
         else:
             item_columns = {r["name"] for r in conn.execute("PRAGMA table_info(receivable_items)")}
             if "biz_unit" not in item_columns:
                 conn.execute("ALTER TABLE receivable_items ADD COLUMN biz_unit"
                              " TEXT NOT NULL DEFAULT ''")
+            shipment_unit_columns = {r["name"] for r in conn.execute(
+                "PRAGMA table_info(monthly_shipment_units)")}
+            if "advance_applied" not in shipment_unit_columns:
+                conn.execute("ALTER TABLE monthly_shipment_units ADD COLUMN advance_applied"
+                             " INTEGER NOT NULL DEFAULT 0")
         conn.execute(
             "UPDATE receivable_items SET biz_unit=(SELECT c.biz_unit FROM customers c"
             " WHERE c.code=receivable_items.customer_code) WHERE biz_unit=''"
