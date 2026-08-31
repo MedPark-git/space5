@@ -241,6 +241,7 @@ CREATE TABLE IF NOT EXISTS customers (
     collection_target_date TEXT NOT NULL DEFAULT '',
     last_paid_at  TEXT NOT NULL DEFAULT '',
     period        INTEGER NOT NULL DEFAULT 1,
+    period_confirmed INTEGER NOT NULL DEFAULT 1,
     source_month  TEXT NOT NULL DEFAULT '',
     note          TEXT NOT NULL DEFAULT '',
     updated_at    TEXT NOT NULL {NOW_DEFAULT}
@@ -484,6 +485,25 @@ def init_db():
                     conn.execute("ALTER TABLE customers ADD COLUMN " + column
                                  + (" TEXT NOT NULL DEFAULT ''" if column == "collection_target_date"
                                     else " INTEGER NOT NULL DEFAULT 0"))
+        # 회수기간 계산값과 사용자의 실제 입력 여부를 분리한다. 기존에 자동으로
+        # 익월(1개월) 보정된 값은 다시 '입력 필요' 상태로 표시한다.
+        if USE_PG:
+            conn.execute("ALTER TABLE customers ADD COLUMN IF NOT EXISTS period_confirmed"
+                         " INTEGER NOT NULL DEFAULT 1")
+        else:
+            customer_columns = {r["name"] for r in conn.execute("PRAGMA table_info(customers)")}
+            if "period_confirmed" not in customer_columns:
+                conn.execute("ALTER TABLE customers ADD COLUMN period_confirmed"
+                             " INTEGER NOT NULL DEFAULT 1")
+        period_state_key = "period_confirmation_state_20260831_v1"
+        period_state = conn.execute(
+            "SELECT 1 FROM kv WHERE scope='data_migration' AND key=%s", (period_state_key,)
+        ).fetchone()
+        if not period_state:
+            conn.execute("UPDATE customers SET period_confirmed=0 WHERE period=1")
+            conn.execute(
+                "INSERT INTO kv (scope,key,value) VALUES ('data_migration',%s,'applied')"
+                " ON CONFLICT(scope,key) DO NOTHING", (period_state_key,))
         # 업로드 유형은 기존 운영 이력에는 snapshot 기본값을 적용한다.
         if USE_PG:
             conn.execute("ALTER TABLE uploads ADD COLUMN IF NOT EXISTS upload_type"
