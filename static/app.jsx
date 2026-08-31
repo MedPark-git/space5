@@ -45,6 +45,10 @@ function customersForUnit(customers, unit) {
   return unit === "전체" ? customers : customers.map((c) => customerForUnit(c, unit)).filter(Boolean);
 }
 const code5 = (code) => String(code || "").padStart(5, "0");
+const normalizeSearch = (value) => String(value || "")
+  .normalize("NFKC")
+  .toLocaleLowerCase("ko-KR")
+  .replace(/[\s\u200B-\u200D\uFEFF]/g, "");
 const overdueMonths = (days) => Math.ceil(Math.max(0, Number(days) || 0) / 30);
 function normalizeShipmentDate(value) {
   if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10);
@@ -873,8 +877,9 @@ function Customers({ data, can, preset, notify, patchCustomer }) {
     if (ageFilter === "1-3" && (c.months < 1 || c.months > 3)) return false;
     if (ageFilter === "4-11" && (c.months < 4 || c.months > 11)) return false;
     if (ageFilter === "12+" && c.months < 12) return false;
-    if (q && !(c.name.includes(q) || c.code.includes(q) || code5(c.code).includes(q)
-      || (c.owner || "").includes(q))) return false;
+    const query = normalizeSearch(q);
+    if (query && ![c.name, c.code, code5(c.code), c.owner]
+      .some((value) => normalizeSearch(value).includes(query))) return false;
     return true;
   }), [data.customers, unit, type, q, periodFilter, ownerFilter, ageFilter]);
 
@@ -955,7 +960,7 @@ function Customers({ data, can, preset, notify, patchCustomer }) {
             <option value="4-11">4~11개월</option><option value="12+">12개월 이상</option>
           </select></Field>
           <Field label="거래처 검색"><input className="input" lang="ko" inputMode="text" value={q} placeholder="거래처명·코드·담당자"
-            onChange={(e) => setQ(e.target.value)} /></Field>
+            onChange={(e) => setQ(e.target.value)} onCompositionEnd={(e) => setQ(e.currentTarget.value)} /></Field>
           <button className="btn btn--sm" onClick={() => { setUnit("전체"); setType("전체"); setPeriodFilter("전체"); setOwnerFilter("전체"); setAgeFilter("전체"); setQ(""); }}>초기화</button>
         </div>
       </Card>
