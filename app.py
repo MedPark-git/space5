@@ -104,11 +104,14 @@ def add_months(month, offset):
 
 
 def apply_preserved_shipment_payments(shipments, previous_rows):
-    """재업로드 전 해당 월 출고채권에 이미 배분된 수금액을 신규 원장에 승계한다."""
+    """재업로드 전 승인수금만 분리해 새 출고원장에 승계한다."""
     paid_by_key = {}
     paid_by_code = {}
     for old in previous_rows:
-        paid = max(as_int(old.get("amount")) - as_int(old.get("balance")), 0)
+        # 기존 잔액 감소분에는 승인수금과 선수금 상계가 함께 들어 있으므로
+        # 선수금 상계액을 제외해야 같은 선수금이 두 번 사용되지 않는다.
+        paid = max(as_int(old.get("amount")) - as_int(old.get("balance"))
+                   - as_int(old.get("advance_applied")), 0)
         key = (old["code"], old["biz_unit"])
         paid_by_key[key] = paid_by_key.get(key, 0) + paid
         paid_by_code[old["code"]] = paid_by_code.get(old["code"], 0) + paid
@@ -128,7 +131,10 @@ def apply_preserved_shipment_payments(shipments, previous_rows):
         extra = min(capacity, paid_by_code.get(item["code"], 0))
         item["preserved_paid"] += extra
         paid_by_code[item["code"]] = max(paid_by_code.get(item["code"], 0) - extra, 0)
-    return sum(item["preserved_paid"] for item in items)
+    return {
+        "preserved_paid": sum(item["preserved_paid"] for item in items),
+        "unapplied_by_code": {code: amount for code, amount in paid_by_code.items() if amount > 0},
+    }
 
 
 CUSTOMER_RESTORE_COLUMNS = (
@@ -139,7 +145,7 @@ CUSTOMER_RESTORE_COLUMNS = (
 )
 SHIPMENT_RESTORE_COLUMNS = (
     "month", "code", "name", "biz_unit", "owner", "collection_period", "target_month",
-    "bucket", "amount", "balance", "note", "uploaded_at",
+    "bucket", "amount", "balance", "advance_applied", "note", "uploaded_at",
 )
 RECEIVABLE_RESTORE_COLUMNS = (
     "id", "customer_code", "biz_unit", "source_key", "issue_month", "target_month", "category",
@@ -161,7 +167,8 @@ def restore_table_rows(conn, table, columns, rows):
     placeholders = ",".join(["%s"] * len(columns))
     conn.executemany(
         "INSERT INTO " + table + " (" + ",".join(columns) + ") VALUES (" + placeholders + ")",
-        [tuple(row.get(column) for column in columns) for row in rows])
+        [tuple(0 if column == "advance_applied" and row.get(column) is None else row.get(column)
+               for column in columns) for row in rows])
 
 
 def save_upload_checkpoint(conn, upload_id, previous_filename, checkpoint):
@@ -366,6 +373,50 @@ def default_missing_collection_periods_once():
             recalculate_customer_collection_period(conn, code, 1, snapshot_month)
         conn.execute("UPDATE system_migrations SET detail=%s WHERE migration_key=%s",
                      ("회수기간 미입력 %d개 거래처를 익월로 보정" % len(codes), key))
+
+
+def reconcile_existing_advances_once():
+    """기존 선수금과 현재 남아 있는 출고채권을 최초 한 번 자동 상계한다."""
+    key = "shipment_advance_reconciliation_20260831_v1"
+    with connect() as conn:
+        claimed = conn.execute(
+            "INSERT INTO system_migrations (migration_key,detail) VALUES (%s,'running')"
+            " ON CONFLICT(migration_key) DO NOTHING RETURNING migration_key", (key,)).fetchone()
+        if not claimed:
+            return
+        total_applied = 0
+        affected = set()
+        customers = [r for r in conn.execute("SELECT code,advance FROM customers WHERE advance>0")]
+        for customer in customers:
+            remaining = as_int(customer["advance"])
+            items = [r for r in conn.execute(
+                "SELECT id,balance,issue_month,biz_unit FROM receivable_items"
+                " WHERE customer_code=%s AND balance>0 AND source_key LIKE 'shipment:%%'"
+                " ORDER BY issue_month,id", (customer["code"],))]
+            for item in items:
+                applied = min(remaining, as_int(item["balance"]))
+                if applied <= 0:
+                    continue
+                conn.execute("UPDATE receivable_items SET balance=balance-%s WHERE id=%s",
+                             (applied, item["id"]))
+                conn.execute(
+                    "UPDATE monthly_shipment_units SET balance=balance-%s,"
+                    " advance_applied=advance_applied+%s"
+                    " WHERE month=%s AND code=%s AND biz_unit=%s",
+                    (applied, applied, item["issue_month"], customer["code"], item["biz_unit"]))
+                remaining -= applied
+                total_applied += applied
+                affected.add(customer["code"])
+                if remaining <= 0:
+                    break
+            if remaining != as_int(customer["advance"]):
+                conn.execute("UPDATE customers SET advance=%s WHERE code=%s",
+                             (remaining, customer["code"]))
+        for code in affected:
+            sync_customer_from_receivables(conn, code)
+        conn.execute("UPDATE system_migrations SET detail=%s WHERE migration_key=%s",
+                     ("기존 선수금 %d원 상계 · %d개 거래처" %
+                      (total_applied, len(affected)), key))
 
 
 def month_offset(base_month, target_month):
@@ -1016,7 +1067,19 @@ def upload_rows():
                 x["customer_code"]: x["target_date"] for x in previous_target_rows
             }
             previous = len(previous_rows)
-            preserved_paid = apply_preserved_shipment_payments(shipments, previous_rows)
+            payment_reconciliation = apply_preserved_shipment_payments(shipments, previous_rows)
+            preserved_paid = payment_reconciliation["preserved_paid"]
+            # 직전 업로드에서 사용했던 선수금은 먼저 전액 되돌린다. 이후 새 파일의
+            # 최종 출고금액을 기준으로 다시 상계해야 반복 업로드에도 결과가 같아진다.
+            for old in previous_rows:
+                restored_advance = as_int(old.get("advance_applied"))
+                if restored_advance > 0:
+                    conn.execute("UPDATE customers SET advance=advance+%s WHERE code=%s",
+                                 (restored_advance, old["code"]))
+            # 새 출고금액보다 기존 승인수금이 더 큰 경우 남는 금액은 선수금으로 환원한다.
+            for code, amount in payment_reconciliation["unapplied_by_code"].items():
+                conn.execute("UPDATE customers SET advance=advance+%s WHERE code=%s",
+                             (amount, code))
             bucket_columns = {
                 "current": "normal_current_balance",
                 "next": "normal_next_balance",
@@ -1036,19 +1099,28 @@ def upload_rows():
             conn.execute("DELETE FROM receivable_items WHERE source_key LIKE %s",
                          ("shipment:%s:%%" % month,))
 
+            total_advance_applied = 0
             for item in shipments.values():
-                current = conn.execute("SELECT 1 FROM customers WHERE code=%s", (item["code"],)).fetchone()
+                current = conn.execute("SELECT advance FROM customers WHERE code=%s",
+                                       (item["code"],)).fetchone()
                 column = bucket_columns[item["bucket"]]
-                net_amount = (item["amount"] - item.get("preserved_paid", 0)
+                preserved = item.get("preserved_paid", 0)
+                available_advance = max(as_int(current.get("advance")) if current else 0, 0)
+                advance_applied = (min(available_advance,
+                                       max(item["amount"] - preserved, 0))
+                                    if item["amount"] >= 0 else 0)
+                net_amount = (item["amount"] - preserved - advance_applied
                               if item["amount"] >= 0 else item["amount"])
+                total_advance_applied += advance_applied
                 if current:
                     conn.execute(
                         "UPDATE customers SET name=%s, period=%s,"
                         " balance=balance+%s, normal_balance=normal_balance+%s,"
                         " " + column + "=" + column + "+%s, source_month=%s,"
+                        " advance=advance-%s,"
                         " updated_at=" + db.NOW_SQL + " WHERE code=%s",
                         (item["name"], item["period"], net_amount, net_amount, net_amount,
-                         month, item["code"]))
+                         month, advance_applied, item["code"]))
                 else:
                     values = dict(current=0, next=0, later=0)
                     values[item["bucket"]] = net_amount
@@ -1061,10 +1133,11 @@ def upload_rows():
                          values["later"], item["period"], month, item["note"]))
                 conn.execute(
                     "INSERT INTO monthly_shipment_units (month,code,name,biz_unit,owner,collection_period,"
-                    " target_month,bucket,amount,balance,note) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    " target_month,bucket,amount,balance,advance_applied,note)"
+                    " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                     (month, item["code"], item["name"], item["biz_unit"], "",
                      item["period"], item["target_month"], item["bucket"], item["amount"],
-                     net_amount, item["note"]))
+                     net_amount, advance_applied, item["note"]))
                 conn.execute(
                     "INSERT INTO receivable_items (customer_code,biz_unit,source_key,issue_month,target_month,category,"
                     " original_amount,balance,target_date,note) VALUES (%s,%s,%s,%s,%s,'정상',%s,%s,%s,%s)",
@@ -1081,12 +1154,13 @@ def upload_rows():
                 (month, filename, len(shipments), request.user["username"], previous, shipment_date)).fetchone()["id"]
             save_upload_checkpoint(conn, upload_id, previous_filename, checkpoint)
             log(conn, request.user["username"], "shipment_upload",
-                "%s / %d행 (기존 %d행 교체, 기수금 %d원 승계)" %
-                (month, len(shipments), previous, preserved_paid))
+                "%s / %d행 (기존 %d행 교체, 기수금 %d원 승계, 선수금 %d원 상계)" %
+                (month, len(shipments), previous, preserved_paid, total_advance_applied))
             customers = [x for x in conn.execute("SELECT * FROM customers ORDER BY balance DESC")]
             uploads = upload_history(conn)
             return jsonify(inserted=len(shipments), replaced=previous,
                            preserved_paid=preserved_paid,
+                           advance_applied=total_advance_applied,
                            customers=customers, uploads=uploads)
 
         prev = conn.execute(
@@ -1537,6 +1611,7 @@ def storage_delete():
 repair_receivable_consistency_once()
 repair_receivable_issue_months_once()
 default_missing_collection_periods_once()
+reconcile_existing_advances_once()
 
 
 if __name__ == "__main__":
