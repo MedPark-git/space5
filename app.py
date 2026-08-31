@@ -230,6 +230,34 @@ def sync_customer_from_receivables(conn, code, snapshot_month=None):
          values["overdue_balance"], values["bad_balance"], status, code)).fetchone()
 
 
+def recalculate_customer_collection_period(conn, code, period, snapshot_month=None):
+    """회수기간 변경 시 정상채권의 정상회수월과 월별 구분을 함께 다시 계산한다."""
+    period = max(as_int(period, 1), 0)
+    if not snapshot_month:
+        latest = conn.execute(
+            "SELECT month FROM uploads WHERE upload_type='snapshot' ORDER BY id DESC LIMIT 1").fetchone()
+        customer = conn.execute("SELECT source_month FROM customers WHERE code=%s", (code,)).fetchone()
+        snapshot_month = (latest["month"] if latest else
+                          (customer["source_month"] if customer else date.today().strftime("%Y-%m")))
+    items = [r for r in conn.execute(
+        "SELECT id,issue_month,source_key,biz_unit FROM receivable_items"
+        " WHERE customer_code=%s AND category='정상'", (code,))]
+    for item in items:
+        if not item["issue_month"]:
+            continue
+        target_month = add_months(item["issue_month"], period)
+        conn.execute("UPDATE receivable_items SET target_month=%s WHERE id=%s",
+                     (target_month, item["id"]))
+        if str(item["source_key"] or "").startswith("shipment:"):
+            bucket = "current" if period == 0 else ("next" if period == 1 else "later")
+            conn.execute(
+                "UPDATE monthly_shipment_units SET collection_period=%s,target_month=%s,bucket=%s"
+                " WHERE month=%s AND code=%s AND biz_unit=%s",
+                (period, target_month, bucket, item["issue_month"], code, item["biz_unit"]))
+    conn.execute("UPDATE customers SET period=%s WHERE code=%s", (period, code))
+    return sync_customer_from_receivables(conn, code, snapshot_month)
+
+
 def repair_receivable_consistency_once():
     """승인수금을 상세 원장에 재배분하고 모든 집계 잔액을 한 번 복구한다."""
     key = "receivable_consistency_20260829_v1"
@@ -271,6 +299,73 @@ def repair_receivable_consistency_once():
         conn.execute("UPDATE system_migrations SET detail=%s WHERE migration_key=%s",
                      ("승인수금 %d건 재배분 · 불일치 %d개 거래처 복구" %
                       (len(collections), mismatches), key))
+
+
+def normalized_legacy_issue_month(target_month, period, snapshot_month):
+    """확정채권 발생월이 기준월 이후로 만들어지지 않게 안전하게 역산한다."""
+    if not target_month:
+        return snapshot_month
+    inferred = add_months(target_month, -period) if period >= 0 else snapshot_month
+    return min(inferred, snapshot_month) if snapshot_month else inferred
+
+
+def repair_receivable_issue_months_once():
+    """출처가 분명한 원장의 잘못된 미래 발생월을 한 번 일괄 보정한다."""
+    key = "receivable_issue_months_20260831_v1"
+    with connect() as conn:
+        claimed = conn.execute(
+            "INSERT INTO system_migrations (migration_key,detail) VALUES (%s,'running')"
+            " ON CONFLICT(migration_key) DO NOTHING RETURNING migration_key", (key,)).fetchone()
+        if not claimed:
+            return
+        snapshot = conn.execute(
+            "SELECT month FROM uploads WHERE upload_type='snapshot' ORDER BY id DESC LIMIT 1").fetchone()
+        snapshot_month = snapshot["month"] if snapshot else date.today().strftime("%Y-%m")
+        periods = {r["code"]: as_int(r["period"], -1)
+                   for r in conn.execute("SELECT code,period FROM customers")}
+        changed = 0
+        affected = set()
+        rows = [r for r in conn.execute(
+            "SELECT id,customer_code,source_key,issue_month,target_month,category"
+            " FROM receivable_items")]
+        for item in rows:
+            source_key = str(item["source_key"] or "")
+            corrected = item["issue_month"]
+            if source_key.startswith("shipment:"):
+                parts = source_key.split(":", 3)
+                if len(parts) > 1 and len(parts[1]) == 7:
+                    corrected = parts[1]
+            elif source_key.startswith("legacy:") and item["category"] == "정상":
+                corrected = normalized_legacy_issue_month(
+                    item["target_month"], periods.get(item["customer_code"], -1), snapshot_month)
+            if corrected and corrected != item["issue_month"]:
+                conn.execute("UPDATE receivable_items SET issue_month=%s WHERE id=%s",
+                             (corrected, item["id"]))
+                changed += 1
+                affected.add(item["customer_code"])
+        for code in affected:
+            sync_customer_from_receivables(conn, code, snapshot_month)
+        conn.execute("UPDATE system_migrations SET detail=%s WHERE migration_key=%s",
+                     ("발생월 %d건 보정 · %d개 거래처" % (changed, len(affected)), key))
+
+
+def default_missing_collection_periods_once():
+    """기존 회수기간 미입력 거래처를 익월(1개월)로 바꾸고 상세 원장도 맞춘다."""
+    key = "missing_collection_period_defaults_20260831_v1"
+    with connect() as conn:
+        claimed = conn.execute(
+            "INSERT INTO system_migrations (migration_key,detail) VALUES (%s,'running')"
+            " ON CONFLICT(migration_key) DO NOTHING RETURNING migration_key", (key,)).fetchone()
+        if not claimed:
+            return
+        snapshot = conn.execute(
+            "SELECT month FROM uploads WHERE upload_type='snapshot' ORDER BY id DESC LIMIT 1").fetchone()
+        snapshot_month = snapshot["month"] if snapshot else date.today().strftime("%Y-%m")
+        codes = [r["code"] for r in conn.execute("SELECT code FROM customers WHERE period<0")]
+        for code in codes:
+            recalculate_customer_collection_period(conn, code, 1, snapshot_month)
+        conn.execute("UPDATE system_migrations SET detail=%s WHERE migration_key=%s",
+                     ("회수기간 미입력 %d개 거래처를 익월로 보정" % len(codes), key))
 
 
 def month_offset(base_month, target_month):
@@ -510,7 +605,7 @@ def quick_create_customer():
             return jsonify(error="이미 등록된 고객코드입니다. 기존 거래처를 선택하세요."), 409
         customer = conn.execute(
             "INSERT INTO customers (code,name,biz_unit,status,owner,period,source_month,note)"
-            " VALUES (%s,%s,%s,'정상','',-1,'','') RETURNING *",
+            " VALUES (%s,%s,%s,'정상','',1,'','') RETURNING *",
             (code, name, biz_unit)).fetchone()
         log(conn, request.user["username"], "customer_quick_create", "%s / %s" % (code, name))
     return jsonify(customer=customer), 201
@@ -536,6 +631,9 @@ def update_customer(code):
             return jsonify(error="회수기간은 0 이상의 개월 수로 입력하세요."), 400
         fields.append("period = %s")
         values.append(period)
+        period_changed = True
+    else:
+        period_changed = False
     for key in ("note", "owner", "status", "collection_target_date"):
         if key in data:
             if "note_edit" not in request.user["permissions"]:
@@ -551,8 +649,11 @@ def update_customer(code):
             + ", updated_at = " + db.NOW_SQL + " WHERE code = %s", values)
         if cur.rowcount == 0:
             return jsonify(error="거래처를 찾을 수 없습니다."), 404
+        if period_changed:
+            row = recalculate_customer_collection_period(conn, code, period)
+        else:
+            row = conn.execute("SELECT * FROM customers WHERE code = %s", (code,)).fetchone()
         log(conn, request.user["username"], "customer_update", code)
-        row = conn.execute("SELECT * FROM customers WHERE code = %s", (code,)).fetchone()
     return jsonify(customer=row)
 
 
@@ -874,8 +975,10 @@ def upload_rows():
                     code = code.zfill(5)
                 existing = conn.execute("SELECT period FROM customers WHERE code=%s", (code,)).fetchone()
                 period_raw = r.get("collection_period")
-                period = (existing["period"] if period_raw in (None, "") and existing
-                          else as_int(period_raw, -1))
+                if period_raw in (None, ""):
+                    period = (existing["period"] if existing and existing["period"] >= 0 else 1)
+                else:
+                    period = max(as_int(period_raw, 1), 0)
                 # 합계액을 출고채권 원금으로 우선 사용한다. 유상·무상·견본 열이
                 # 공란 또는 0이어도 합계액만 정상적이면 업로드할 수 있다.
                 # 화면에서 동일 거래처·사업부의 여러 출고행을 합산한 shipment_amount를
@@ -1016,7 +1119,8 @@ def upload_rows():
                 status = "부실" if bad_balance else (
                     "연체" if overdue_balance or overdue > 0 else "정상")
             period_raw = r.get("collection_period")
-            collection_period = -1 if period_raw in (None, "") else as_int(period_raw, -1)
+            collection_period = (1 if period_raw in (None, "")
+                                 else max(as_int(period_raw, 1), 0))
             payload[code] = (
                 code, str(r.get("name") or "").strip() or code, unit, status,
                 "", balance,
@@ -1074,7 +1178,9 @@ def upload_rows():
                     conn.execute(
                         "INSERT INTO receivable_items (customer_code,biz_unit,source_key,issue_month,target_month,category,"
                         " original_amount,balance,target_date,note) VALUES (%s,%s,%s,%s,%s,'정상',%s,%s,%s,%s)",
-                        (code, customer["biz_unit"], key, add_months(target_month, -period), target_month, amount, amount,
+                        (code, customer["biz_unit"], key,
+                         normalized_legacy_issue_month(target_month, customer["period"], month),
+                         target_month, amount, amount,
                          old_targets.get(key, customer["collection_target_date"]), "확정 정상채권"))
             age_months = max(1, (customer["overdue_days"] + 29) // 30)
             issue_month = add_months(month, -age_months)
@@ -1087,6 +1193,7 @@ def upload_rows():
                         " original_amount,balance,target_date,note) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                         (code, customer["biz_unit"], key, issue_month, add_months(issue_month, period), category, amount, amount,
                          old_targets.get(key, customer["collection_target_date"]), "확정 %s" % category))
+            recalculate_customer_collection_period(conn, code, customer["period"], month)
         upload_id = conn.execute(
             "INSERT INTO uploads (month, filename, row_count, uploaded_by, replaced, upload_type)"
             " VALUES (%s,%s,%s,%s,%s,'snapshot') RETURNING id",
@@ -1428,6 +1535,8 @@ def storage_delete():
 
 # 배포 후 최초 기동에서만 기존 이중 수금배분과 집계 불일치를 복구한다.
 repair_receivable_consistency_once()
+repair_receivable_issue_months_once()
+default_missing_collection_periods_once()
 
 
 if __name__ == "__main__":
