@@ -743,6 +743,15 @@ def customer_receivables(code):
 def update_receivable(item_id):
     data = body()
     fields, values = [], []
+    requested_unit = str(data.get("biz_unit") or "").strip() if "biz_unit" in data else ""
+    unit_change_reason = str(data.get("unit_change_reason") or "").strip()
+    if "biz_unit" in data:
+        if "customer_info_edit" not in request.user["permissions"]:
+            return jsonify(error="'거래처 정보수정' 권한이 없습니다."), 403
+        if requested_unit not in UNITS:
+            return jsonify(error="변경할 사업부를 선택하세요."), 400
+        if not unit_change_reason:
+            return jsonify(error="사업부 변경 사유를 입력하세요."), 400
     requested_category = str(data.get("category") or "").strip() if "category" in data else ""
     if "category" in data:
         if "customer_info_edit" not in request.user["permissions"]:
@@ -765,13 +774,61 @@ def update_receivable(item_id):
             return jsonify(error="'비고 편집' 권한이 없습니다."), 403
         fields.append("note=%s")
         values.append(str(data.get("note") or "").strip())
-    if not fields and not requested_category:
+    if not fields and not requested_category and not requested_unit:
         return jsonify(error="변경할 항목이 없습니다."), 400
     with connect() as conn:
         current = conn.execute(
             "SELECT * FROM receivable_items WHERE id=%s", (item_id,)).fetchone()
         if not current:
             return jsonify(error="채권 상세를 찾을 수 없습니다."), 404
+        if requested_unit:
+            old_unit = current["biz_unit"] or "덴탈"
+            if requested_unit == old_unit:
+                return jsonify(error="현재 사업부와 다른 사업부를 선택하세요."), 400
+            if current["source_key"].startswith("shipment:"):
+                source_unit = old_unit
+                source_parts = current["source_key"].split(":", 3)
+                if len(source_parts) == 4 and source_parts[3] in UNITS:
+                    source_unit = source_parts[3]
+                prior_override = conn.execute(
+                    "SELECT source_biz_unit FROM receivable_unit_overrides"
+                    " WHERE customer_code=%s AND issue_month=%s AND target_biz_unit=%s",
+                    (current["customer_code"], current["issue_month"], old_unit)).fetchone()
+                if prior_override:
+                    source_unit = prior_override["source_biz_unit"]
+                conn.execute(
+                    "INSERT INTO receivable_unit_overrides"
+                    " (customer_code,issue_month,source_biz_unit,target_biz_unit,reason,updated_by)"
+                    " VALUES (%s,%s,%s,%s,%s,%s)"
+                    " ON CONFLICT(customer_code,issue_month,source_biz_unit) DO UPDATE SET"
+                    " target_biz_unit=excluded.target_biz_unit,reason=excluded.reason,"
+                    " updated_by=excluded.updated_by,updated_at=" + db.NOW_SQL,
+                    (current["customer_code"], current["issue_month"], source_unit,
+                     requested_unit, unit_change_reason, request.user["username"]))
+                old_shipment = conn.execute(
+                    "SELECT * FROM monthly_shipment_units WHERE month=%s AND code=%s AND biz_unit=%s",
+                    (current["issue_month"], current["customer_code"], old_unit)).fetchone()
+                target_shipment = conn.execute(
+                    "SELECT * FROM monthly_shipment_units WHERE month=%s AND code=%s AND biz_unit=%s",
+                    (current["issue_month"], current["customer_code"], requested_unit)).fetchone()
+                if old_shipment and target_shipment:
+                    conn.execute(
+                        "UPDATE monthly_shipment_units SET amount=amount+%s,balance=balance+%s,"
+                        " advance_applied=advance_applied+%s,note=CASE WHEN note='' THEN %s ELSE note END"
+                        " WHERE month=%s AND code=%s AND biz_unit=%s",
+                        (old_shipment["amount"], old_shipment["balance"],
+                         old_shipment.get("advance_applied") or 0, old_shipment["note"],
+                         current["issue_month"], current["customer_code"], requested_unit))
+                    conn.execute(
+                        "DELETE FROM monthly_shipment_units WHERE month=%s AND code=%s AND biz_unit=%s",
+                        (current["issue_month"], current["customer_code"], old_unit))
+                elif old_shipment:
+                    conn.execute(
+                        "UPDATE monthly_shipment_units SET biz_unit=%s"
+                        " WHERE month=%s AND code=%s AND biz_unit=%s",
+                        (requested_unit, current["issue_month"], current["customer_code"], old_unit))
+            fields.append("biz_unit=%s")
+            values.append(requested_unit)
         if requested_category:
             if current["category"] != "정상":
                 return jsonify(error="정상채권만 미수채권으로 전환할 수 있습니다."), 409
@@ -818,6 +875,11 @@ def update_receivable(item_id):
         item = conn.execute(
             "UPDATE receivable_items SET " + ",".join(fields) + " WHERE id=%s RETURNING *",
             values).fetchone()
+        if requested_unit:
+            customer = sync_customer_from_receivables(conn, current["customer_code"])
+            log(conn, request.user["username"], "receivable_unit_change",
+                "%s / %s→%s / %s / %s" % (current["customer_code"], current["biz_unit"],
+                                             requested_unit, current["issue_month"], unit_change_reason))
         log(conn, request.user["username"], "receivable_update", str(item_id))
         if requested_category:
             log(conn, request.user["username"], "receivable_reclassify",
@@ -1055,7 +1117,12 @@ def upload_rows():
                 # 음수 금액은 해당 월 정상채권을 감소시키는 조정액으로 반영된다.
                 target_month = add_months(month, period) if period >= 0 else ""
                 bucket = "current" if period == 0 else ("next" if period == 1 else "later")
-                unit = str(r.get("biz_unit") or "").strip() or "덴탈"
+                source_unit = str(r.get("biz_unit") or "").strip() or "덴탈"
+                unit_override = conn.execute(
+                    "SELECT target_biz_unit FROM receivable_unit_overrides"
+                    " WHERE customer_code=%s AND issue_month=%s AND source_biz_unit=%s",
+                    (code, month, source_unit)).fetchone()
+                unit = unit_override["target_biz_unit"] if unit_override else source_unit
                 key = (code, unit)
                 if key in shipments:
                     shipments[key]["amount"] += amount
