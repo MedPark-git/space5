@@ -364,6 +364,19 @@ CREATE TABLE IF NOT EXISTS receivable_items (
     note           TEXT NOT NULL DEFAULT '',
     created_at     TEXT NOT NULL {NOW_DEFAULT}
 );
+
+CREATE TABLE IF NOT EXISTS receivable_unit_overrides (
+    customer_code  TEXT NOT NULL,
+    issue_month    TEXT NOT NULL,
+    source_biz_unit TEXT NOT NULL,
+    target_biz_unit TEXT NOT NULL,
+    reason         TEXT NOT NULL DEFAULT '',
+    updated_by     TEXT NOT NULL DEFAULT '',
+    updated_at     TEXT NOT NULL {NOW_DEFAULT},
+    PRIMARY KEY (customer_code, issue_month, source_biz_unit)
+);
+CREATE INDEX IF NOT EXISTS idx_unit_override_target
+    ON receivable_unit_overrides(customer_code, issue_month, target_biz_unit);
 CREATE INDEX IF NOT EXISTS idx_ri_customer ON receivable_items(customer_code);
 CREATE INDEX IF NOT EXISTS idx_ri_issue ON receivable_items(issue_month);
 CREATE INDEX IF NOT EXISTS idx_ri_target ON receivable_items(target_month);
