@@ -3108,8 +3108,10 @@ function Users({
 /* ══════════════════ 사용 매뉴얼 ══════════════════ */
 
 function Manual() {
-  const steps = [["1", "조회기준 확인", "화면 상단에서 마감 기준 또는 최신 출고 포함 기준을 선택합니다."], ["2", "출고자료 반영", "관리자가 출고 데이터를 업로드하고 오류·합계·기준일을 확인합니다."], ["3", "거래처 관리", "회수기간·담당자·수금목표일·비고를 입력하고 미입력 거래처를 정리합니다."], ["4", "수금 등록·승인", "수금액과 수금일을 등록한 뒤 재무담당자가 승인하여 잔액에 반영합니다."], ["5", "현황 보고", "채권요약·결산회의 자료를 확인하고 PPT·PNG·Excel로 내려받습니다."]];
-  const menus = [["대시보드", "전체 채권과 전일 수금 확인", "조회기준과 사업부를 먼저 선택"], ["채권요약현황", "사업부별 채권·수금 실적 보고", "결산자료는 PPT 또는 PNG 다운로드"], ["결산회의 미수채권", "잔액이 있는 미수채권만 회의자료로 확인", "사업부 선택 후 PPT·PNG 다운로드"], ["거래처별 현황", "회수기간·담당자·연체기간 조회 및 수정", "회수기간 미입력 필터로 누락 거래처 정리"], ["담당자별 채권현황", "담당자별 거래처와 채권잔액 확인", "미배정 거래처를 우선 점검"], ["수금 등록", "수금 등록·승인·반려", "거래처·금액·수금일 확인 후 등록"], ["수금목표 관리", "예정 수금액과 완료일 관리", "완료 시 실제 수금등록 여부도 확인"], ["출고 데이터 업로드", "아마란스 출고자료 반영", "출고일별 월 자동 분리·마감월 제외 확인 후 반영"], ["수금계획 다운로드", "선택한 조회기준으로 계획서 생성", "카드수금은 입금예정 3영업일까지 포함"], ["계정·권한 관리", "사용자 계정과 업무권한 설정", "관리자만 변경하고 퇴사자는 사용 정지"]];
+  const steps = [["1", "조회기준 확인", "화면 상단에서 마감 기준 또는 최신 출고 포함 기준을 선택합니다."], ["2", "출고자료 반영", "관리자가 아마란스 출고자료를 올리고 월별 분리·합계·제외된 마감월을 확인합니다."], ["3", "거래처 관리", "회수기간·담당자·수금목표일·비고를 입력합니다. 회수기간 공란은 익월로 처리됩니다."], ["4", "수금 등록·승인", "채권 상세를 선택해 금액과 적요를 자동 입력하고, 승인된 수금만 잔액에 반영합니다."], ["5", "현황 보고", "채권요약·결산회의 자료를 확인하고 PPT·PNG·Excel로 내려받습니다."]];
+  const menus = [["대시보드", "전체 채권·전일 수금·거래처 확인", "조회기준과 사업부를 먼저 선택"], ["채권요약현황", "사업부별 채권·수금 실적 보고", "결산자료는 PPT 또는 PNG 다운로드"], ["결산회의 미수채권", "잔액이 있는 미수채권만 회의자료로 확인", "부실·0원 거래처는 제외하고 PPT·PNG 다운로드"], ["거래처별 현황", "채권 상세·회수기간·담당자·비고 관리", "음수잔액도 조회하며 정상채권은 미수로 전환 가능"], ["담당자별 채권현황", "담당자별 거래처와 채권잔액 확인", "미배정 거래처를 우선 점검"], ["수금 등록", "채권 선택·자동 적요·승인·반려", "미등록 거래처 선수금은 간편등록 후 처리"], ["수금목표 관리", "예정 수금액과 완료일 관리", "완료 시 실제 수금등록 여부도 확인"], ["출고 데이터 업로드", "아마란스 출고자료 반영·이전 파일 복원", "월 자동 분리, 마감월 제외, 재업로드 결과 확인"], ["수금계획 다운로드", "선택한 조회기준으로 계획서 생성", "카드수금은 입금예정 3영업일까지 포함"], ["계정·권한 관리", "사용자 계정과 업무권한 설정", "관리자만 변경하고 퇴사자는 사용 정지"]];
+  const implementation = [["① 출고 입력", "출고파일의 합계액을 거래처·사업부·발생월별 원장으로 저장합니다. 마감된 월은 다시 반영하지 않습니다."], ["② 채권 계산", "발생월에 회수기간을 더해 정상회수월을 계산합니다. 미입력은 1개월(익월)이며, 변경 시 관련 정상채권을 자동 재계산합니다."], ["③ 수금 반영", "승인된 수금만 오래된 부실·미수·정상채권 순으로 상세 원장에서 차감하고 거래처 합계를 다시 맞춥니다."], ["④ 재업로드", "같은 월 출고분을 새 파일로 교체하되 이미 승인된 수금 배분은 승계합니다. 최신 업로드는 직전 파일 상태로 복원할 수 있습니다."], ["⑤ 조회·보고", "상세 원장을 기준으로 거래처·담당자·사업부 합계를 만들며, 보고 화면에는 선택한 조회기준을 공통 적용합니다."]];
+  const terms = [["정상채권", "정상회수월이 아직 지나지 않은 채권"], ["미수채권", "정상회수월이 지났거나 거래종료 등의 사유로 직접 전환한 관리대상 채권"], ["부실채권", "장기연체 등 별도 집중관리가 필요한 채권"], ["선수금·음수잔액", "채권 발생 전 먼저 수금되었거나 수금액이 채권보다 큰 상태"]];
   return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Card, {
     title: "처음 사용할 때 · 기본 업무 순서"
   }, /*#__PURE__*/React.createElement("div", {
@@ -3129,10 +3131,27 @@ function Manual() {
   }, /*#__PURE__*/React.createElement("td", {
     className: "t-strong"
   }, row[0]), /*#__PURE__*/React.createElement("td", null, row[1]), /*#__PURE__*/React.createElement("td", null, row[2]))))))), /*#__PURE__*/React.createElement(Card, {
+    title: "프로그램이 채권을 계산하는 방식"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "manual-notices"
+  }, implementation.map(([title, text]) => /*#__PURE__*/React.createElement("div", {
+    key: title
+  }, /*#__PURE__*/React.createElement("b", null, title), /*#__PURE__*/React.createElement("span", null, text))))), /*#__PURE__*/React.createElement(Card, {
+    title: "채권 구분 이해하기",
+    flush: true
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "tablewrap"
+  }, /*#__PURE__*/React.createElement("table", {
+    className: "manual-table"
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "구분"), /*#__PURE__*/React.createElement("th", null, "프로그램 처리 기준"))), /*#__PURE__*/React.createElement("tbody", null, terms.map(row => /*#__PURE__*/React.createElement("tr", {
+    key: row[0]
+  }, /*#__PURE__*/React.createElement("td", {
+    className: "t-strong"
+  }, row[0]), /*#__PURE__*/React.createElement("td", null, row[1]))))))), /*#__PURE__*/React.createElement(Card, {
     title: "꼭 확인하세요"
   }, /*#__PURE__*/React.createElement("div", {
     className: "manual-notices"
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("b", null, "조회기준"), /*#__PURE__*/React.createElement("span", null, "보고 화면은 선택한 조회기준을 따르며, 수금·업로드 화면은 항상 최신 운영데이터를 사용합니다.")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("b", null, "수금 승인"), /*#__PURE__*/React.createElement("span", null, "수금은 등록만으로 잔액이 줄지 않습니다. 재무담당자의 승인 후 반영됩니다.")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("b", null, "미수 전환"), /*#__PURE__*/React.createElement("span", null, "거래가 종료된 정상채권은 채권 상세에서 미수채권으로 전환할 수 있습니다.")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("b", null, "계정 보안"), /*#__PURE__*/React.createElement("span", null, "아이디는 고정되며, 로그인 후 상단의 비밀번호 변경에서 본인이 직접 변경할 수 있습니다.")))));
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("b", null, "조회기준"), /*#__PURE__*/React.createElement("span", null, "보고 화면은 선택한 조회기준을 따르며, 수금·업로드 화면은 항상 최신 운영데이터를 사용합니다.")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("b", null, "수금 승인"), /*#__PURE__*/React.createElement("span", null, "승인권자가 등록하면 즉시 승인되며, 그 외 사용자의 등록은 승인 완료 후 잔액에 반영됩니다.")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("b", null, "카드수금"), /*#__PURE__*/React.createElement("span", null, "채권에서는 승인 즉시 차감되지만 수금계획에는 통장 입금예정일인 수금일 이후 3영업일까지 포함됩니다.")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("b", null, "월 마감"), /*#__PURE__*/React.createElement("span", null, "마감된 월의 출고자료는 재업로드 파일에 포함되어 있어도 새 채권으로 다시 반영하지 않습니다.")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("b", null, "미수 전환"), /*#__PURE__*/React.createElement("span", null, "거래가 종료된 정상채권은 채권 상세에서 미수채권으로 전환할 수 있습니다.")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("b", null, "계정 보안"), /*#__PURE__*/React.createElement("span", null, "아이디는 고정되며, 로그인 후 상단의 비밀번호 변경에서 본인이 직접 변경할 수 있습니다.")))));
 }
 
 /* ══════════════════ 셸 ══════════════════ */
