@@ -305,6 +305,12 @@ CREATE TABLE IF NOT EXISTS upload_backups (
     created_at      TEXT NOT NULL {NOW_DEFAULT}
 );
 
+CREATE TABLE IF NOT EXISTS system_migrations (
+    migration_key TEXT PRIMARY KEY,
+    applied_at    TEXT NOT NULL {NOW_DEFAULT},
+    detail        TEXT NOT NULL DEFAULT ''
+);
+
 CREATE TABLE IF NOT EXISTS monthly_shipments (
     month              TEXT NOT NULL,
     code               TEXT NOT NULL,
