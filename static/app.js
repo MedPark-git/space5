@@ -76,6 +76,7 @@ function customersForUnit(customers, unit) {
   return unit === "전체" ? customers : customers.map(c => customerForUnit(c, unit)).filter(Boolean);
 }
 const code5 = code => String(code || "").padStart(5, "0");
+const normalizeSearch = value => String(value || "").normalize("NFKC").toLocaleLowerCase("ko-KR").replace(/[\s\u200B-\u200D\uFEFF]/g, "");
 const overdueMonths = days => Math.ceil(Math.max(0, Number(days) || 0) / 30);
 function normalizeShipmentDate(value) {
   if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString().slice(0, 10);
@@ -1365,7 +1366,8 @@ function Customers({
     if (ageFilter === "1-3" && (c.months < 1 || c.months > 3)) return false;
     if (ageFilter === "4-11" && (c.months < 4 || c.months > 11)) return false;
     if (ageFilter === "12+" && c.months < 12) return false;
-    if (q && !(c.name.includes(q) || c.code.includes(q) || code5(c.code).includes(q) || (c.owner || "").includes(q))) return false;
+    const query = normalizeSearch(q);
+    if (query && ![c.name, c.code, code5(c.code), c.owner].some(value => normalizeSearch(value).includes(query))) return false;
     return true;
   }), [data.customers, unit, type, q, periodFilter, ownerFilter, ageFilter]);
   const owners = useMemo(() => [...new Set(data.customers.map(c => c.owner).filter(Boolean))].sort(), [data.customers]);
@@ -1524,7 +1526,8 @@ function Customers({
     inputMode: "text",
     value: q,
     placeholder: "거래처명·코드·담당자",
-    onChange: e => setQ(e.target.value)
+    onChange: e => setQ(e.target.value),
+    onCompositionEnd: e => setQ(e.currentTarget.value)
   })), /*#__PURE__*/React.createElement("button", {
     className: "btn btn--sm",
     onClick: () => {
