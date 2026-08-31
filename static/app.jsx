@@ -1640,8 +1640,9 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
           const bizUnit = amaranthMode ? (unitMap[rawBizUnit] || "") : rawBizUnit;
           if (!name) issues.push((i + 1) + "행: 거래처명 누락");
           if (!data.meta.units.includes(bizUnit)) issues.push((i + 1) + "행: 사업부 오류");
-          const period = pick("collection_period");
-          if (shipmentMode && period !== "" && (Number(period) < 0 || !Number.isFinite(Number(period)))) {
+          const rawPeriod = pick("collection_period");
+          const period = rawPeriod === "" || rawPeriod == null ? 1 : rawPeriod;
+          if (shipmentMode && (Number(period) < 0 || !Number.isFinite(Number(period)))) {
             issues.push((i + 1) + "행: 회수기간 오류");
           }
           const rawShipmentDate = pick("shipment_date");
