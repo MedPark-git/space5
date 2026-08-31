@@ -141,7 +141,8 @@ CUSTOMER_RESTORE_COLUMNS = (
     "code", "name", "biz_unit", "status", "owner", "balance", "normal_balance",
     "normal_later_balance", "normal_next_balance", "normal_current_balance", "normal_collected",
     "overdue_balance", "overdue_source_balance", "overdue_collected", "bad_balance", "advance",
-    "overdue_days", "collection_target_date", "last_paid_at", "period", "source_month", "note", "updated_at",
+    "overdue_days", "collection_target_date", "last_paid_at", "period", "period_confirmed",
+    "source_month", "note", "updated_at",
 )
 SHIPMENT_RESTORE_COLUMNS = (
     "month", "code", "name", "biz_unit", "owner", "collection_period", "target_month",
@@ -167,8 +168,13 @@ def restore_table_rows(conn, table, columns, rows):
     placeholders = ",".join(["%s"] * len(columns))
     conn.executemany(
         "INSERT INTO " + table + " (" + ",".join(columns) + ") VALUES (" + placeholders + ")",
-        [tuple(0 if column == "advance_applied" and row.get(column) is None else row.get(column)
-               for column in columns) for row in rows])
+        [tuple(
+            0 if column == "advance_applied" and row.get(column) is None
+            else (0 if column == "period_confirmed" and row.get(column) is None
+                  and as_int(row.get("period"), 1) == 1
+                  else (1 if column == "period_confirmed" and row.get(column) is None
+                        else row.get(column)))
+            for column in columns) for row in rows])
 
 
 def save_upload_checkpoint(conn, upload_id, previous_filename, checkpoint):
@@ -655,8 +661,8 @@ def quick_create_customer():
         if existing:
             return jsonify(error="이미 등록된 고객코드입니다. 기존 거래처를 선택하세요."), 409
         customer = conn.execute(
-            "INSERT INTO customers (code,name,biz_unit,status,owner,period,source_month,note)"
-            " VALUES (%s,%s,%s,'정상','',1,'','') RETURNING *",
+            "INSERT INTO customers (code,name,biz_unit,status,owner,period,period_confirmed,source_month,note)"
+            " VALUES (%s,%s,%s,'정상','',1,0,'','') RETURNING *",
             (code, name, biz_unit)).fetchone()
         log(conn, request.user["username"], "customer_quick_create", "%s / %s" % (code, name))
     return jsonify(customer=customer), 201
@@ -682,6 +688,7 @@ def update_customer(code):
             return jsonify(error="회수기간은 0 이상의 개월 수로 입력하세요."), 400
         fields.append("period = %s")
         values.append(period)
+        fields.append("period_confirmed = 1")
         period_changed = True
     else:
         period_changed = False
@@ -1024,12 +1031,18 @@ def upload_rows():
                     continue
                 if code.isdigit():
                     code = code.zfill(5)
-                existing = conn.execute("SELECT period FROM customers WHERE code=%s", (code,)).fetchone()
+                existing = conn.execute(
+                    "SELECT period,period_confirmed FROM customers WHERE code=%s", (code,)).fetchone()
                 period_raw = r.get("collection_period")
-                if period_raw in (None, ""):
+                period_confirmed = (bool(r.get("collection_period_confirmed"))
+                                    if "collection_period_confirmed" in r
+                                    else period_raw not in (None, ""))
+                if not period_confirmed or period_raw in (None, ""):
                     period = (existing["period"] if existing and existing["period"] >= 0 else 1)
+                    period_confirmed = int(existing["period_confirmed"] if existing else 0)
                 else:
                     period = max(as_int(period_raw, 1), 0)
+                    period_confirmed = 1
                 # 합계액을 출고채권 원금으로 우선 사용한다. 유상·무상·견본 열이
                 # 공란 또는 0이어도 합계액만 정상적이면 업로드할 수 있다.
                 # 화면에서 동일 거래처·사업부의 여러 출고행을 합산한 shipment_amount를
@@ -1050,7 +1063,7 @@ def upload_rows():
                 shipments[key] = dict(
                     code=code, name=str(r.get("name") or "").strip() or code,
                     biz_unit=unit,
-                    owner="", period=period,
+                    owner="", period=period, period_confirmed=period_confirmed,
                     target_month=target_month, bucket=bucket, amount=amount,
                     note=str(r.get("note") or "").strip())
 
@@ -1114,23 +1127,23 @@ def upload_rows():
                 total_advance_applied += advance_applied
                 if current:
                     conn.execute(
-                        "UPDATE customers SET name=%s, period=%s,"
+                        "UPDATE customers SET name=%s, period=%s,period_confirmed=%s,"
                         " balance=balance+%s, normal_balance=normal_balance+%s,"
                         " " + column + "=" + column + "+%s, source_month=%s,"
                         " advance=advance-%s,"
                         " updated_at=" + db.NOW_SQL + " WHERE code=%s",
-                        (item["name"], item["period"], net_amount, net_amount, net_amount,
+                        (item["name"], item["period"], item["period_confirmed"], net_amount, net_amount, net_amount,
                          month, advance_applied, item["code"]))
                 else:
                     values = dict(current=0, next=0, later=0)
                     values[item["bucket"]] = net_amount
                     conn.execute(
                         "INSERT INTO customers (code,name,biz_unit,status,owner,balance,normal_balance,"
-                        " normal_current_balance,normal_next_balance,normal_later_balance,period,source_month,note)"
-                        " VALUES (%s,%s,%s,'정상',%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                        " normal_current_balance,normal_next_balance,normal_later_balance,period,period_confirmed,source_month,note)"
+                        " VALUES (%s,%s,%s,'정상',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                         (item["code"], item["name"], item["biz_unit"], "",
                          net_amount, net_amount, values["current"], values["next"],
-                         values["later"], item["period"], month, item["note"]))
+                         values["later"], item["period"], item["period_confirmed"], month, item["note"]))
                 conn.execute(
                     "INSERT INTO monthly_shipment_units (month,code,name,biz_unit,owner,collection_period,"
                     " target_month,bucket,amount,balance,advance_applied,note)"
@@ -1165,6 +1178,8 @@ def upload_rows():
 
         prev = conn.execute(
             "SELECT COUNT(*) AS c FROM customers WHERE source_month = %s", (month,)).fetchone()["c"]
+        existing_periods = {r["code"]: r for r in conn.execute(
+            "SELECT code,period,period_confirmed FROM customers")}
         conn.execute("DELETE FROM customers WHERE source_month = %s", (month,))
 
         payload = {}   # 같은 코드가 여러 번 오면 마지막 값만 남긴다
@@ -1195,6 +1210,12 @@ def upload_rows():
             period_raw = r.get("collection_period")
             collection_period = (1 if period_raw in (None, "")
                                  else max(as_int(period_raw, 1), 0))
+            period_confirmed = int(bool(r.get("collection_period_confirmed"))
+                                   if "collection_period_confirmed" in r
+                                   else period_raw not in (None, ""))
+            if not period_confirmed and code in existing_periods:
+                collection_period = existing_periods[code]["period"]
+                period_confirmed = int(existing_periods[code]["period_confirmed"])
             payload[code] = (
                 code, str(r.get("name") or "").strip() or code, unit, status,
                 "", balance,
@@ -1208,7 +1229,7 @@ def upload_rows():
                 as_int(r.get("overdue_collected")),
                 bad_balance,
                 as_int(r.get("advance")), overdue,
-                str(r.get("last_paid_at") or "").strip(), collection_period, month,
+                str(r.get("last_paid_at") or "").strip(), collection_period, period_confirmed, month,
                 str(r.get("note") or "").strip(),
             )
         conn.executemany(
@@ -1216,8 +1237,8 @@ def upload_rows():
             " normal_balance, normal_later_balance, normal_next_balance,"
             " normal_current_balance, normal_collected, overdue_balance,"
             " overdue_source_balance, overdue_collected, bad_balance, advance, overdue_days,"
-            " last_paid_at, period, source_month, note)"
-            " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
+            " last_paid_at, period, period_confirmed, source_month, note)"
+            " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
             " ON CONFLICT (code) DO UPDATE SET"
             " name=excluded.name, biz_unit=excluded.biz_unit, status=excluded.status,"
             " balance=excluded.balance, advance=excluded.advance,"
@@ -1230,7 +1251,8 @@ def upload_rows():
             " overdue_source_balance=excluded.overdue_source_balance,"
             " overdue_collected=excluded.overdue_collected,"
             " overdue_days=excluded.overdue_days, last_paid_at=excluded.last_paid_at,"
-            " period=excluded.period, source_month=excluded.source_month, note=excluded.note",
+            " period=excluded.period, period_confirmed=excluded.period_confirmed,"
+            " source_month=excluded.source_month, note=excluded.note",
             list(payload.values()))
         # 확정채권 스냅샷도 발생월별 원장으로 재구성하되 기존 채권별 목표일은 보존한다.
         for code in payload:
