@@ -184,6 +184,95 @@ def upload_history(conn):
     return uploads
 
 
+def sync_customer_from_receivables(conn, code, snapshot_month=None):
+    """발생월별 상세 원장을 기준으로 거래처·출고 원장 잔액을 다시 맞춘다."""
+    customer = conn.execute("SELECT * FROM customers WHERE code=%s", (code,)).fetchone()
+    if not customer:
+        return None
+    if not snapshot_month:
+        latest = conn.execute(
+            "SELECT month FROM uploads WHERE upload_type='snapshot' ORDER BY id DESC LIMIT 1").fetchone()
+        snapshot_month = latest["month"] if latest else customer["source_month"]
+    items = [r for r in conn.execute(
+        "SELECT * FROM receivable_items WHERE customer_code=%s", (code,))]
+    if not items:
+        return customer
+    values = dict(balance=0, normal_balance=0, normal_current_balance=0,
+                  normal_next_balance=0, normal_later_balance=0,
+                  overdue_balance=0, bad_balance=0)
+    for item in items:
+        amount = as_int(item["balance"])
+        values["balance"] += amount
+        if item["category"] == "부실":
+            values["bad_balance"] += amount
+        elif item["category"] == "연체":
+            values["overdue_balance"] += amount
+        else:
+            values["normal_balance"] += amount
+            if item["target_month"] == snapshot_month:
+                values["normal_current_balance"] += amount
+            elif item["target_month"] == add_months(snapshot_month, 1):
+                values["normal_next_balance"] += amount
+            else:
+                values["normal_later_balance"] += amount
+        if str(item["source_key"]).startswith("shipment:"):
+            conn.execute(
+                "UPDATE monthly_shipment_units SET balance=%s WHERE month=%s AND code=%s AND biz_unit=%s",
+                (amount, item["issue_month"], code, item["biz_unit"]))
+    status = "부실" if values["bad_balance"] > 0 else (
+        "연체" if values["overdue_balance"] > 0 else "정상")
+    return conn.execute(
+        "UPDATE customers SET balance=%s,normal_balance=%s,normal_current_balance=%s,"
+        " normal_next_balance=%s,normal_later_balance=%s,overdue_balance=%s,bad_balance=%s,"
+        " status=%s,updated_at=" + db.NOW_SQL + " WHERE code=%s RETURNING *",
+        (values["balance"], values["normal_balance"], values["normal_current_balance"],
+         values["normal_next_balance"], values["normal_later_balance"],
+         values["overdue_balance"], values["bad_balance"], status, code)).fetchone()
+
+
+def repair_receivable_consistency_once():
+    """승인수금을 상세 원장에 재배분하고 모든 집계 잔액을 한 번 복구한다."""
+    key = "receivable_consistency_20260829_v1"
+    with connect() as conn:
+        claimed = conn.execute(
+            "INSERT INTO system_migrations (migration_key,detail) VALUES (%s,'running')"
+            " ON CONFLICT(migration_key) DO NOTHING RETURNING migration_key", (key,)).fetchone()
+        if not claimed:
+            return
+        snapshot = conn.execute(
+            "SELECT month,uploaded_at FROM uploads WHERE upload_type='snapshot' ORDER BY id DESC LIMIT 1").fetchone()
+        snapshot_month = snapshot["month"] if snapshot else date.today().strftime("%Y-%m")
+        snapshot_at = snapshot["uploaded_at"] if snapshot else ""
+        conn.execute("UPDATE receivable_items SET balance=original_amount")
+        collections = [r for r in conn.execute(
+            "SELECT * FROM collections WHERE state='approved' AND"
+            " COALESCE(NULLIF(approved_at,''),created_at)>%s ORDER BY approved_at,id", (snapshot_at,))]
+        for collection in collections:
+            remaining = as_int(collection["amount"])
+            items = [r for r in conn.execute(
+                "SELECT id,balance FROM receivable_items WHERE customer_code=%s AND balance>0"
+                " ORDER BY CASE category WHEN '부실' THEN 1 WHEN '연체' THEN 2 ELSE 3 END,issue_month,id",
+                (collection["customer_code"],))]
+            for item in items:
+                deducted = min(remaining, as_int(item["balance"]))
+                conn.execute("UPDATE receivable_items SET balance=balance-%s WHERE id=%s",
+                             (deducted, item["id"]))
+                remaining -= deducted
+                if remaining <= 0:
+                    break
+        codes = [r["customer_code"] for r in conn.execute(
+            "SELECT DISTINCT customer_code FROM receivable_items")]
+        mismatches = 0
+        for code in codes:
+            before = conn.execute("SELECT balance FROM customers WHERE code=%s", (code,)).fetchone()
+            after = sync_customer_from_receivables(conn, code, snapshot_month)
+            if before and after and as_int(before["balance"]) != as_int(after["balance"]):
+                mismatches += 1
+        conn.execute("UPDATE system_migrations SET detail=%s WHERE migration_key=%s",
+                     ("승인수금 %d건 재배분 · 불일치 %d개 거래처 복구" %
+                      (len(collections), mismatches), key))
+
+
 def month_offset(base_month, target_month):
     by, bm = (int(x) for x in base_month.split("-"))
     ty, tm = (int(x) for x in target_month.split("-"))
@@ -639,60 +728,27 @@ def approve_collection(cid):
         # 발생월별 원장은 부실 → 미수 → 정상, 각 구분 안에서는 오래된 발생월부터 차감한다.
         item_remaining = amount
         detail_items = [x for x in conn.execute(
-            "SELECT id,balance FROM receivable_items WHERE customer_code=%s AND balance>0"
+            "SELECT id,balance,source_key,issue_month,biz_unit FROM receivable_items"
+            " WHERE customer_code=%s AND balance>0"
             " ORDER BY CASE category WHEN '부실' THEN 1 WHEN '연체' THEN 2 ELSE 3 END,issue_month,id",
             (row["customer_code"],))]
         for item in detail_items:
             deducted = min(item_remaining, item["balance"])
             conn.execute("UPDATE receivable_items SET balance=balance-%s WHERE id=%s",
                          (deducted, item["id"]))
+            if str(item["source_key"]).startswith("shipment:"):
+                conn.execute(
+                    "UPDATE monthly_shipment_units SET balance=CASE WHEN balance-%s<0 THEN 0 ELSE balance-%s END"
+                    " WHERE month=%s AND code=%s AND biz_unit=%s",
+                    (deducted, deducted, item["issue_month"], row["customer_code"], item["biz_unit"]))
             item_remaining -= deducted
             if item_remaining <= 0:
                 break
-        normal_paid = 0
         advance_paid = max(amount - before["balance"], 0) if before else amount
-        if before:
-            normal_paid = min(
-                max(amount - before["bad_balance"] - before["overdue_balance"], 0),
-                before["normal_balance"])
-        customer = conn.execute(
-            "UPDATE customers SET"
-            " balance = CASE WHEN balance - %s < 0 THEN 0 ELSE balance - %s END,"
-            " bad_balance = CASE WHEN bad_balance >= %s THEN bad_balance - %s ELSE 0 END,"
-            " overdue_balance = CASE"
-            "   WHEN %s <= bad_balance THEN overdue_balance"
-            "   WHEN %s - bad_balance <= overdue_balance THEN overdue_balance - (%s - bad_balance)"
-            "   ELSE 0 END,"
-            " normal_balance = CASE"
-            "   WHEN %s <= bad_balance + overdue_balance THEN normal_balance"
-            "   WHEN %s - bad_balance - overdue_balance <= normal_balance"
-            "     THEN normal_balance - (%s - bad_balance - overdue_balance)"
-            "   ELSE 0 END,"
-            " advance = advance + %s,"
-            " status = CASE WHEN balance - %s <= 0 THEN '정상' ELSE status END,"
-            " overdue_days = CASE WHEN balance - %s <= 0 THEN 0 ELSE overdue_days END,"
-            " last_paid_at = %s, updated_at = " + db.NOW_SQL +
-            " WHERE code = %s RETURNING *",
-            (amount, amount, amount, amount,
-             amount, amount, amount,
-             amount, amount, amount,
-             advance_paid, amount, amount, row["paid_at"], row["customer_code"])).fetchone()
-        # 정상채권까지 차감된 경우 수금대상월이 오래된 출고분부터 잔액을 줄인다.
-        remaining = normal_paid
-        if remaining > 0:
-            shipment_rows = [s for s in conn.execute(
-                "SELECT month,code,biz_unit,balance FROM monthly_shipment_units"
-                " WHERE code=%s AND balance>0 ORDER BY target_month,month",
-                (row["customer_code"],))]
-            for shipment in shipment_rows:
-                paid = min(remaining, shipment["balance"])
-                conn.execute(
-                    "UPDATE monthly_shipment_units SET balance=balance-%s"
-                    " WHERE month=%s AND code=%s AND biz_unit=%s",
-                    (paid, shipment["month"], shipment["code"], shipment["biz_unit"]))
-                remaining -= paid
-                if remaining <= 0:
-                    break
+        conn.execute(
+            "UPDATE customers SET advance=advance+%s,last_paid_at=%s,updated_at=" + db.NOW_SQL +
+            " WHERE code=%s", (advance_paid, row["paid_at"], row["customer_code"]))
+        customer = sync_customer_from_receivables(conn, row["customer_code"])
         log(conn, request.user["username"], "collection_approve", str(cid))
     return jsonify(collection=row, customer=customer)
 
@@ -914,6 +970,8 @@ def upload_rows():
                      item["target_month"], item["amount"], net_amount,
                      previous_targets.get((item["code"], item["biz_unit"]),
                                           previous_targets_by_code.get(item["code"], "")), item["note"]))
+            for code in {item["code"] for item in shipments.values()}:
+                sync_customer_from_receivables(conn, code)
             upload_id = conn.execute(
                 "INSERT INTO uploads (month,filename,row_count,uploaded_by,replaced,upload_type,shipment_date)"
                 " VALUES (%s,%s,%s,%s,%s,'shipment',%s) RETURNING id",
@@ -1366,6 +1424,10 @@ def storage_delete():
     with connect() as conn:
         conn.execute("DELETE FROM kv WHERE scope=%s AND key=%s", (_scope(shared), key))
     return jsonify(key=key, deleted=True, shared=shared)
+
+
+# 배포 후 최초 기동에서만 기존 이중 수금배분과 집계 불일치를 복구한다.
+repair_receivable_consistency_once()
 
 
 if __name__ == "__main__":
