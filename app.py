@@ -1067,6 +1067,10 @@ def upload_rows():
         return jsonify(error="기준월 형식이 올바르지 않습니다. 예: 2026-08"), 400
     if not rows:
         return jsonify(error="읽어들인 행이 없습니다. 시트와 머리글을 확인하세요."), 400
+    if upload_type == "shipment":
+        for index, row in enumerate(rows, start=1):
+            if str(row.get("biz_unit") or "").strip() not in UNITS:
+                return jsonify(error="%s행: 사업부를 선택하세요. 덴탈·메디컬·에스테틱만 가능합니다." % index), 400
 
     with connect() as conn:
         lock = conn.execute("SELECT locked FROM month_locks WHERE month = %s", (month,)).fetchone()
@@ -1117,7 +1121,7 @@ def upload_rows():
                 # 음수 금액은 해당 월 정상채권을 감소시키는 조정액으로 반영된다.
                 target_month = add_months(month, period) if period >= 0 else ""
                 bucket = "current" if period == 0 else ("next" if period == 1 else "later")
-                source_unit = str(r.get("biz_unit") or "").strip() or "덴탈"
+                source_unit = str(r.get("biz_unit") or "").strip()
                 unit_override = conn.execute(
                     "SELECT target_biz_unit FROM receivable_unit_overrides"
                     " WHERE customer_code=%s AND issue_month=%s AND source_biz_unit=%s",

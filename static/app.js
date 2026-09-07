@@ -1616,6 +1616,14 @@ const COLUMN_ALIASES = {
     last_paid_at: ["최종수금일", "최근수금일", "최종입금일"],
     note: ["비고", "특이사항", "메모"],
 };
+const AMARANTH_UNIT_MAP = {
+    "제품_덴탈_국내": "덴탈",
+    "제품_메디컬_국내": "메디컬",
+    "제품_에스테틱_국내": "에스테틱",
+    "반제품_덴탈_국내": "덴탈",
+    "반제품_메디컬_국내": "메디컬",
+    "반제품_에스테틱_국내": "에스테틱",
+};
 function mapHeaders(headers) {
     const map = {};
     const cleaned = headers.map((h) => String(h || "").replace(/\s/g, ""));
@@ -1647,6 +1655,10 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
     const fileRef = useRef(null);
     const lockOf = (m) => data.locks.find((l) => l.month === m);
     const locked = !!(lockOf(month) && lockOf(month).locked);
+    const unassignedUnits = parsed ? parsed.rows.filter((r) => r.requires_unit_selection && !data.meta.units.includes(r.biz_unit)).length : 0;
+    function selectRowUnit(index, unit) {
+        setParsed((current) => ({ ...current, rows: current.rows.map((row, i) => i === index ? { ...row, biz_unit: unit } : row) }));
+    }
     function readFile(file) {
         setError("");
         setParsed(null);
@@ -1686,11 +1698,6 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
                     return;
                 }
                 const rows = [], issues = [];
-                const unitMap = {
-                    "제품_덴탈_국내": "덴탈",
-                    "제품_메디컬_국내": "메디컬",
-                    "제품_에스테틱_국내": "에스테틱",
-                };
                 for (let i = headerRow + 1; i < grid.length; i++) {
                     const raw = grid[i] || [];
                     const pick = (f) => (map[f] === undefined ? "" : raw[map[f]]);
@@ -1700,11 +1707,15 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
                     const normalizedCode = /^\d+$/.test(code) ? code.padStart(5, "0") : code;
                     const name = String(pick("name") || "").trim();
                     const rawBizUnit = String(pick("biz_unit") || "").trim();
-                    const bizUnit = amaranthMode ? (unitMap[rawBizUnit] || "") : rawBizUnit;
+                    const category = rawBizUnit.replace(/\s/g, "");
+                    const requiresUnitSelection = shipmentMode && category === "반제품";
+                    const bizUnit = amaranthMode ? (AMARANTH_UNIT_MAP[category] || "")
+                        : (requiresUnitSelection ? "" : rawBizUnit);
                     if (!name)
                         issues.push((i + 1) + "행: 거래처명 누락");
-                    if (!data.meta.units.includes(bizUnit))
-                        issues.push((i + 1) + "행: 사업부 오류");
+                    if (!data.meta.units.includes(bizUnit) && !requiresUnitSelection) {
+                        issues.push((i + 1) + "행: 사업부 오류 (" + (rawBizUnit || "미입력") + ")");
+                    }
                     const rawPeriod = pick("collection_period");
                     const period = rawPeriod === "" || rawPeriod == null ? 1 : rawPeriod;
                     if (shipmentMode && (Number(period) < 0 || !Number.isFinite(Number(period)))) {
@@ -1719,6 +1730,7 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
                         code: normalizedCode,
                         name,
                         biz_unit: bizUnit,
+                        requires_unit_selection: requiresUnitSelection,
                         status: String(pick("status") || "").trim(),
                         owner: "",
                         collection_period: period,
@@ -1750,8 +1762,10 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
                 let multiUnitCodes = [];
                 if (amaranthMode) {
                     const grouped = new Map();
-                    rows.forEach((r) => {
-                        const key = (r.shipment_month || month) + "|" + r.code + "|" + r.biz_unit;
+                    rows.forEach((r, index) => {
+                        // 사업부가 없는 반제품은 선택 전에 합치지 않는다. 같은 거래처라도 사업부가 다를 수 있다.
+                        const key = (r.shipment_month || month) + "|" + r.code + "|" + r.biz_unit
+                            + (r.requires_unit_selection ? "|unassigned:" + index : "");
                         const current = grouped.get(key);
                         if (current) {
                             current.shipment_amount = parseUploadAmount(current.shipment_amount) + parseUploadAmount(r.shipment_amount);
@@ -1794,6 +1808,10 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
         reader.readAsArrayBuffer(file);
     }
     async function send() {
+        if (!parsed || unassignedUnits > 0) {
+            notify("반제품의 사업부를 모두 선택한 뒤 반영하세요.", true);
+            return;
+        }
         setBusy(true);
         try {
             let res;
@@ -1881,7 +1899,10 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
                     readFile(e.dataTransfer.files[0]); } },
                 React.createElement("p", { style: { margin: "0 0 10px" } }, "\uC5D1\uC140 \uD30C\uC77C\uC744 \uB04C\uC5B4\uB2E4 \uB193\uAC70\uB098 \uC544\uB798\uC5D0\uC11C \uC120\uD0DD\uD558\uC138\uC694."),
                 React.createElement("input", { ref: fileRef, type: "file", accept: ".xlsx,.xls,.csv", onChange: (e) => e.target.files[0] && readFile(e.target.files[0]) }),
-                React.createElement("p", { className: "t-sm t-muted", style: { margin: "12px 0 0" } }, "\uC544\uB9C8\uB780\uC2A410 \uCD9C\uACE0\uD604\uD669 \uC6D0\uBCF8: E\uC5F4 \uACE0\uAC1D\uCF54\uB4DC \u00B7 F\uC5F4 \uACE0\uAC1D \u00B7 AK\uC5F4 \uB300\uBD84\uB958 \u00B7 AB\uC5F4 \uD569\uACC4\uC561\uC744 \uC790\uB3D9 \uC778\uC2DD\uD569\uB2C8\uB2E4.")),
+                React.createElement("p", { className: "t-sm t-muted", style: { margin: "12px 0 0" } },
+                    "\uC544\uB9C8\uB780\uC2A410 \uCD9C\uACE0\uD604\uD669 \uC6D0\uBCF8: E\uC5F4 \uACE0\uAC1D\uCF54\uB4DC \u00B7 F\uC5F4 \uACE0\uAC1D \u00B7 AK\uC5F4 \uB300\uBD84\uB958 \u00B7 AB\uC5F4 \uD569\uACC4\uC561\uC744 \uC790\uB3D9 \uC778\uC2DD\uD569\uB2C8\uB2E4.",
+                    React.createElement("br", null),
+                    "\uC81C\uD488\u00B7\uBC18\uC81C\uD488 \uBAA8\uB450 \uCC44\uAD8C\uC73C\uB85C \uBC18\uC601\uD569\uB2C8\uB2E4. \uB300\uBD84\uB958\uAC00 '\uBC18\uC81C\uD488'\uB9CC \uC788\uB294 \uACBD\uC6B0 \uC544\uB798\uC5D0\uC11C \uC0AC\uC5C5\uBD80\uB97C \uC120\uD0DD\uD558\uC138\uC694.")),
             error && React.createElement("div", { className: "alert alert--bad", style: { marginTop: 12 } }, error),
             locked && (!parsed || !parsed.fileDated) && (React.createElement("div", { className: "alert alert--warn", style: { marginTop: 12 } },
                 month,
@@ -1906,6 +1927,10 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
                     parsed.dupes.length > 0 && parsed.issues.length > 0 && " · ",
                     parsed.issues.slice(0, 8).join(" · "),
                     parsed.issues.length > 8 && " 외 " + (parsed.issues.length - 8) + "건")),
+                unassignedUnits > 0 && (React.createElement("div", { className: "alert alert--warn", style: { marginTop: 10 } },
+                    "\uBC18\uC81C\uD488 ",
+                    unassignedUnits,
+                    "\uAC74\uC758 \uC0AC\uC5C5\uBD80\uB97C \uC120\uD0DD\uD558\uC138\uC694. \uC544\uB798 \uD45C\uC5D0\uC11C \uB374\uD0C8\u00B7\uBA54\uB514\uCEEC\u00B7\uC5D0\uC2A4\uD14C\uD2F1 \uC911 \uC120\uD0DD\uD558\uBA74 \uBC18\uC601\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.")),
                 React.createElement("p", { className: "t-sm t-muted" },
                     parsed.mode === "shipment"
                         ? (parsed.fileDated ? "각 행의 출고월별로 재설정하며 마감된 월은 자동 제외합니다."
@@ -1922,15 +1947,17 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
                                 React.createElement("th", null, "\uC0AC\uC5C5\uBD80"),
                                 React.createElement("th", null, parsed.mode === "shipment" ? "회수기간" : "분류"),
                                 React.createElement("th", { className: "r" }, parsed.mode === "shipment" ? "출고금액" : "채권잔액"))),
-                        React.createElement("tbody", null, parsed.rows.slice(0, 12).map((r, i) => (React.createElement("tr", { key: i },
+                        React.createElement("tbody", null, parsed.rows.map((r, i) => (React.createElement("tr", { key: i },
                             parsed.fileDated && React.createElement("td", { className: "num" }, r.shipment_date),
                             React.createElement("td", { className: "num" }, r.code),
                             React.createElement("td", null, r.name),
-                            React.createElement("td", null, r.biz_unit || "–"),
+                            React.createElement("td", null, r.requires_unit_selection ? (React.createElement("select", { className: "input", value: r.biz_unit, disabled: busy, "aria-label": r.code + " " + r.name + " 반제품 사업부", onChange: (e) => selectRowUnit(i, e.target.value) },
+                                React.createElement("option", { value: "" }, "\uBC18\uC81C\uD488 \uC0AC\uC5C5\uBD80 \uC120\uD0DD"),
+                                data.meta.units.map((unit) => React.createElement("option", { key: unit, value: unit }, unit)))) : (r.biz_unit || "–")),
                             React.createElement("td", null, parsed.mode === "shipment" ? r.collection_period + "개월" : (r.status || "자동판정")),
                             React.createElement("td", { className: "r num" }, won(parsed.mode === "shipment" ? r.shipment_amount : r.balance)))))))),
                 React.createElement("div", { className: "btnrow" },
-                    React.createElement("button", { className: "btn btn--primary", onClick: send, disabled: busy || (!parsed.fileDated && locked) || (!parsed.fileDated && !shipmentDate) || parsed.dupes.length > 0 || parsed.issues.length > 0 }, parsed.fileDated ? "출고월별 데이터 반영" : month + " 데이터로 반영"),
+                    React.createElement("button", { className: "btn btn--primary", onClick: send, disabled: busy || unassignedUnits > 0 || (!parsed.fileDated && locked) || (!parsed.fileDated && !shipmentDate) || parsed.dupes.length > 0 || parsed.issues.length > 0 }, parsed.fileDated ? "출고월별 데이터 반영" : month + " 데이터로 반영"),
                     React.createElement("button", { className: "btn", onClick: () => setParsed(null) }, "\uCDE8\uC18C"))))),
         React.createElement(Card, { title: "\uC5C5\uB85C\uB4DC \uC774\uB825", flush: true },
             React.createElement("div", { className: "tablewrap" },
