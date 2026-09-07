@@ -1608,6 +1608,15 @@ const COLUMN_ALIASES = {
   note: ["비고", "특이사항", "메모"],
 };
 
+const AMARANTH_UNIT_MAP = {
+  "제품_덴탈_국내": "덴탈",
+  "제품_메디컬_국내": "메디컬",
+  "제품_에스테틱_국내": "에스테틱",
+  "반제품_덴탈_국내": "덴탈",
+  "반제품_메디컬_국내": "메디컬",
+  "반제품_에스테틱_국내": "에스테틱",
+};
+
 function mapHeaders(headers) {
   const map = {};
   const cleaned = headers.map((h) => String(h || "").replace(/\s/g, ""));
@@ -1638,6 +1647,13 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
 
   const lockOf = (m) => data.locks.find((l) => l.month === m);
   const locked = !!(lockOf(month) && lockOf(month).locked);
+  const unassignedUnits = parsed ? parsed.rows.filter((r) =>
+    r.requires_unit_selection && !data.meta.units.includes(r.biz_unit)).length : 0;
+
+  function selectRowUnit(index, unit) {
+    setParsed((current) => ({ ...current, rows: current.rows.map((row, i) =>
+      i === index ? { ...row, biz_unit: unit } : row) }));
+  }
 
   function readFile(file) {
     setError(""); setParsed(null);
@@ -1675,11 +1691,6 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
           return;
         }
         const rows = [], issues = [];
-        const unitMap = {
-          "제품_덴탈_국내": "덴탈",
-          "제품_메디컬_국내": "메디컬",
-          "제품_에스테틱_국내": "에스테틱",
-        };
         for (let i = headerRow + 1; i < grid.length; i++) {
           const raw = grid[i] || [];
           const pick = (f) => (map[f] === undefined ? "" : raw[map[f]]);
@@ -1688,9 +1699,14 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
           const normalizedCode = /^\d+$/.test(code) ? code.padStart(5, "0") : code;
           const name = String(pick("name") || "").trim();
           const rawBizUnit = String(pick("biz_unit") || "").trim();
-          const bizUnit = amaranthMode ? (unitMap[rawBizUnit] || "") : rawBizUnit;
+          const category = rawBizUnit.replace(/\s/g, "");
+          const requiresUnitSelection = shipmentMode && category === "반제품";
+          const bizUnit = amaranthMode ? (AMARANTH_UNIT_MAP[category] || "")
+            : (requiresUnitSelection ? "" : rawBizUnit);
           if (!name) issues.push((i + 1) + "행: 거래처명 누락");
-          if (!data.meta.units.includes(bizUnit)) issues.push((i + 1) + "행: 사업부 오류");
+          if (!data.meta.units.includes(bizUnit) && !requiresUnitSelection) {
+            issues.push((i + 1) + "행: 사업부 오류 (" + (rawBizUnit || "미입력") + ")");
+          }
           const rawPeriod = pick("collection_period");
           const period = rawPeriod === "" || rawPeriod == null ? 1 : rawPeriod;
           if (shipmentMode && (Number(period) < 0 || !Number.isFinite(Number(period)))) {
@@ -1705,6 +1721,7 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
             code: normalizedCode,
             name,
             biz_unit: bizUnit,
+            requires_unit_selection: requiresUnitSelection,
             status: String(pick("status") || "").trim(),
             owner: "",
             collection_period: period,
@@ -1738,8 +1755,10 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
         let multiUnitCodes = [];
         if (amaranthMode) {
           const grouped = new Map();
-          rows.forEach((r) => {
-            const key = (r.shipment_month || month) + "|" + r.code + "|" + r.biz_unit;
+          rows.forEach((r, index) => {
+            // 사업부가 없는 반제품은 선택 전에 합치지 않는다. 같은 거래처라도 사업부가 다를 수 있다.
+            const key = (r.shipment_month || month) + "|" + r.code + "|" + r.biz_unit
+              + (r.requires_unit_selection ? "|unassigned:" + index : "");
             const current = grouped.get(key);
             if (current) {
               current.shipment_amount = parseUploadAmount(current.shipment_amount) + parseUploadAmount(r.shipment_amount);
@@ -1779,6 +1798,10 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
   }
 
   async function send() {
+    if (!parsed || unassignedUnits > 0) {
+      notify("반제품의 사업부를 모두 선택한 뒤 반영하세요.", true);
+      return;
+    }
     setBusy(true);
     try {
       let res;
@@ -1868,6 +1891,7 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
             onChange={(e) => e.target.files[0] && readFile(e.target.files[0])} />
           <p className="t-sm t-muted" style={{ margin: "12px 0 0" }}>
             아마란스10 출고현황 원본: E열 고객코드 · F열 고객 · AK열 대분류 · AB열 합계액을 자동 인식합니다.
+            <br />제품·반제품 모두 채권으로 반영합니다. 대분류가 '반제품'만 있는 경우 아래에서 사업부를 선택하세요.
           </p>
         </div>
 
@@ -1896,6 +1920,11 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
                 {parsed.issues.slice(0, 8).join(" · ")}{parsed.issues.length > 8 && " 외 " + (parsed.issues.length - 8) + "건"}
               </div>
             )}
+            {unassignedUnits > 0 && (
+              <div className="alert alert--warn" style={{ marginTop: 10 }}>
+                반제품 {unassignedUnits}건의 사업부를 선택하세요. 아래 표에서 덴탈·메디컬·에스테틱 중 선택하면 반영할 수 있습니다.
+              </div>
+            )}
             <p className="t-sm t-muted">
               {parsed.mode === "shipment"
                 ? (parsed.fileDated ? "각 행의 출고월별로 재설정하며 마감된 월은 자동 제외합니다."
@@ -1910,10 +1939,18 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
                     <th className="r">{parsed.mode === "shipment" ? "출고금액" : "채권잔액"}</th></tr>
                 </thead>
                 <tbody>
-                  {parsed.rows.slice(0, 12).map((r, i) => (
+                  {parsed.rows.map((r, i) => (
                     <tr key={i}>
                       {parsed.fileDated && <td className="num">{r.shipment_date}</td>}
-                      <td className="num">{r.code}</td><td>{r.name}</td><td>{r.biz_unit || "–"}</td>
+                      <td className="num">{r.code}</td><td>{r.name}</td>
+                      <td>{r.requires_unit_selection ? (
+                        <select className="input" value={r.biz_unit} disabled={busy}
+                          aria-label={r.code + " " + r.name + " 반제품 사업부"}
+                          onChange={(e) => selectRowUnit(i, e.target.value)}>
+                          <option value="">반제품 사업부 선택</option>
+                          {data.meta.units.map((unit) => <option key={unit} value={unit}>{unit}</option>)}
+                        </select>
+                      ) : (r.biz_unit || "–")}</td>
                       <td>{parsed.mode === "shipment" ? r.collection_period + "개월" : (r.status || "자동판정")}</td>
                       <td className="r num">{won(parsed.mode === "shipment" ? r.shipment_amount : r.balance)}</td>
                     </tr>
@@ -1923,7 +1960,7 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
             </div>
             <div className="btnrow">
               <button className="btn btn--primary" onClick={send}
-                disabled={busy || (!parsed.fileDated && locked) || (!parsed.fileDated && !shipmentDate) || parsed.dupes.length > 0 || parsed.issues.length > 0}>
+                disabled={busy || unassignedUnits > 0 || (!parsed.fileDated && locked) || (!parsed.fileDated && !shipmentDate) || parsed.dupes.length > 0 || parsed.issues.length > 0}>
                 {parsed.fileDated ? "출고월별 데이터 반영" : month + " 데이터로 반영"}
               </button>
               <button className="btn" onClick={() => setParsed(null)}>취소</button>
