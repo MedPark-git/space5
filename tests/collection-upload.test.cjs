@@ -126,7 +126,7 @@ function reviewRow(key, kind = 'same_key') {
       method: '계좌수금', amount: 2000000, state: 'approved', registered_by: '기존 등록자' }] };
 }
 
-test('duplicates automatically open comparison dialog and require every checkbox before upload', async () => {
+test('duplicate choice applies without writing and final registration requires every confirmation', async () => {
   const h = harness(undefined, true, { rows: [reviewRow('1'), reviewRow('2', 'changed_key')],
     row_count: 2, ready_count: 0, review_count: 2, total_amount: 0 });
   await h.select();
@@ -140,6 +140,9 @@ test('duplicates automatically open comparison dialog and require every checkbox
   h.find((n) => n.type === 'input' && n.props['aria-label'] === '엑셀 3행 중복 여부 확인').props.onChange({ target: { checked: true } });
   assert.equal(confirm().props.disabled, false);
   await confirm().props.onClick();
+  assert.equal(h.requests.length, 1);
+  assert.equal(modal(), null);
+  await h.find((n) => n.props['aria-label'] === '수금 업로드 최종 등록').props.onClick();
   const request = h.requests.find((r) => r.url === '/api/collection-uploads' && r.payload);
   assert.equal(request.payload.reviews.length, 2);
   assert.ok(request.payload.reviews.every((r) => r.confirmed && r.action === 'exclude'));
@@ -173,6 +176,8 @@ test('separate payment selection requires reason and a new explicit check', asyn
   h.find((n) => n.props['aria-label'] === '엑셀 2행 중복 여부 확인').props.onChange({ target: { checked: true } });
   assert.equal(confirm().props.disabled, false);
   await confirm().props.onClick();
+  assert.equal(h.requests.length, 1);
+  await h.find((n) => n.props['aria-label'] === '수금 업로드 최종 등록').props.onClick();
   const request = h.requests.find((r) => r.url === '/api/collection-uploads' && r.payload);
   assert.equal(request.payload.reviews[0].action, 'separate');
   assert.equal(request.payload.reviews[0].reason, '당일 별도 입금 증빙 확인');
@@ -234,6 +239,8 @@ test('customer error dialog shows row and reason before duplicates and rechecks 
   h.find((n) => n.props['aria-label'] === '엑셀 2행 중복 여부 확인').props.onChange({ target: { checked: true } });
   duplicate = h.find((n) => n.props['aria-labelledby'] === 'collection-review-title');
   await h.find((n) => n.type === 'button' && n.props.className === 'btn btn--primary', duplicate).props.onClick();
+  assert.equal(h.requests.length, 2);
+  await h.find((n) => n.props['aria-label'] === '수금 업로드 최종 등록').props.onClick();
   const write = h.requests.find((r) => r.url === '/api/collection-uploads' && r.payload);
   assert.equal(write.payload.customer_resolutions[0].action, 'link');
   assert.equal(write.payload.customer_resolutions[0].confirmed, true);
@@ -289,4 +296,101 @@ test('all customer exclusions can save audit without creating receipt, and new a
   const save = h.find((n) => n.type === 'button' && textOf(n) === '제외 확인 이력 저장');
   assert.equal(save.props.disabled, false); await save.props.onClick();
   assert.equal(h.requests.find((r) => r.url === '/api/collection-uploads' && r.payload).payload.customer_resolutions[0].action, 'exclude');
+});
+
+test('screenshot case: seven duplicates can be handled while one customer error blocks only final registration', async () => {
+  const issue = customerIssue();
+  const duplicates = Array.from({ length: 7 }, (_, i) => reviewRow(String(i + 2), 'similar'));
+  const h = harness(undefined, true, { rows: [customerError(), ...duplicates], row_count: 8, ready_count: 0,
+    error_count: 1, review_count: 7, customer_issue_count: 1, customer_issues: [issue], total_amount: 0 });
+  await h.select();
+  const customerModal = h.find((n) => n.props['aria-labelledby'] === 'collection-customer-title');
+  const first = h.find((n) => n.type === 'button' && /중복\s+7\s*건 먼저 처리/.test(textOf(n)), customerModal);
+  assert.equal(first.props.disabled, false); first.props.onClick();
+  const modal = () => h.find((n) => n.props['aria-labelledby'] === 'collection-review-title');
+  const apply = () => h.find((n) => n.type === 'button' && n.props.className === 'btn btn--primary', modal());
+  const final = () => h.find((n) => n.props['aria-label'] === '수금 업로드 최종 등록');
+  assert.ok(modal()); assert.equal(final().props.disabled, true);
+  assert.equal(apply().props.disabled, true);
+  for (const r of duplicates) h.find((n) => n.props['aria-label'] === `엑셀 ${r.row_number}행 중복 여부 확인`).props.onChange({ target: { checked: true } });
+  assert.equal(apply().props.disabled, false);
+  await apply().props.onClick();
+  assert.equal(modal(), null); assert.equal(h.requests.length, 1);
+  assert.equal(final().props.disabled, true); await final().props.onClick();
+  assert.equal(h.requests.length, 1);
+  assert.match(textOf(h.render()), /중복 확인 완료\s+7\s*\/\s*7\s*건/);
+  const reopen = h.find((n) => n.type === 'button' && /중복\s+7\s*건 처리/.test(textOf(n)));
+  assert.equal(reopen.props.disabled, false); reopen.props.onClick();
+  assert.ok(modal());
+  assert.equal(h.find((n) => n.props['aria-label'] === '엑셀 3행 중복 여부 확인').props.checked, true);
+});
+
+test('customer revalidation preserves unchanged duplicate decisions and permits final registration afterwards', async () => {
+  const issue = customerIssue(); const duplicate = reviewRow('2', 'similar');
+  const h = harness(undefined, true, { rows: [customerError(), duplicate], row_count: 2, ready_count: 0,
+    error_count: 1, review_count: 1, customer_issue_count: 1, customer_issues: [issue], total_amount: 0 });
+  await h.select();
+  h.find((n) => n.type === 'button' && /중복\s+1\s*건 먼저 처리/.test(textOf(n))).props.onClick();
+  h.find((n) => n.props['aria-label'] === '엑셀 3행 중복 여부 확인').props.onChange({ target: { checked: true } });
+  let modal = h.find((n) => n.props['aria-labelledby'] === 'collection-review-title');
+  await h.find((n) => n.type === 'button' && n.props.className === 'btn btn--primary', modal).props.onClick();
+  h.find((n) => n.type === 'button' && textOf(n) === '거래처 오류·선택 확인').props.onClick();
+  h.find((n) => n.props['aria-label'] === '03791 거래처 처리 방법').props.onChange({ target: { value: 'exclude' } });
+  h.find((n) => n.props['aria-label'] === '03791 거래처 확인 완료').props.onChange({ target: { checked: true } });
+  h.setPreview({ rows: [{ ...customerError(), status: 'excluded', errors: [] }, duplicate], error_count: 0,
+    customer_issue_count: 0, customer_excluded_count: 1, customer_issues: [{ ...issue, resolved: true }] });
+  modal = h.find((n) => n.props['aria-labelledby'] === 'collection-customer-title');
+  await h.find((n) => n.type === 'button' && n.props.className === 'btn btn--primary', modal).props.onClick();
+  assert.equal(h.find((n) => n.props.role === 'dialog'), null);
+  const final = h.find((n) => n.props['aria-label'] === '수금 업로드 최종 등록');
+  assert.equal(final.props.disabled, false);
+  assert.equal(h.requests.length, 2);
+  await final.props.onClick();
+  const write = h.requests.find((r) => r.url === '/api/collection-uploads' && r.payload);
+  assert.equal(write.payload.reviews[0].review_token, duplicate.review_token);
+  assert.equal(write.payload.reviews[0].confirmed, true);
+  assert.equal(write.payload.customer_resolutions[0].action, 'exclude');
+});
+
+test('changed duplicate candidates clear previous confirmation and reopen review after customer revalidation', async () => {
+  const issue = customerIssue(); const duplicate = reviewRow('2', 'similar');
+  const h = harness(undefined, true, { rows: [customerError(), duplicate], row_count: 2, ready_count: 0,
+    error_count: 1, review_count: 1, customer_issue_count: 1, customer_issues: [issue], total_amount: 0 });
+  await h.select();
+  h.find((n) => n.type === 'button' && /중복\s+1\s*건 먼저 처리/.test(textOf(n))).props.onClick();
+  h.find((n) => n.props['aria-label'] === '엑셀 3행 중복 여부 확인').props.onChange({ target: { checked: true } });
+  let modal = h.find((n) => n.props['aria-labelledby'] === 'collection-review-title');
+  await h.find((n) => n.type === 'button' && n.props.className === 'btn btn--primary', modal).props.onClick();
+  h.find((n) => n.type === 'button' && textOf(n) === '거래처 오류·선택 확인').props.onClick();
+  h.find((n) => n.props['aria-label'] === '03791 거래처 처리 방법').props.onChange({ target: { value: 'exclude' } });
+  h.find((n) => n.props['aria-label'] === '03791 거래처 확인 완료').props.onChange({ target: { checked: true } });
+  h.setPreview({ rows: [{ ...customerError(), status: 'excluded', errors: [] }, { ...duplicate, review_token: 'changed-candidate' }],
+    error_count: 0, customer_issue_count: 0, customer_excluded_count: 1, customer_issues: [{ ...issue, resolved: true }] });
+  modal = h.find((n) => n.props['aria-labelledby'] === 'collection-customer-title');
+  await h.find((n) => n.type === 'button' && n.props.className === 'btn btn--primary', modal).props.onClick();
+  assert.ok(h.find((n) => n.props['aria-labelledby'] === 'collection-review-title'));
+  assert.equal(h.find((n) => n.props['aria-label'] === '엑셀 3행 중복 여부 확인').props.checked, false);
+  assert.equal(h.find((n) => n.props['aria-label'] === '수금 업로드 최종 등록').props.disabled, true);
+  assert.equal(h.requests.length, 2);
+});
+
+test('editing an applied decision or selecting a file again requires explicit reapplication', async () => {
+  const h = harness(undefined, true, { rows: [reviewRow('1', 'similar')], ready_count: 0, review_count: 1, total_amount: 0 });
+  await h.select();
+  const modal = () => h.find((n) => n.props['aria-labelledby'] === 'collection-review-title');
+  const apply = () => h.find((n) => n.type === 'button' && n.props.className === 'btn btn--primary', modal());
+  const final = () => h.find((n) => n.props['aria-label'] === '수금 업로드 최종 등록');
+  h.find((n) => n.props['aria-label'] === '엑셀 2행 중복 여부 확인').props.onChange({ target: { checked: true } });
+  await apply().props.onClick(); assert.equal(final().props.disabled, false);
+  h.find((n) => n.props['aria-label'] === '엑셀 2행 중복 처리 열기').props.onClick();
+  h.find((n) => n.props['aria-label'] === '엑셀 2행 처리 방법').props.onChange({ target: { value: 'separate' } });
+  assert.equal(final().props.disabled, true);
+  h.find((n) => n.props['aria-label'] === '엑셀 2행 별도 등록 사유').props.onChange({ target: { value: '별도 수금 증빙 확인' } });
+  h.find((n) => n.props['aria-label'] === '엑셀 2행 중복 여부 확인').props.onChange({ target: { checked: true } });
+  assert.equal(final().props.disabled, true);
+  await apply().props.onClick(); assert.equal(final().props.disabled, false);
+  await h.select();
+  assert.ok(modal()); assert.equal(final().props.disabled, true);
+  assert.equal(h.find((n) => n.props['aria-label'] === '엑셀 2행 중복 여부 확인').props.checked, false);
+  assert.ok(h.requests.every((r) => r.url.endsWith('/preview')));
 });
