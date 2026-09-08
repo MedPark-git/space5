@@ -358,3 +358,29 @@ tfoot td { background: var(--surface-2); font-weight: 700; border-top: 1px solid
   border: 1px solid var(--line); border-radius: var(--radius); font-size: 12.5px; }
 .bar { height: 6px; background: var(--surface-2); border-radius: 3px; overflow: hidden; min-width: 90px; }
 .bar > i { display: block; height: 100%; background: var(--brand); }
+
+/* 채권·수금 발생 추이 / 원본 내역 */
+.activity-filters { display:grid; grid-template-columns:150px 150px 150px minmax(180px,1fr) auto; gap:12px; align-items:end; }
+.activity-filters > .btn { margin-bottom:16px; min-height:36px; }
+.activity-kpis .kpi__value { font-size:clamp(19px,1.55vw,27px); overflow-wrap:anywhere; }
+.activity-kpis .kpi:disabled { cursor:default; color:var(--ink); }
+.activity-legend { display:flex; gap:20px; flex-wrap:wrap; padding:2px 0 16px; font-size:13px; color:var(--ink-2); }
+.activity-legend span { display:inline-flex; align-items:center; gap:7px; }
+.activity-dot { display:inline-block; width:10px; height:10px; border-radius:2px; }
+.activity-dot--shipment { background:var(--brand); }
+.activity-dot--collection { background:var(--ok); border-radius:50%; }
+.activity-chart-scroll { overflow-x:auto; border:1px solid var(--line-soft); border-radius:6px; background:var(--surface); }
+.activity-chart-scroll svg { display:block; min-width:100%; }
+.activity-chart-scroll [role=button] { cursor:pointer; }
+.activity-chart-caption { padding:12px 0 0; min-height:34px; color:var(--ink-2); }
+.activity-periods { max-height:460px; overflow:auto; }
+.activity-periods thead { position:sticky; top:0; z-index:1; }
+.activity-detail-toolbar { display:grid; gap:12px; padding:16px; }
+.activity-detail-toolbar .select { width:auto; min-width:150px; }
+.activity-detail-toolbar .formrow { max-width:500px; }
+.activity-pagination { padding:16px; }
+.activity-wrap { min-width:180px; max-width:380px; white-space:normal; overflow-wrap:anywhere; }
+.activity-source { max-height:88vh; overflow:auto; width:min(900px,94vw); }
+.activity-source h2 { margin:0; font-size:20px; }
+@media (max-width:1150px) { .activity-filters { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media (max-width:600px) { .activity-filters { grid-template-columns:1fr; } .activity-legend { gap:10px; } }

@@ -2130,7 +2130,7 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
       try {
         const wb = XLSX.read(e.target.result, { type: "array" });
         const sheet = wb.Sheets[wb.SheetNames[0]];
-        const grid = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false });
+        const grid = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: true });
         let headerRow = -1, map = {};
         for (let i = 0; i < Math.min(grid.length, 15); i++) {
           const candidate = mapHeaders(grid[i] || []);
@@ -2187,6 +2187,12 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
           }
           rows.push({
             code: normalizedCode,
+            source_lines: shipmentMode ? [{ row_number: i + 1, shipment_date: rowShipmentDate,
+              amount: parseUploadAmount(map.total_amount !== undefined ? pick("total_amount") : pick("shipment_amount")),
+              columns: (grid[headerRow] || []).map((header, column) => ({
+                column: XLSX.utils.encode_col(column), name: String(header || ""), value: raw[column] ?? "",
+              })).filter((cell) => cell.name || cell.value !== ""),
+            }] : undefined,
             name,
             biz_unit: bizUnit,
             requires_unit_selection: requiresUnitSelection,
@@ -2229,6 +2235,7 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
               + (r.requires_unit_selection ? "|unassigned:" + index : "");
             const current = grouped.get(key);
             if (current) {
+              current.source_lines = [...current.source_lines, ...r.source_lines];
               current.shipment_amount = parseUploadAmount(current.shipment_amount) + parseUploadAmount(r.shipment_amount);
               current.total_amount = current.shipment_amount;
               if (r.shipment_date > current.shipment_date) current.shipment_date = r.shipment_date;
@@ -2750,6 +2757,8 @@ function Manual() {
   const menus = [
     ["대시보드", "전체 채권·전일 수금·거래처 확인", "조회기준과 사업부를 먼저 선택"],
     ["채권요약현황", "사업부별 채권·수금 실적 보고", "결산자료는 PPT 또는 PNG 다운로드"],
+    ["채권·수금 추이", "일별·월별 출고 발생액과 승인 수금 비교", "그래프·기간별 표 선택으로 상세 이동"],
+    ["채권·수금 상세내역", "출고채권·수금·기초이월 내역과 업로드 원본 확인", "사업부·거래처·일자·월·승인상태별 조회"],
     ["결산회의 미수채권", "잔액이 있는 미수채권만 회의자료로 확인", "부실·0원 거래처는 제외하고 PPT·PNG 다운로드"],
     ["거래처별 현황", "채권 상세·회수기간·담당자·비고·사업부 관리", "사업부 변경 시 합계·보고서가 즉시 변경되므로 원본자료도 함께 정정"],
     ["담당자별 채권현황", "담당자별 거래처와 채권잔액 확인", "미배정 거래처를 우선 점검"],
@@ -2796,6 +2805,17 @@ function Manual() {
         <tbody>{terms.map((row) => <tr key={row[0]}><td className="t-strong">{row[0]}</td><td>{row[1]}</td></tr>)}</tbody>
       </table></div>
     </Card>
+    <Card title="채권·수금 추이 · 집계 기준">
+      <ul>
+        <li>시작월·종료월, 사업부, 거래처명·고객코드를 선택해 최대 24개월을 조회합니다. 일별·월별 그래프의 날짜 또는 금액 대조표를 선택하면 세부 내역으로 이동합니다.</li>
+        <li>발생액은 월별 최신 반영 출고금액이며 반품·조정은 음수로 포함합니다. 재업로드는 동일 월의 이전 금액을 더하지 않습니다. 수금 상계 후 잔액을 발생액으로 사용하지 않습니다.</li>
+        <li>수금은 실제 수금일 기준 승인 완료 금액이며 선수금을 포함합니다. 승인 대기·반려는 그래프에서 제외하고 상세내역에서 상태별 조회합니다. 사업부별 수금은 현재 거래처 사업부 기준이며 채권별 상계 배분을 뜻하지 않습니다.</li>
+        <li>기초·이월채권은 신규 발생액에서 제외하고 별도 탭에서 현재 원금을 확인합니다. 발생액−수금액은 기간 금액의 비교이며 현재 채권잔액이나 실제 상계액과 같지 않을 수 있습니다.</li>
+        <li>과거 월별 합계 자료의 출고일은 임의로 지정하지 않습니다. 월별 금액에 포함하고 일별 그래프의 미보관 금액으로 안내합니다. 해당 월의 전체 출고 원본을 다시 업로드하면 보관된 출고일로 조회할 수 있습니다.</li>
+        <li>새 출고 업로드는 엑셀 원본 행·출고일·금액을 함께 보관합니다. 같은 월의 전체 자료를 다시 올리는 기존 방식이며 일부 행만 올리면 그 월의 전체 반영분이 교체됩니다. 출고 업로드 복원 시 상세 원본도 해당 반영 버전으로 돌아갑니다.</li>
+        <li>상세내역은 출고채권·수금·기초이월로 나뉩니다. 업로드 원본 보기에서 파일명·등록자·엑셀 행과 원본 값을 확인합니다. 이미 제외한 중복 확인 이력은 수금 업로드 이력 메뉴에서 확인합니다.</li>
+      </ul>
+    </Card>
     <Card title="꼭 확인하세요">
       <div className="manual-notices">
         <div><b>조회기준</b><span>보고 화면은 선택한 조회기준을 따르며, 수금·업로드 화면은 항상 최신 운영데이터를 사용합니다.</span></div>
@@ -2815,6 +2835,8 @@ function Manual() {
 const SCREENS = [
   { key: "dashboard", label: "대시보드",         perm: "dashboard_view",      group: "현황" },
   { key: "summary",   label: "채권요약현황",     perm: "dashboard_view",      group: "현황" },
+  { key: "activity", label: "채권·수금 추이", perm: "dashboard_view", group: "현황" },
+  { key: "activityDetails", label: "채권·수금 상세내역", perm: "dashboard_view", group: "현황" },
   { key: "closing",   label: "결산회의 미수채권", perm: "dashboard_view",      group: "현황" },
   { key: "customers", label: "거래처별 현황",     perm: "customer_view",       group: "현황" },
   { key: "owners",    label: "담당자별 채권현황", perm: "owner_view",          group: "현황" },
@@ -2843,6 +2865,7 @@ function App() {
   const [data, setData] = useState(null);
   const [screen, setScreen] = useState(initialScreen);
   const [preset, setPreset] = useState(null);
+  const [activityFilters, setActivityFilters] = useState(null);
   const [toast, setToast] = useState(null);
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [dataView, setDataView] = useState(() => localStorage.getItem("ar_data_view") || "combined");
@@ -2979,6 +3002,10 @@ function App() {
         <div className="page">
           {screen === "dashboard" && <Dashboard data={reportData} setScreen={setScreen} setPreset={setPreset} />}
           {screen === "summary" && <BondSummary data={reportData} notify={notify} />}
+          {(screen === "activity" || screen === "activityDetails") && <ReceivableActivity key={screen} data={data}
+            detail={screen === "activityDetails"} initialFilters={activityFilters} onDetails={(filters) => {
+              setActivityFilters(filters); setScreen("activityDetails");
+            }} />}
           {screen === "closing" && <ClosingReceivables data={reportData} notify={notify} />}
           {screen === "customers" && <Customers data={reportData} can={can} preset={preset}
             notify={notify} patchCustomer={patchCustomer} />}
