@@ -52,12 +52,186 @@ class CollectionUploadTests(unittest.TestCase):
                      'paid_at': '2026-09-01', 'receipt_month': '2026-09', 'receipt_kind': '제 예 금',
                      'receipt_type': '1', 'normal_amount': 600, 'advance_amount': 0, 'row_number': 2}, **changes)
 
-    def preview(self, rows):
-        return self.client.post('/api/collection-uploads/preview', json={'rows': rows})
+    def preview(self, rows, customer_resolutions=None):
+        return self.client.post('/api/collection-uploads/preview', json={'rows': rows, 'customer_resolutions': customer_resolutions})
 
-    def upload(self, rows, approve=False, client=None, reviews=None):
+    def upload(self, rows, approve=False, client=None, reviews=None, customer_resolutions=None):
         return (client or self.client).post('/api/collection-uploads', json={
-            'rows': rows, 'filename': 'receipts.xlsx', 'approve_immediately': approve, 'reviews': reviews or []})
+            'rows': rows, 'filename': 'receipts.xlsx', 'approve_immediately': approve, 'reviews': reviews or [],
+            'customer_resolutions': customer_resolutions})
+
+    def customer_decision(self, rows, action, **fields):
+        issue = self.preview(rows).json['customer_issues'][0]
+        return {'issue_key': issue['issue_key'], 'resolution_token': issue['resolution_token'],
+                'action': action, 'confirmed': True, 'reason': '거래처 증빙 대조 완료', **fields}
+
+    def test_missing_customer_choices_are_read_only_and_new_customer_is_atomic(self):
+        rows = [self.row(customer_code='93001', customer_name='신규 시험 거래처'),
+                self.row(customer_code='93001', customer_name='신규 시험 거래처', sequence=2, normal_amount=250)]
+        decision = self.customer_decision(rows, 'create', name='신규 시험 거래처', biz_unit='메디컬')
+        preview = self.preview(rows, [decision]).json
+        self.assertEqual((preview['error_count'], preview['ready_count'], preview['advance_remaining']), (0, 2, 850))
+        with self.db.connect() as conn:
+            self.assertIsNone(conn.execute("SELECT code FROM customers WHERE code='93001'").fetchone())
+        with patch.object(self.module, 'approve_collection_in_transaction', side_effect=ValueError('검증용 승인 실패')):
+            failed = self.upload(rows, True, customer_resolutions=[decision])
+            self.assertEqual(failed.status_code, 400)
+        self.assertEqual(self.counts(), [0, 0, 0])
+        with self.db.connect() as conn:
+            self.assertIsNone(conn.execute("SELECT code FROM customers WHERE code='93001'").fetchone())
+        result = self.upload(rows, True, customer_resolutions=[decision])
+        self.assertEqual(result.status_code, 201, result.json)
+        self.assertEqual(result.json['customers_created'], 1)
+        with self.db.connect() as conn:
+            c = conn.execute("SELECT balance,advance,period_confirmed,biz_unit FROM customers WHERE code='93001'").fetchone()
+        self.assertEqual(c, {'balance': 0, 'advance': 850, 'period_confirmed': 0, 'biz_unit': '메디컬'})
+        self.assertEqual(self.preview(rows).json['review_count'], 2)
+
+    def test_same_name_link_keeps_codes_and_original_source_then_offsets_on_approval(self):
+        rows = [self.row(customer_code='93001', customer_name='시험 거래처 00020')]
+        p = self.preview(rows).json
+        self.assertEqual(p['error_count'], 1)
+        self.assertEqual(p['customer_issues'][0]['candidates'][0]['code'], '00020')
+        d = self.customer_decision(rows, 'link', target_code='00020')
+        p = self.preview(rows, [d]).json
+        self.assertEqual((p['rows'][0]['customer_code'], p['offset_amount']), ('00020', 600))
+        result = self.upload(rows, customer_resolutions=[d])
+        self.assertEqual(result.status_code, 201, result.json)
+        self.assertEqual(self.balance()['balance'], 1000)
+        with self.db.connect() as conn:
+            c = conn.execute('SELECT id,customer_code,note FROM collections').fetchone()
+            src = json.loads(conn.execute('SELECT source_json FROM collection_import_rows').fetchone()['source_json'])
+            self.assertEqual(src['customer_code'], '93001')
+            self.assertEqual(c['customer_code'], '00020')
+            self.assertIn('93001 → 00020', c['note'])
+            self.assertIsNone(conn.execute("SELECT code FROM customers WHERE code='93001'").fetchone())
+        self.assertEqual(self.client.post('/api/collections/%s/approve' % c['id']).status_code, 200)
+        self.assertEqual(self.balance()['balance'], 400)
+        history = self.client.get('/api/collection-uploads/%s/reviews' % result.json['batch_id']).json['reviews']
+        self.assertEqual(history[0]['action'], 'customer_link')
+        self.assertEqual(history[0]['reviewed_by'], 'receipt-test')
+        self.assertEqual(history[0]['details']['selection']['customer']['code'], '00020')
+
+    def test_link_rechecks_manual_duplicates_and_reupload_without_deducting_again(self):
+        self.upload([self.row()], True)
+        rows = [self.row(receipt_no='RC-OTHER', customer_code='93001', customer_name='시험 거래처 00020')]
+        d = self.customer_decision(rows, 'link', target_code='00020')
+        p = self.preview(rows, [d]).json
+        self.assertEqual((p['error_count'], p['review_count']), (0, 1))
+        self.assertEqual(p['rows'][0]['review_kind'], 'similar')
+        self.assertEqual(self.upload(rows, True, customer_resolutions=[d]).status_code, 409)
+        reviews = [{'row_key': r['row_key'], 'review_token': r['review_token'], 'action': 'exclude', 'confirmed': True}
+                   for r in p['rows'] if r['status'] == 'review']
+        result = self.upload(rows, True, customer_resolutions=[d], reviews=reviews)
+        self.assertEqual((result.json['inserted'], result.json['skipped']), (0, 1))
+        self.assertEqual(self.balance()['balance'], 400)
+
+    def test_same_name_new_master_is_explicit_and_does_not_touch_existing_debt(self):
+        rows = [self.row(customer_code='93001', customer_name='시험 거래처 00020')]
+        d = self.customer_decision(rows, 'create', name='시험 거래처 00020', biz_unit='덴탈')
+        result = self.upload(rows, True, customer_resolutions=[d])
+        self.assertEqual(result.status_code, 201, result.json)
+        self.assertEqual(self.balance()['balance'], 1000)
+        with self.db.connect() as conn:
+            self.assertEqual(conn.execute("SELECT advance FROM customers WHERE code='93001'").fetchone()['advance'], 600)
+
+    def test_customer_selection_requires_confirmation_reason_valid_target_and_permission(self):
+        rows = [self.row(customer_code='93001', customer_name='시험 거래처 00020')]
+        d = self.customer_decision(rows, 'link', target_code='00020')
+        self.customer('00021', 200)
+        for changes in ({'confirmed': False}, {'reason': ''}, {'target_code': '00021'}, {'resolution_token': 'forged'}):
+            with self.subTest(changes=changes):
+                result = self.upload(rows, True, customer_resolutions=[{**d, **changes}])
+                self.assertEqual(result.status_code, 409, result.json)
+        self.assertEqual(self.counts(), [0, 0, 0])
+        create = self.customer_decision(rows, 'create', name='시험', biz_unit='메디컬')
+        self.user['permissions'] = ['collection_approve']
+        self.assertNotIn('create', self.preview(rows).json['customer_issues'][0]['allowed_actions'])
+        self.assertEqual(self.upload(rows, True, customer_resolutions=[create]).status_code, 409)
+        self.assertEqual(self.preview(rows, [d, d]).status_code, 400)
+
+    def test_customer_choice_refreshes_when_balance_or_master_changes(self):
+        rows = [self.row(customer_code='93001', customer_name='시험 거래처 00020')]
+        d = self.customer_decision(rows, 'link', target_code='00020')
+        self.upload([self.row(normal_amount=100)], True)
+        p = self.preview(rows, [d]).json
+        self.assertEqual(p['error_count'], 1)
+        self.assertIn('변경', p['customer_issues'][0]['error'])
+        self.assertEqual(self.upload(rows, customer_resolutions=[d]).status_code, 409)
+        create = self.customer_decision(rows, 'create', name='시험', biz_unit='덴탈')
+        self.customer('93001', 0)
+        result = self.upload(rows, customer_resolutions=[create])
+        self.assertEqual(result.status_code, 409)
+        self.assertEqual(self.counts()[0], 1)
+
+    def test_same_name_multiple_candidates_never_selects_automatically(self):
+        self.customer('00021', 200)
+        with self.db.connect() as conn:
+            conn.execute("UPDATE customers SET name='같은 이름'")
+        rows = [self.row(customer_code='93001', customer_name='같은 이름')]
+        issue = self.preview(rows).json['customer_issues'][0]
+        self.assertEqual(len(issue['candidates']), 2)
+        self.assertFalse(issue['resolved'])
+        d = self.customer_decision(rows, 'link', target_code='00021')
+        result = self.upload(rows, True, customer_resolutions=[d])
+        self.assertEqual(result.status_code, 201, result.json)
+        self.assertEqual(self.balance()['balance'], 1000)
+
+    def test_customer_exclusion_continues_new_rows_and_all_excluded_keeps_history(self):
+        unknown = self.row(customer_code='93001', customer_name='미등록', receipt_no='RC-MISSING')
+        rows = [self.row(), unknown]
+        d = self.customer_decision(rows, 'exclude')
+        result = self.upload(rows, customer_resolutions=[d])
+        self.assertEqual(result.status_code, 201, result.json)
+        self.assertEqual((result.json['inserted'], result.json['customer_excluded']), (1, 1))
+        d = self.customer_decision([unknown], 'exclude')
+        result = self.upload([unknown], customer_resolutions=[d])
+        self.assertEqual((result.json['inserted'], result.json['customer_excluded']), (0, 1))
+        history = self.client.get('/api/collection-uploads/%s/reviews' % result.json['batch_id']).json['reviews']
+        self.assertEqual(history[0]['action'], 'customer_exclude')
+        self.assertEqual(self.balance()['balance'], 1000)
+
+    def test_customer_resolution_keeps_other_errors_and_month_lock_checks(self):
+        rows = [self.row(customer_code='93001', customer_name='신규')]
+        d = self.customer_decision(rows, 'create', name='신규', biz_unit='덴탈')
+        with self.db.connect() as conn:
+            conn.execute("INSERT INTO month_locks (month,locked) VALUES ('2026-09',1)")
+        result = self.upload(rows, True, customer_resolutions=[d])
+        self.assertEqual(result.status_code, 400)
+        self.assertIn('마감', result.json['preview']['rows'][0]['errors'][0])
+        self.assertEqual(self.counts(), [0, 0, 0])
+        p = self.preview([self.row(customer_code='93001', normal_amount='문자')]).json
+        self.assertEqual(p['error_count'], 1)
+        self.assertIn('정상수금', p['rows'][0]['errors'][0])
+
+    def test_concurrent_new_customer_requests_create_one_master_and_receipt(self):
+        rows = [self.row(customer_code='93001', customer_name='동시 등록 시험')]
+        d = self.customer_decision(rows, 'create', name='동시 등록 시험', biz_unit='덴탈')
+        def send(_):
+            with self.module.app.test_client() as client:
+                return self.upload(rows, True, client=client, customer_resolutions=[d]).status_code
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            statuses = list(pool.map(send, range(8)))
+        self.assertEqual(statuses.count(201), 1, statuses)
+        self.assertEqual(statuses.count(409), 7, statuses)
+        self.assertEqual(self.counts(), [1, 1, 1])
+        with self.db.connect() as conn:
+            self.assertEqual(conn.execute("SELECT advance FROM customers WHERE code='93001'").fetchone()['advance'], 600)
+
+    def test_duplicate_receipt_exclusion_does_not_create_unused_customer(self):
+        self.upload([self.row()], True)
+        rows = [self.row(customer_code='93001', customer_name='새 거래처 선택')]
+        d = self.customer_decision(rows, 'create', name='새 거래처 선택', biz_unit='덴탈')
+        p = self.preview(rows, [d]).json
+        self.assertEqual(p['rows'][0]['review_kind'], 'changed_key')
+        reviews = [{'row_key': r['row_key'], 'review_token': r['review_token'], 'action': 'exclude', 'confirmed': True}
+                   for r in p['rows'] if r['status'] == 'review']
+        result = self.upload(rows, customer_resolutions=[d], reviews=reviews)
+        self.assertEqual((result.json['inserted'], result.json['customers_created']), (0, 0))
+        with self.db.connect() as conn:
+            self.assertIsNone(conn.execute("SELECT code FROM customers WHERE code='93001'").fetchone())
+        history = self.client.get('/api/collection-uploads/%s/reviews' % result.json['batch_id']).json['reviews']
+        self.assertFalse(next(r for r in history if r['action'] == 'customer_create')['details']['created'])
 
     def decisions(self, rows, action='exclude', reason=''):
         return [{'row_key': r['row_key'], 'review_token': r['review_token'], 'action': action,

@@ -28,7 +28,7 @@ function harness(grid = [headers, row], approvePermission = true, previewChanges
   const checkedRow = { row_number: 2, status: 'ready', customer_code: '03791', customer_name: '테스트',
     receipt_no: 'RC2609000001', sequence: 1, amount: 2000000, normal_amount: 2000000, advance_amount: 0,
     method: '계좌수금', paid_at: '2026-09-01', errors: [], warnings: [] };
-  const checked = { rows: [checkedRow], row_count: 1, ready_count: 1, review_count: 0, error_count: 0,
+  let checked = { rows: [checkedRow], row_count: 1, ready_count: 1, review_count: 0, error_count: 0,
     total_amount: 2000000, offset_amount: 2000000, advance_remaining: 0, ...previewChanges };
   const context = vm.createContext({ console, Uint8Array, React: react,
     ReactDOM: { createRoot: () => ({ render() {} }) }, document: { getElementById() {} },
@@ -37,7 +37,7 @@ function harness(grid = [headers, row], approvePermission = true, previewChanges
     fetch: async (url, options = {}) => {
       const payload = options.body ? JSON.parse(options.body) : undefined;
       requests.push({ url, payload });
-      return { ok: true, json: async () => url.endsWith('/preview') ? checked : options.method === 'POST'
+      return { ok: true, json: async () => url.endsWith('/preview') ? JSON.parse(JSON.stringify(checked)) : options.method === 'POST'
         ? { inserted: 1, approved: payload.approve_immediately ? 1 : 0, skipped: 0, total_amount: 2000000 }
         : { batches: [] } };
     },
@@ -52,7 +52,7 @@ function harness(grid = [headers, row], approvePermission = true, previewChanges
     for (const child of node.children || []) { const result = find(predicate, child); if (result) return result; }
     return null;
   };
-  return { context, requests, notices, render, find,
+  return { context, requests, notices, render, find, setPreview: (next) => { checked = { ...checked, ...next }; },
     parse: (bytes = new Uint8Array()) => context.parseCollectionWorkbook(bytes),
     select: async () => {
       const file = { name: 'receipts.xlsx', size: 1024, arrayBuffer: async () => new Uint8Array() };
@@ -189,3 +189,104 @@ test('attached ERP export parses all 19 rows with exact amounts despite its unus
     assert.notEqual(data.rows[4].sequence, data.rows[5].sequence);
     if (process.env.COLLECTION_SAMPLE_JSON) fs.writeFileSync(process.env.COLLECTION_SAMPLE_JSON, JSON.stringify(data.rows));
   });
+
+function customerIssue(allowed = ['link', 'create', 'exclude']) {
+  return { issue_key: '03791', source_code: '03791', source_names: ['테스트'], row_numbers: [2],
+    message: '같은 이름의 거래처 코드가 다릅니다.', error: '', resolved: false, resolution_token: 'customer-token',
+    candidates: [{ code: '00020', name: '테스트', biz_unit: '덴탈', balance: 3000000, ledger_balance: 3000000 }],
+    allowed_actions: allowed };
+}
+function customerError() {
+  return { row_key: '1', row_number: 2, status: 'error', customer_code: '03791', source_customer_name: '테스트',
+    receipt_no: 'RC2609000001', sequence: 1, errors: ['미등록 코드 · 기존 거래처를 확인하세요.'], warnings: [] };
+}
+const textOf = (node) => typeof node === 'string' || typeof node === 'number' ? String(node)
+  : node && typeof node === 'object' ? (node.children || []).map(textOf).join(' ') : '';
+
+test('customer error dialog shows row and reason before duplicates and rechecks link without writing', async () => {
+  const issue = customerIssue();
+  const h = harness(undefined, true, { rows: [customerError(), reviewRow('2')], row_count: 2, ready_count: 0,
+    error_count: 1, review_count: 1, customer_issue_count: 1, customer_issues: [issue] });
+  await h.select();
+  const dialog = () => h.find((n) => n.props['aria-labelledby'] === 'collection-customer-title');
+  assert.ok(dialog());
+  assert.equal(h.find((n) => n.props['aria-labelledby'] === 'collection-review-title'), null);
+  assert.match(textOf(dialog()), /엑셀\s+2\s*행/); assert.match(textOf(dialog()), /미등록 코드/);
+  const next = () => h.find((n) => n.type === 'button' && n.props.className === 'btn btn--primary', dialog());
+  assert.equal(next().props.disabled, true);
+  h.find((n) => n.props['aria-label'] === '03791 거래처 처리 방법').props.onChange({ target: { value: 'link' } });
+  h.find((n) => n.props['aria-label'] === '03791 연결 거래처').props.onChange({ target: { value: '00020' } });
+  h.find((n) => n.props['aria-label'] === '03791 거래처 확인 완료').props.onChange({ target: { checked: true } });
+  assert.equal(next().props.disabled, true);
+  h.find((n) => n.props['aria-label'] === '03791 거래처 확인 사유').props.onChange({ target: { value: '동일 거래처 입금 증빙 확인' } });
+  assert.equal(h.find((n) => n.props['aria-label'] === '03791 거래처 확인 완료').props.checked, false);
+  h.find((n) => n.props['aria-label'] === '03791 거래처 확인 완료').props.onChange({ target: { checked: true } });
+  assert.equal(next().props.disabled, false);
+  h.setPreview({ rows: [reviewRow('1', 'similar')], row_count: 1, ready_count: 0, total_amount: 0,
+    error_count: 0, review_count: 1, customer_issue_count: 0, customer_issues: [{ ...issue, resolved: true }] });
+  await next().props.onClick();
+  assert.equal(h.requests.length, 2); assert.ok(h.requests.every((r) => r.url.endsWith('/preview')));
+  assert.equal(h.requests[1].payload.rows[0].customer_code, '03791');
+  assert.equal(h.requests[1].payload.customer_resolutions[0].target_code, '00020');
+  assert.equal(dialog(), null);
+  let duplicate = h.find((n) => n.props['aria-labelledby'] === 'collection-review-title');
+  assert.ok(duplicate);
+  h.find((n) => n.props['aria-label'] === '엑셀 2행 중복 여부 확인').props.onChange({ target: { checked: true } });
+  duplicate = h.find((n) => n.props['aria-labelledby'] === 'collection-review-title');
+  await h.find((n) => n.type === 'button' && n.props.className === 'btn btn--primary', duplicate).props.onClick();
+  const write = h.requests.find((r) => r.url === '/api/collection-uploads' && r.payload);
+  assert.equal(write.payload.customer_resolutions[0].action, 'link');
+  assert.equal(write.payload.customer_resolutions[0].confirmed, true);
+  assert.equal(write.payload.reviews[0].action, 'exclude');
+});
+
+test('new customer requires business unit and confirmation and discloses advance handling', async () => {
+  const issue = customerIssue();
+  const h = harness(undefined, false, { rows: [customerError()], ready_count: 0, error_count: 1,
+    customer_issue_count: 1, customer_issues: [issue] });
+  await h.select();
+  const dialog = () => h.find((n) => n.props['aria-labelledby'] === 'collection-customer-title');
+  const next = () => h.find((n) => n.type === 'button' && n.props.className === 'btn btn--primary', dialog());
+  h.find((n) => n.props['aria-label'] === '03791 거래처 처리 방법').props.onChange({ target: { value: 'create' } });
+  assert.match(textOf(dialog()), /채권잔액 0원/); assert.match(textOf(dialog()), /선수금/);
+  h.find((n) => n.props['aria-label'] === '03791 거래처 확인 완료').props.onChange({ target: { checked: true } });
+  assert.equal(next().props.disabled, true);
+  h.find((n) => n.props['aria-label'] === '03791 신규 사업부').props.onChange({ target: { value: '메디컬' } });
+  assert.equal(next().props.disabled, true);
+  h.find((n) => n.props['aria-label'] === '03791 거래처 확인 완료').props.onChange({ target: { checked: true } });
+  assert.equal(next().props.disabled, false);
+  await next().props.onClick();
+  assert.equal(h.requests[1].payload.customer_resolutions[0].biz_unit, '메디컬');
+  assert.ok(h.requests.every((r) => r.url.endsWith('/preview')));
+});
+
+test('error-only filter shows exact faulty rows and excludes normal rows', async () => {
+  const error = { ...customerError(), errors: ['수금일자가 존재하지 않습니다.'] };
+  const h = harness(undefined, false, { rows: [error, { ...reviewRow('2'), status: 'ready' }],
+    row_count: 2, error_count: 1 });
+  await h.select();
+  assert.match(textOf(h.render()), /수금일자가 존재하지 않습니다/);
+  const filter = h.find((n) => n.type === 'button' && textOf(n) === '오류 1건만 보기');
+  filter.props.onClick();
+  assert.equal(h.find((n) => n.type === 'button' && textOf(n) === '전체 내역 보기').props['aria-pressed'], true);
+  const rows = h.find((n) => n.type === 'tbody');
+  assert.equal(rows.children.filter((n) => n && n.type === 'tr').length, 1);
+});
+
+test('all customer exclusions can save audit without creating receipt, and new action follows server permission', async () => {
+  const issue = customerIssue(['link', 'exclude']);
+  const h = harness(undefined, true, { rows: [customerError()], ready_count: 0, error_count: 1,
+    customer_issue_count: 1, customer_issues: [issue] });
+  await h.select();
+  const select = h.find((n) => n.props['aria-label'] === '03791 거래처 처리 방법');
+  assert.equal(h.find((n) => n.type === 'option' && n.props.value === 'create', select), null);
+  select.props.onChange({ target: { value: 'exclude' } });
+  h.find((n) => n.props['aria-label'] === '03791 거래처 확인 완료').props.onChange({ target: { checked: true } });
+  h.setPreview({ rows: [{ ...customerError(), status: 'excluded', errors: [] }], error_count: 0,
+    customer_issue_count: 0, customer_excluded_count: 1, customer_issues: [{ ...issue, resolved: true }] });
+  const dialog = h.find((n) => n.props['aria-labelledby'] === 'collection-customer-title');
+  await h.find((n) => n.type === 'button' && n.props.className === 'btn btn--primary', dialog).props.onClick();
+  const save = h.find((n) => n.type === 'button' && textOf(n) === '제외 확인 이력 저장');
+  assert.equal(save.props.disabled, false); await save.props.onClick();
+  assert.equal(h.requests.find((r) => r.url === '/api/collection-uploads' && r.payload).payload.customer_resolutions[0].action, 'exclude');
+});

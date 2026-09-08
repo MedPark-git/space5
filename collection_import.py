@@ -61,16 +61,97 @@ def canonical_code(value):
     return value.zfill(5) if value.isdigit() else value
 
 
-def validate_rows(conn, raw_rows):
+def customer_choices(raw_rows, customers, ledger, decisions, can_create, units):
+    """Resolve missing/ambiguous codes for this upload only; never write in preview."""
+    if decisions is None:
+        decisions = []
+    if not isinstance(decisions, list) or len(decisions) > MAX_ROWS:
+        raise ValueError('거래처 확인 형식이 올바르지 않습니다.')
+    submitted = {}
+    for decision in decisions:
+        if not isinstance(decision, dict) or not isinstance(decision.get('issue_key'), str):
+            raise ValueError('거래처 확인 형식이 올바르지 않습니다.')
+        key = decision['issue_key']
+        if key in submitted:
+            raise ValueError('같은 고객코드의 확인 결과가 중복 제출되었습니다.')
+        submitted[key] = decision
+    grouped = {}
+    for raw in raw_rows:
+        if not isinstance(raw, dict):
+            continue
+        code = canonical_code(raw.get('customer_code'))
+        if code and not code.startswith('#') and len(code) <= 80:
+            grouped.setdefault(code, []).append(raw)
+    if set(submitted) - set(grouped):
+        raise ValueError('현재 파일에 없는 거래처 확인 결과입니다. 파일을 다시 검증하세요.')
+    issues, resolved = [], {}
+    all_customers = [c for group in customers.values() for c in group]
+    for code, rows in grouped.items():
+        matches = customers.get(code, [])
+        if len(matches) == 1 and code not in submitted:
+            continue
+        names = sorted({text(r.get('customer_name'))[:200] for r in rows if text(r.get('customer_name'))})
+        name_keys = {compact(n).casefold() for n in names}
+        candidates = [{k: c[k] for k in ('code', 'name', 'biz_unit', 'balance')} |
+                      {'ledger_balance': int(ledger.get(c['code'], 0))}
+                      for c in all_customers if c in matches or compact(c['name']).casefold() in name_keys]
+        candidates.sort(key=lambda c: c['code'])
+        allowed = ['exclude']
+        if candidates:
+            allowed.append('link')
+        if not matches and can_create:
+            allowed.append('create')
+        message = ('같은 이름의 기존 거래처가 있습니다. 고객코드를 비교해 연결 여부를 선택하세요.' if candidates and not matches
+                   else '고객코드가 미등록입니다. 신규 등록 또는 이번 업로드 제외를 선택하세요.' if not matches
+                   else '고객코드의 등록 상태를 다시 확인하고 연결할 거래처를 선택하세요.')
+        token = hashlib.sha256(json.dumps({'rows': rows, 'candidates': candidates, 'allowed': allowed},
+                                         sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        issue = {'issue_key': code, 'source_code': code, 'source_names': names,
+                 'row_numbers': [r.get('row_number', i + 1) for i, r in enumerate(rows)],
+                 'candidates': candidates, 'allowed_actions': allowed, 'resolution_token': token,
+                 'message': message, 'resolved': False, 'error': ''}
+        issues.append(issue)
+        d = submitted.get(code)
+        if d is None:
+            continue
+        try:
+            if d.get('resolution_token') != token:
+                raise ValueError('확인 중 거래처 정보·잔액 또는 파일이 변경되었습니다. 최신 내용으로 다시 선택하세요.')
+            action, reason = d.get('action'), text(d.get('reason'))
+            if d.get('confirmed') is not True or action not in allowed:
+                raise ValueError('처리 방법을 선택하고 확인란을 체크하세요. 신규 등록에는 수금 등록 권한이 필요합니다.')
+            if len(reason) > 500 or (action == 'link' and len(reason) < 5):
+                raise ValueError('기존 거래처 연결 사유를 5~500자로 입력하세요.')
+            customer = None
+            if action == 'link':
+                customer = next((c for c in candidates if c['code'] == d.get('target_code')), None)
+                if customer is None:
+                    raise ValueError('표시된 기존 거래처 중 연결 대상을 선택하세요.')
+            elif action == 'create':
+                name, unit = text(d.get('name')), text(d.get('biz_unit'))
+                if not name or len(name) > 200 or unit not in units:
+                    raise ValueError('신규 거래처명(200자 이내)과 사업부를 입력하세요.')
+                customer = {'code': code, 'name': name, 'biz_unit': unit, 'balance': 0, 'ledger_balance': 0}
+            resolved[code] = {'action': action, 'reason': reason, 'customer': customer, 'issue': issue}
+            issue['resolved'] = True
+            issue['selection'] = {k: d.get(k) for k in ('action', 'target_code', 'name', 'biz_unit', 'reason')}
+        except ValueError as exc:
+            issue['error'] = str(exc)
+    return issues, resolved
+
+
+def validate_rows(conn, raw_rows, customer_resolutions=None, can_create=False, units=()):
     if not isinstance(raw_rows, list) or not raw_rows or len(raw_rows) > MAX_ROWS:
         raise ValueError('수금 내역은 1~5,000행까지 업로드할 수 있습니다.')
     customers = {}
-    for customer in conn.execute('SELECT code,name,balance FROM customers'):
+    for customer in conn.execute('SELECT code,name,biz_unit,balance FROM customers'):
         customers.setdefault(canonical_code(customer['code']), []).append(customer)
     ledger_rows = list(conn.execute(
         'SELECT customer_code,SUM(balance) AS balance,SUM(CASE WHEN balance>0 THEN balance ELSE 0 END) AS positive_balance'
         ' FROM receivable_items GROUP BY customer_code'))
     ledger = {r['customer_code']: r['balance'] for r in ledger_rows}
+    issues, resolutions = customer_choices(raw_rows, customers, ledger, customer_resolutions, can_create, units)
+    issue_by_code = {i['issue_key']: i for i in issues}
     locked = {r['month'] for r in conn.execute('SELECT month FROM month_locks WHERE locked=1')}
     # This query is deliberately not limited to the 800 receipts shown by bootstrap.
     existing, matching = {}, {}
@@ -95,6 +176,9 @@ def validate_rows(conn, raw_rows):
             continue
         if isinstance(raw.get('row_number'), int) and 0 < raw['row_number'] <= 100000:
             item['row_number'] = raw['row_number']
+        item['source_customer_name'] = text(raw.get('customer_name'))[:200]
+        item['source_customer_code'] = canonical_code(raw.get('customer_code'))
+        item['customer_code'] = item['source_customer_code']
         try:
             item['receipt_no'] = text(raw.get('receipt_no')).upper()
             if not re.fullmatch(r'[A-Z0-9_-]{1,80}', item['receipt_no']):
@@ -108,13 +192,6 @@ def validate_rows(conn, raw_rows):
             if not code or code.startswith('#') or len(code) > 80:
                 raise ValueError('고객코드를 확인하세요.')
             matches = customers.get(code, [])
-            if len(matches) != 1:
-                raise ValueError('등록되지 않은 고객코드입니다. 거래처를 먼저 등록하세요.' if not matches
-                                 else '동일하게 인식되는 고객코드가 여러 개입니다. 거래처 코드를 정리하세요.')
-            customer = matches[0]
-            item['customer_code'], item['customer_name'] = customer['code'], customer['name']
-            if item['source_customer_name'] and compact(item['source_customer_name']) != compact(customer['name']):
-                item['warnings'].append('엑셀 고객명과 등록명이 다릅니다. 고객코드 기준으로 연결합니다.')
             paid_at = text(raw.get('paid_at'))
             if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', paid_at):
                 raise ValueError('수금일자는 YYYY-MM-DD 형식으로 입력하세요.')
@@ -135,6 +212,31 @@ def validate_rows(conn, raw_rows):
             if not 0 < item['amount'] <= MAX_AMOUNT:
                 raise ValueError('정상수금+선수금은 0보다 큰 안전한 원 단위 금액이어야 합니다.')
             item['note'] = ' / '.join(filter(None, [text(raw.get('note')), text(raw.get('detail_note'))]))[:2000]
+            item['source'] = {k: raw.get(k) for k in (
+                'row_number', 'receipt_month', 'receipt_no', 'sequence', 'customer_code', 'customer_name',
+                'paid_at', 'receipt_kind', 'receipt_type', 'receipt_kind_code', 'normal_amount',
+                'advance_amount', 'note', 'detail_note')}
+            resolution = resolutions.get(code)
+            if code in issue_by_code:
+                item['customer_issue_key'] = code
+                if not resolution:
+                    item['error_type'] = 'customer_resolution'
+                    issue = issue_by_code[code]
+                    raise ValueError(issue['error'] or issue['message'])
+                item['customer_resolution'] = {k: v for k, v in resolution.items() if k != 'issue'}
+                if resolution['action'] == 'exclude':
+                    item['status'] = 'excluded'
+                    item['warnings'].append('거래처 확인 후 이번 업로드에서 제외하기로 선택했습니다.')
+                    continue
+                customer = resolution['customer']
+                item['warnings'].append('신규 거래처 등록 예정 · 승인 시 선수금 처리' if resolution['action'] == 'create'
+                                        else '거래처 연결 확인: %s → %s (승인 시 연결 거래처의 채권에 상계)' % (code, customer['code']))
+            else:
+                customer = matches[0]
+            item['source_customer_code'] = code
+            item['customer_code'], item['customer_name'] = customer['code'], customer['name']
+            if item['source_customer_name'] and compact(item['source_customer_name']) != compact(customer['name']):
+                item['warnings'].append('엑셀 고객명과 등록명이 다릅니다. 고객코드 기준으로 연결합니다.')
             payload = {k: item[k] for k in ('receipt_no', 'sequence', 'customer_code', 'paid_at',
                                            'method', 'normal_amount', 'advance_amount')}
             item['fingerprint'] = hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
@@ -143,16 +245,12 @@ def validate_rows(conn, raw_rows):
                 item['registration_errors'].append('수금일자의 월이 마감 잠금 상태입니다.')
             if int(ledger.get(customer['code'], 0)) != int(customer['balance']):
                 item['registration_errors'].append('거래처 잔액과 채권 상세 원장이 일치하지 않습니다. 원장을 먼저 확인하세요.')
-            item['source'] = {k: raw.get(k) for k in (
-                'row_number', 'receipt_month', 'receipt_no', 'sequence', 'customer_code', 'customer_name',
-                'paid_at', 'receipt_kind', 'receipt_type', 'receipt_kind_code', 'normal_amount',
-                'advance_amount', 'note', 'detail_note')}
         except ValueError as exc:
             item['status'] = 'error'
             item['errors'].append(str(exc))
     seen = {}
     for item in result:
-        if item['status'] == 'error':
+        if item['status'] in ('error', 'excluded'):
             continue
         key = (item['receipt_no'], item['sequence'])
         previous, in_file = existing.get(key), seen.get(key)
@@ -195,10 +293,10 @@ def validate_rows(conn, raw_rows):
     positive = {r['customer_code']: int(r['positive_balance']) for r in ledger_rows}
     balances = {c['code']: positive.get(c['code'], 0) for group in customers.values() for c in group}
     for item in sorted(ready, key=lambda r: (r['customer_code'], r['paid_at'], r['receipt_no'], r['sequence'])):
-        balance = balances[item['customer_code']]
+        balance = balances.get(item['customer_code'], 0)
         item['offset_amount'] = min(balance, item['amount'])
         item['advance_remaining'] = item['amount'] - item['offset_amount']
-        balances[item['customer_code']] -= item['offset_amount']
+        balances[item['customer_code']] = balance - item['offset_amount']
         if item['advance_remaining']:
             item['warnings'].append('승인 시 채권잔액 초과분 %s원은 선수금으로 보관됩니다.' % format(item['advance_remaining'], ','))
     return {
@@ -207,6 +305,8 @@ def validate_rows(conn, raw_rows):
         'error_count': sum(r['status'] == 'error' for r in result),
         'total_amount': total, 'offset_amount': sum(r['offset_amount'] for r in ready),
         'advance_remaining': sum(r['advance_remaining'] for r in ready),
+        'customer_issues': issues, 'customer_issue_count': sum(not i['resolved'] for i in issues),
+        'customer_excluded_count': sum(r['status'] == 'excluded' for r in result),
     }
 
 

@@ -658,6 +658,7 @@ def quick_create_customer():
     if biz_unit not in UNITS:
         return jsonify(error="사업부를 선택하세요."), 400
     with connect() as conn:
+        collection_write_lock(conn)
         existing = conn.execute("SELECT * FROM customers WHERE code=%s", (code,)).fetchone()
         if existing:
             return jsonify(error="이미 등록된 고객코드입니다. 기존 거래처를 선택하세요."), 409
@@ -703,6 +704,7 @@ def update_customer(code):
         return jsonify(error="변경할 항목이 없습니다."), 400
     values.append(code)
     with connect() as conn:
+        collection_write_lock(conn)
         cur = conn.execute(
             "UPDATE customers SET " + ", ".join(fields)
             + ", updated_at = " + db.NOW_SQL + " WHERE code = %s", values)
@@ -961,6 +963,11 @@ def public_collection_preview(result):
                                for row in result['rows']]}
 
 
+def validate_collection_request(conn, data):
+    return validate_rows(conn, data.get('rows'), data.get('customer_resolutions'),
+                         'collection_register' in request.user['permissions'], UNITS)
+
+
 @app.post('/api/collection-uploads/preview')
 @login_required
 def preview_collection_upload():
@@ -971,7 +978,7 @@ def preview_collection_upload():
         return jsonify(error='요청 형식을 확인하세요.'), 400
     try:
         with connect() as conn:
-            result = validate_rows(conn, data.get('rows'))
+            result = validate_collection_request(conn, data)
         return jsonify(public_collection_preview(result))
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
@@ -985,7 +992,7 @@ def collection_upload_history():
     with connect() as conn:
         batches = list(conn.execute(
             'SELECT b.*, (SELECT COUNT(*) FROM collection_upload_reviews r WHERE r.batch_id=b.id) AS reviewed_count,'
-            " (SELECT COUNT(*) FROM collection_upload_reviews r WHERE r.batch_id=b.id AND r.action='exclude') AS excluded_count"
+            " (SELECT COUNT(*) FROM collection_upload_reviews r WHERE r.batch_id=b.id AND r.action IN ('exclude','customer_exclude')) AS excluded_count"
             ' FROM collection_upload_batches b ORDER BY b.id DESC LIMIT 200'))
     return jsonify(batches=batches)
 
@@ -1022,20 +1029,44 @@ def import_collections():
     try:
         with connect() as conn:
             collection_write_lock(conn)
-            result = validate_rows(conn, data.get('rows'))
+            result = validate_collection_request(conn, data)
             if result['error_count']:
                 return jsonify(error='검증 오류를 수정한 뒤 다시 업로드하세요. 등록된 행은 없습니다.',
-                               preview=public_collection_preview(result)), 400
+                               preview=public_collection_preview(result)), 409 if result['customer_issue_count'] else 400
             try:
                 ready, reviewed, total_amount = resolve_reviews(result, data.get('reviews', []))
             except ReviewRequired as exc:
                 return jsonify(error=str(exc), review_required=True, preview=public_collection_preview(result)), 409
             skipped = sum(r['decision'] == 'exclude' for r in reviewed)
+            customer_excluded = result['customer_excluded_count']
             batch = conn.execute(
                 'INSERT INTO collection_upload_batches (filename,uploaded_by,row_count,total_amount,approved_count)'
                 ' VALUES (%s,%s,%s,%s,%s) RETURNING id',
                 (filename, actor, len(ready), total_amount, len(ready) if approve else 0)
             ).fetchone()['id']
+            # Create masters only for receipts that will actually be inserted; everything rolls back together.
+            created_codes = set()
+            for item in ready:
+                resolution = item.get('customer_resolution')
+                if not resolution or resolution['action'] != 'create' or item['customer_code'] in created_codes:
+                    continue
+                c = resolution['customer']
+                conn.execute("INSERT INTO customers (code,name,biz_unit,status,owner,period,period_confirmed,source_month,note)"
+                             " VALUES (%s,%s,%s,'정상','',1,0,'','수금 엑셀에서 확인 후 신규 등록')",
+                             (c['code'], c['name'], c['biz_unit']))
+                created_codes.add(c['code'])
+                log(conn, actor, 'customer_quick_create', '%s / %s / collection_upload:%s' % (c['code'], c['name'], batch))
+            for item in result['rows']:
+                resolution = item.get('customer_resolution')
+                if not resolution:
+                    continue
+                details = {'source': item['source'], 'selection': resolution,
+                           'created': item.get('customer_code') in created_codes,
+                           'candidates': next(i['candidates'] for i in result['customer_issues'] if i['issue_key'] == item['customer_issue_key'])}
+                conn.execute('INSERT INTO collection_upload_reviews (batch_id,row_number,receipt_no,sequence,action,reason,reviewed_by,details_json)'
+                             ' VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',
+                             (batch, item['row_number'], item['receipt_no'], item['sequence'], 'customer_' + resolution['action'],
+                              resolution['reason'], actor, json.dumps(details, ensure_ascii=False)))
             for item in reviewed:
                 details = {k: item[k] for k in ('source', 'review_kind', 'review_token', 'candidates',
                            'customer_code', 'customer_name', 'paid_at', 'method', 'amount')}
@@ -1051,6 +1082,8 @@ def import_collections():
                     item['receipt_no'], item['sequence'], format(item['normal_amount'], ','), format(item['advance_amount'], ','))
                 if item['note']:
                     note += ' / ' + item['note']
+                if item.get('customer_resolution'):
+                    note += ' / 거래처 확인 %s → %s' % (item['source_customer_code'], item['customer_code'])
                 cid = conn.execute(
                     'INSERT INTO collections (customer_code,customer_name,amount,method,paid_at,state,registered_by,note)'
                     " VALUES (%s,%s,%s,%s,%s,'pending',%s,%s) RETURNING id",
@@ -1064,11 +1097,12 @@ def import_collections():
                 log(conn, actor, 'collection_register', '%s / %d / upload:%s' % (item['customer_code'], item['amount'], batch))
                 if approve:
                     approve_collection_in_transaction(conn, cid, actor)
-            log(conn, actor, 'collection_upload', '%s / 신규 %s건 / %s원 / 중복확인 %s건 / 제외 %s건'
-                % (batch, len(ready), total_amount, len(reviewed), skipped))
+            log(conn, actor, 'collection_upload', '%s / 신규 %s건 / %s원 / 중복확인 %s건 / 중복제외 %s건 / 거래처확인제외 %s건'
+                % (batch, len(ready), total_amount, len(reviewed), skipped, customer_excluded))
         return jsonify(inserted=len(ready), approved=len(ready) if approve else 0,
                        skipped=skipped, reviewed=len(reviewed), total_amount=total_amount, batch_id=batch,
-                       message='중복 확인을 완료했습니다. 중복 내역은 제외하고 확인 이력을 저장했습니다.' if not ready else ''), 201
+                       customers_created=len(created_codes), customer_excluded=customer_excluded,
+                       message='선택한 내역을 제외하고 확인 이력을 저장했습니다.' if not ready else ''), 201
     except ValueError as exc:
         return jsonify(error=str(exc)), getattr(exc, 'status', 400)
 

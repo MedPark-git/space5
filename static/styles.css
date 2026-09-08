@@ -348,6 +348,11 @@ tfoot td { background: var(--surface-2); font-weight: 700; border-top: 1px solid
 .collection-review-check { display: flex; align-items: center; gap: 8px; margin: 12px 0; font-size: 14px; }
 .collection-review-footer { border-top: 1px solid var(--line); padding-top: 14px; flex-shrink: 0; }
 .collection-review-footer .btnrow { margin-top: 12px; }
+.collection-error-details { flex-shrink: 0; }
+.collection-error-details ul { max-height: 140px; overflow: auto; margin: 8px 0; padding-left: 22px; }
+.collection-error-details li { margin: 8px 0; }
+.collection-error-details li span { display: block; }
+.collection-error-details p { margin-bottom: 0; font-size: 13px; }
 .permgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; }
 .permgrid label { display: flex; gap: 8px; align-items: center; padding: 7px 10px;
   border: 1px solid var(--line); border-radius: var(--radius); font-size: 12.5px; }
