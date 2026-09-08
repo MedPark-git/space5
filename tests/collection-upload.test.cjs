@@ -94,14 +94,14 @@ test('numeric Excel dates are normalized and invalid dates are retained for serv
   assert.equal(harness([headers, bad]).parse().rows[0].paid_at, '2026-02-30');
 });
 
-test('selection previews without importing, explicit approval checkbox controls submit', async () => {
+test('selection is read-only and approver final registration automatically approves exactly once', async () => {
   const h = harness(); await h.select();
   assert.equal(h.requests.length, 1); assert.equal(h.requests[0].url, '/api/collection-uploads/preview');
   let button = h.find((n) => n.type === 'button' && n.props.className === 'btn btn--primary');
   assert.ok(button); assert.equal(button.props.disabled, false);
   const checkbox = h.find((n) => n.type === 'input' && n.props.type === 'checkbox');
-  assert.equal(checkbox.props.checked, false);
-  checkbox.props.onChange({ target: { checked: true } });
+  assert.equal(checkbox, null);
+  assert.match(textOf(h.render()), /최종 등록과 동시에 승인·상계/);
   button = h.find((n) => n.type === 'button' && n.props.className === 'btn btn--primary');
   await Promise.all([button.props.onClick(), button.props.onClick()]);
   const writes = h.requests.filter((r) => r.url === '/api/collection-uploads' && r.payload);
@@ -113,8 +113,9 @@ test('validation errors prevent submit and non-approvers cannot select immediate
   const h = harness(undefined, false, { error_count: 1, ready_count: 0 }); await h.select();
   assert.equal(h.find((n) => n.type === 'input' && n.props.type === 'checkbox'), null);
   const button = h.find((n) => n.type === 'button' && n.props.className === 'btn btn--primary');
-  assert.equal(button.props.disabled, true); await button.props.onClick();
-  assert.equal(h.requests.length, 1);
+  assert.equal(button.props.disabled, false); assert.match(textOf(button), /입력 오류 1건 확인/);
+  await button.props.onClick(); assert.equal(h.requests.length, 1);
+  assert.equal(h.find((n) => n.type === 'button' && n.props['aria-pressed'] === true).props['aria-pressed'], true);
 });
 
 function reviewRow(key, kind = 'same_key') {
@@ -310,13 +311,14 @@ test('screenshot case: seven duplicates can be handled while one customer error 
   const modal = () => h.find((n) => n.props['aria-labelledby'] === 'collection-review-title');
   const apply = () => h.find((n) => n.type === 'button' && n.props.className === 'btn btn--primary', modal());
   const final = () => h.find((n) => n.props['aria-label'] === '수금 업로드 최종 등록');
-  assert.ok(modal()); assert.equal(final().props.disabled, true);
+  assert.ok(modal()); assert.equal(final().props.disabled, false);
   assert.equal(apply().props.disabled, true);
   for (const r of duplicates) h.find((n) => n.props['aria-label'] === `엑셀 ${r.row_number}행 중복 여부 확인`).props.onChange({ target: { checked: true } });
   assert.equal(apply().props.disabled, false);
   await apply().props.onClick();
   assert.equal(modal(), null); assert.equal(h.requests.length, 1);
-  assert.equal(final().props.disabled, true); await final().props.onClick();
+  assert.equal(final().props.disabled, false); assert.match(textOf(final()), /거래처 확인 후 등록 진행/);
+  await final().props.onClick();
   assert.equal(h.requests.length, 1);
   assert.match(textOf(h.render()), /중복 확인 완료\s+7\s*\/\s*7\s*건/);
   const reopen = h.find((n) => n.type === 'button' && /중복\s+7\s*건 처리/.test(textOf(n)));
@@ -370,7 +372,7 @@ test('changed duplicate candidates clear previous confirmation and reopen review
   await h.find((n) => n.type === 'button' && n.props.className === 'btn btn--primary', modal).props.onClick();
   assert.ok(h.find((n) => n.props['aria-labelledby'] === 'collection-review-title'));
   assert.equal(h.find((n) => n.props['aria-label'] === '엑셀 3행 중복 여부 확인').props.checked, false);
-  assert.equal(h.find((n) => n.props['aria-label'] === '수금 업로드 최종 등록').props.disabled, true);
+  assert.match(textOf(h.find((n) => n.props['aria-label'] === '수금 업로드 최종 등록')), /중복 1건 확인 후 등록 진행/);
   assert.equal(h.requests.length, 2);
 });
 
@@ -384,13 +386,96 @@ test('editing an applied decision or selecting a file again requires explicit re
   await apply().props.onClick(); assert.equal(final().props.disabled, false);
   h.find((n) => n.props['aria-label'] === '엑셀 2행 중복 처리 열기').props.onClick();
   h.find((n) => n.props['aria-label'] === '엑셀 2행 처리 방법').props.onChange({ target: { value: 'separate' } });
-  assert.equal(final().props.disabled, true);
+  assert.match(textOf(final()), /중복 1건 확인 후 등록 진행/);
   h.find((n) => n.props['aria-label'] === '엑셀 2행 별도 등록 사유').props.onChange({ target: { value: '별도 수금 증빙 확인' } });
   h.find((n) => n.props['aria-label'] === '엑셀 2행 중복 여부 확인').props.onChange({ target: { checked: true } });
-  assert.equal(final().props.disabled, true);
+  assert.match(textOf(final()), /중복 1건 확인 후 등록 진행/);
   await apply().props.onClick(); assert.equal(final().props.disabled, false);
   await h.select();
-  assert.ok(modal()); assert.equal(final().props.disabled, true);
+  assert.ok(modal()); assert.equal(final().props.disabled, false);
   assert.equal(h.find((n) => n.props['aria-label'] === '엑셀 2행 중복 여부 확인').props.checked, false);
   assert.ok(h.requests.every((r) => r.url.endsWith('/preview')));
+});
+
+test('two completed customer choices and seven duplicates continue through revalidation to immediate approval', async () => {
+  const link = { ...customerIssue(), issue_key: '92018', source_code: '92018', row_numbers: [3] };
+  const create = { ...customerIssue(['create', 'exclude']), issue_key: '70265', source_code: '70265',
+    resolution_token: 'new-customer-token', candidates: [], row_numbers: [10] };
+  const errors = [link, create].map((i, index) => ({ ...customerError(), row_key: 'error-' + index,
+    customer_code: i.source_code, row_number: i.row_numbers[0] }));
+  const duplicates = Array.from({ length: 7 }, (_, i) => reviewRow(String(i + 20), 'similar'));
+  const normal = { ...reviewRow('40'), status: 'ready' };
+  const h = harness(undefined, true, { rows: [...errors, ...duplicates, normal], row_count: 10,
+    ready_count: 1, error_count: 2, review_count: 7, customer_issue_count: 2, customer_issues: [link, create] });
+  await h.select();
+  const change = (label, value) => h.find((n) => n.props['aria-label'] === label).props.onChange({ target: { value } });
+  const check = (label) => h.find((n) => n.props['aria-label'] === label).props.onChange({ target: { checked: true } });
+  change('92018 거래처 처리 방법', 'link'); change('92018 연결 거래처', '00020');
+  change('92018 거래처 확인 사유', '동일 거래처 입금내역 대조'); check('92018 거래처 확인 완료');
+  change('70265 거래처 처리 방법', 'create'); change('70265 신규 사업부', '덴탈'); check('70265 거래처 확인 완료');
+  // User leaves the customer dialog without its Apply button and handles duplicates first.
+  h.find((n) => n.type === 'button' && /중복\s+7\s*건 먼저 처리/.test(textOf(n))).props.onClick();
+  for (const r of duplicates) check(`엑셀 ${r.row_number}행 중복 여부 확인`);
+  const duplicateModal = h.find((n) => n.props['aria-labelledby'] === 'collection-review-title');
+  await h.find((n) => n.type === 'button' && n.props.className === 'btn btn--primary', duplicateModal).props.onClick();
+  assert.ok(h.find((n) => n.props['aria-labelledby'] === 'collection-customer-title'));
+  assert.equal(h.requests.length, 1);
+  const final = () => h.find((n) => n.props['aria-label'] === '수금 업로드 최종 등록');
+  assert.match(textOf(final()), /거래처 선택 적용/); assert.equal(final().props.disabled, false);
+  h.setPreview({ rows: [...errors.map((r) => ({ ...r, status: 'ready', amount: 250, errors: [] })), ...duplicates, normal],
+    ready_count: 3, error_count: 0, customer_issue_count: 0, total_amount: 2000500,
+    customer_issues: [{ ...link, resolved: true }, { ...create, resolved: true }] });
+  await final().props.onClick();
+  assert.equal(h.requests.length, 2); assert.ok(h.requests.every((r) => r.url.endsWith('/preview')));
+  assert.equal(h.requests[1].payload.customer_resolutions[0].target_code, '00020');
+  assert.equal(h.requests[1].payload.customer_resolutions[1].action, 'create');
+  assert.equal(h.find((n) => n.props.role === 'dialog'), null);
+  assert.match(textOf(final()), /최종 등록 · 3건 즉시 승인·상계/);
+  await final().props.onClick();
+  const writes = h.requests.filter((r) => r.url === '/api/collection-uploads' && r.payload);
+  assert.equal(writes.length, 1); assert.equal(writes[0].payload.approve_immediately, true);
+  assert.equal(writes[0].payload.reviews.length, 7);
+  assert.ok(writes[0].payload.reviews.every((r) => r.action === 'exclude' && r.confirmed));
+  assert.equal(writes[0].payload.customer_resolutions.length, 2);
+});
+
+test('editing an applied customer choice cannot submit the previous choice when dialog is closed', async () => {
+  const issue = customerIssue();
+  const h = harness(undefined, true, { rows: [customerError()], ready_count: 0, error_count: 1,
+    customer_issue_count: 1, customer_issues: [issue] });
+  await h.select();
+  h.find((n) => n.props['aria-label'] === '03791 거래처 처리 방법').props.onChange({ target: { value: 'exclude' } });
+  h.find((n) => n.props['aria-label'] === '03791 거래처 확인 완료').props.onChange({ target: { checked: true } });
+  h.setPreview({ rows: [{ ...customerError(), status: 'excluded', errors: [] }], error_count: 0,
+    customer_issue_count: 0, customer_excluded_count: 1, customer_issues: [{ ...issue, resolved: true }] });
+  const final = () => h.find((n) => n.props['aria-label'] === '수금 업로드 최종 등록');
+  await final().props.onClick(); assert.equal(h.requests.length, 2);
+  h.find((n) => n.type === 'button' && textOf(n) === '거래처 오류·선택 확인').props.onClick();
+  h.find((n) => n.props['aria-label'] === '03791 거래처 처리 방법').props.onChange({ target: { value: 'create' } });
+  h.find((n) => n.props['aria-label'] === '03791 신규 사업부').props.onChange({ target: { value: '메디컬' } });
+  const modal = h.find((n) => n.props['aria-labelledby'] === 'collection-customer-title');
+  h.find((n) => n.type === 'button' && textOf(n) === '돌아가기', modal).props.onClick();
+  assert.match(textOf(final()), /거래처 확인 후 등록 진행/);
+  await final().props.onClick();
+  assert.ok(h.find((n) => n.props['aria-labelledby'] === 'collection-customer-title'));
+  assert.equal(h.requests.length, 2);
+  h.find((n) => n.props['aria-label'] === '03791 거래처 확인 완료').props.onChange({ target: { checked: true } });
+  assert.match(textOf(final()), /거래처 선택 적용/);
+  h.setPreview({ rows: [{ ...customerError(), status: 'ready', amount: 2000000, errors: [] }],
+    ready_count: 1, customer_excluded_count: 0 });
+  await final().props.onClick();
+  assert.equal(h.requests.length, 3); assert.equal(h.requests[2].payload.customer_resolutions[0].action, 'create');
+  await final().props.onClick();
+  const write = h.requests.find((r) => r.url === '/api/collection-uploads' && r.payload);
+  assert.equal(write.payload.customer_resolutions[0].action, 'create');
+  assert.equal(write.payload.approve_immediately, true);
+});
+
+test('valid upload by a non-approver stays pending without changing permissions', async () => {
+  const h = harness(undefined, false); await h.select();
+  const final = h.find((n) => n.props['aria-label'] === '수금 업로드 최종 등록');
+  assert.match(textOf(final), /승인 대기/);
+  await final.props.onClick();
+  const write = h.requests.find((r) => r.url === '/api/collection-uploads' && r.payload);
+  assert.equal(write.payload.approve_immediately, false);
 });

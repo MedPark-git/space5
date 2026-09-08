@@ -1662,7 +1662,8 @@ function parseCollectionWorkbook(bytes) {
 function CollectionUpload({ can, notify, refresh }) {
     const [source, setSource] = useState(null), [preview, setPreview] = useState(null);
     const [error, setError] = useState(""), [busy, setBusy] = useState(false);
-    const [approve, setApprove] = useState(false), [history, setHistory] = useState([]);
+    const approve = can("collection_approve");
+    const [history, setHistory] = useState([]);
     const [historyError, setHistoryError] = useState("");
     const [page, setPage] = useState(0), [result, setResult] = useState(null);
     const [reviewOpen, setReviewOpen] = useState(false), [decisions, setDecisions] = useState({});
@@ -1703,6 +1704,8 @@ function CollectionUpload({ can, notify, refresh }) {
             const checked = await api("/api/collection-uploads/preview", { method: "POST",
                 body: { rows: source.rows, customer_resolutions: selected } });
             applyChecked(checked, selected);
+            if (!checked.error_count)
+                notify("거래처 선택을 반영했습니다. 등록 예정 내역을 확인한 뒤 최종 등록을 눌러 주세요.");
         }
         catch (e) {
             setError(e.message);
@@ -1725,6 +1728,8 @@ function CollectionUpload({ can, notify, refresh }) {
             return;
         setDecisions((current) => ({ ...current, ...Object.fromEntries(reviewRows.map((r) => [r.row_key, { ...current[r.row_key], applied: true }])) }));
         setReviewOpen(false);
+        if (customersNeedCheck)
+            setCustomerOpen(true);
         notify(`중복 ${reviewRows.length}건의 선택을 적용했습니다. 최종 등록 전까지 수금·채권은 변경되지 않습니다.`);
     }
     async function openReviewHistory(batch) {
@@ -1757,7 +1762,6 @@ function CollectionUpload({ can, notify, refresh }) {
         setPreview(null);
         setPage(0);
         setResult(null);
-        setApprove(false);
         setReviewOpen(false);
         setDecisions({});
         setCustomerOpen(false);
@@ -1786,7 +1790,7 @@ function CollectionUpload({ can, notify, refresh }) {
         }
     }
     async function submit() {
-        if (submitting.current || busy || !source || !preview || preview.error_count || !(preview.ready_count + (preview.review_count || 0) + (preview.customer_excluded_count || 0)))
+        if (submitting.current || busy || !source || !preview || preview.error_count || customersNeedCheck || !(preview.ready_count + (preview.review_count || 0) + (preview.customer_excluded_count || 0)))
             return;
         if (!reviewsApplied) {
             openReview();
@@ -1797,7 +1801,7 @@ function CollectionUpload({ can, notify, refresh }) {
         setError("");
         try {
             const response = await api("/api/collection-uploads", { method: "POST", body: {
-                    filename: source.filename, rows: source.rows, approve_immediately: approve && can("collection_approve"),
+                    filename: source.filename, rows: source.rows, approve_immediately: approve,
                     customer_resolutions: customerApplied,
                     reviews: reviewRows.map((r) => ({ row_key: r.row_key, review_token: r.review_token,
                         action: decisions[r.row_key].action, reason: decisions[r.row_key].reason, confirmed: decisions[r.row_key].confirmed })),
@@ -1805,7 +1809,6 @@ function CollectionUpload({ can, notify, refresh }) {
             setResult(response);
             setPreview(null);
             setSource(null);
-            setApprove(false);
             setReviewOpen(false);
             setDecisions({});
             setCustomerOpen(false);
@@ -1838,16 +1841,47 @@ function CollectionUpload({ can, notify, refresh }) {
             setBusy(false);
         }
     }
+    async function continueUpload() {
+        if (submitting.current || busy || !source || !preview)
+            return;
+        if (customersNeedCheck) {
+            if (customersComplete)
+                await recheckCustomers();
+            else {
+                setReviewOpen(false);
+                setCustomerOpen(true);
+            }
+            return;
+        }
+        if (preview.error_count) {
+            setErrorsOnly(true);
+            setPage(0);
+            notify(`입력 오류 ${preview.error_count}건을 확인하세요. 날짜·금액 등은 원본 파일을 수정한 뒤 다시 선택해 주세요.`, true);
+            return;
+        }
+        if (!reviewsApplied) {
+            openReview();
+            return;
+        }
+        await submit();
+    }
     const errorRows = preview ? preview.rows.filter((r) => r.status === "error") : [];
     const visibleRows = preview ? (errorsOnly ? errorRows : preview.rows) : [];
     const pageRows = visibleRows.slice(page * 50, (page + 1) * 50);
     const customerIssues = (preview === null || preview === void 0 ? void 0 : preview.customer_issues) || [];
-    const customersComplete = customerIssues.every((i) => {
+    const customerDecisionComplete = (i) => {
         const d = customerDecisions[i.issue_key];
-        return (d === null || d === void 0 ? void 0 : d.confirmed) && i.allowed_actions.includes(d.action) && (d.reason || "").trim().length <= 500
+        return (d === null || d === void 0 ? void 0 : d.confirmed) && d.resolution_token === i.resolution_token && i.allowed_actions.includes(d.action) && (d.reason || "").trim().length <= 500
             && (d.action !== "link" || (i.candidates.some((c) => c.code === d.target_code) && d.reason.trim().length >= 5))
             && (d.action !== "create" || (d.name.trim() && ["덴탈", "메디컬", "에스테틱"].includes(d.biz_unit)));
-    });
+    };
+    const customersComplete = customerIssues.every(customerDecisionComplete);
+    const customerSelectionApplied = (i) => {
+        const previous = customerApplied.find((d) => d.issue_key === i.issue_key), current = customerDecisions[i.issue_key];
+        return i.resolved && customerDecisionComplete(i) && previous &&
+            ["resolution_token", "action", "target_code", "name", "biz_unit", "reason", "confirmed"].every((key) => previous[key] === current[key]);
+    };
+    const customersNeedCheck = !!(preview === null || preview === void 0 ? void 0 : preview.customer_issue_count) || customerIssues.some((i) => !customerSelectionApplied(i));
     const errorDetails = React.createElement("div", { className: "alert alert--bad collection-error-details", role: "alert" },
         React.createElement("b", null,
             "\uC785\uB825 \uC624\uB958 ",
@@ -2013,9 +2047,8 @@ function CollectionUpload({ can, notify, refresh }) {
                     " / ",
                     Math.ceil(visibleRows.length / 50)),
                 React.createElement("button", { className: "btn btn--sm", disabled: (page + 1) * 50 >= visibleRows.length, onClick: () => setPage(page + 1) }, "\uB2E4\uC74C")),
-            can("collection_approve") && React.createElement("label", { className: "collection-upload-approve" },
-                React.createElement("input", { type: "checkbox", checked: approve, disabled: busy, onChange: (e) => setApprove(e.target.checked) }),
-                "\uB4F1\uB85D\uACFC \uB3D9\uC2DC\uC5D0 \uC2B9\uC778\u00B7\uC0C1\uACC4 (\uCC44\uAD8C\uC794\uC561\uC5D0 \uC989\uC2DC \uBC18\uC601)"),
+            React.createElement("div", { className: "alert alert--info", style: { marginTop: 16 } }, approve ? "최종 등록과 동시에 승인·상계됩니다. 등록할 수금액이 채권잔액에 즉시 반영됩니다."
+                : "수금 승인 권한이 없어 승인 대기로 등록됩니다. 승인권자가 승인한 뒤 채권잔액에 반영됩니다."),
             React.createElement("div", { className: "btnrow", style: { marginTop: 16 } },
                 !!reviewRows.length && React.createElement("button", { className: "btn", disabled: busy, onClick: openReview },
                     "\uC911\uBCF5 ",
@@ -2023,7 +2056,10 @@ function CollectionUpload({ can, notify, refresh }) {
                     "\uAC74 \uCC98\uB9AC",
                     reviewsApplied ? " · 확인 완료" : ""),
                 !!customerIssues.length && React.createElement("button", { className: "btn", disabled: busy, onClick: () => { setReviewOpen(false); setCustomerOpen(true); } }, "\uAC70\uB798\uCC98 \uC624\uB958\u00B7\uC120\uD0DD \uD655\uC778"),
-                React.createElement("button", { className: "btn btn--primary", "aria-label": "\uC218\uAE08 \uC5C5\uB85C\uB4DC \uCD5C\uC885 \uB4F1\uB85D", disabled: busy || !!preview.error_count || !reviewsApplied || !(preview.ready_count + (preview.review_count || 0) + (preview.customer_excluded_count || 0)), onClick: submit }, busy ? "처리 중" : appliedCount ? `최종 등록 · ${appliedCount}건 ${approve ? "승인·상계" : "승인 대기"}` : "제외 확인 이력 저장")),
+                React.createElement("button", { className: "btn btn--primary", "aria-label": "\uC218\uAE08 \uC5C5\uB85C\uB4DC \uCD5C\uC885 \uB4F1\uB85D", disabled: busy || !preview.row_count, onClick: continueUpload }, busy ? "처리 중" : customersNeedCheck ? customersComplete ? "거래처 선택 적용 · 등록 내역 재검증" : "거래처 확인 후 등록 진행"
+                    : preview.error_count ? `입력 오류 ${preview.error_count}건 확인`
+                        : !reviewsApplied ? `중복 ${reviewRows.length - appliedRows.length}건 확인 후 등록 진행`
+                            : appliedCount ? `최종 등록 · ${appliedCount}건 ${approve ? "즉시 승인·상계" : "승인 대기"}` : "제외 확인 이력 저장")),
             React.createElement("p", { role: "status" },
                 "\uB4F1\uB85D \uC608\uC815 ",
                 appliedCount,
@@ -2034,12 +2070,14 @@ function CollectionUpload({ can, notify, refresh }) {
                 "\uAC74 / \uBCC4\uB3C4 \uC218\uAE08 ",
                 appliedSeparate.length,
                 "\uAC74"),
-            (!!preview.error_count || !reviewsApplied) && React.createElement("p", { className: "t-sm t-muted" },
+            (!!preview.error_count || customersNeedCheck || !reviewsApplied) && React.createElement("p", { className: "t-sm t-muted", role: "status" },
                 "\uCD5C\uC885 \uB4F1\uB85D \uC804 \uB0A8\uC740 \uD56D\uBAA9: \uC785\uB825 \uC624\uB958 ",
                 preview.error_count,
                 "\uAC74 \u00B7 \uC911\uBCF5 \uD655\uC778 ",
                 reviewRows.length - appliedRows.length,
-                "\uAC74. \uAC70\uB798\uCC98 \uC624\uB958\uAC00 \uB0A8\uC544 \uC788\uC5B4\uB3C4 \uC911\uBCF5 \uCC98\uB9AC\uB294 \uBA3C\uC800 \uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.")),
+                "\uAC74.",
+                customersNeedCheck ? " 거래처 선택을 적용해야 합니다. 위 등록 진행 버튼으로 확인·적용할 수 있습니다."
+                    : " 위 버튼을 누르면 남은 확인 단계로 이동합니다. 확인 전에는 수금이 등록되지 않습니다.")),
         React.createElement(Card, { title: "\uC218\uAE08 \uC5C5\uB85C\uB4DC \uC774\uB825", flush: true },
             historyError && React.createElement("div", { className: "alert alert--bad" }, historyError),
             !history.length ? React.createElement(Empty, { title: "\uC218\uAE08 \uC5C5\uB85C\uB4DC \uC774\uB825\uC774 \uC5C6\uC2B5\uB2C8\uB2E4." }) : React.createElement("div", { className: "tablewrap" },
@@ -2080,6 +2118,8 @@ function CollectionUpload({ can, notify, refresh }) {
                             issue.source_names.join(" / ") || "거래처명 없음",
                             " \u00B7 \uC5D1\uC140 \uACE0\uAC1D\uCF54\uB4DC ",
                             issue.source_code),
+                        React.createElement("p", { role: "status" }, customerSelectionApplied(issue) ? "거래처 선택 반영 완료"
+                            : customerDecisionComplete(issue) ? "선택 확인 완료 · 아래 선택 적용 버튼을 눌러 주세요." : "처리 방법과 필수 항목을 선택하고 확인란을 체크해 주세요."),
                         React.createElement("p", null,
                             "\uC5D1\uC140 ",
                             issue.row_numbers.join(", "),
@@ -2157,14 +2197,14 @@ function CollectionUpload({ can, notify, refresh }) {
                             "\uAC70\uB798\uCC98\uC640 \uCC44\uAD8C \uCC98\uB9AC \uB0B4\uC6A9\uC744 \uD655\uC778\uD588\uC73C\uBA70 \uC120\uD0DD\uD55C \uBC29\uBC95\uC73C\uB85C \uC9C4\uD589\uD569\uB2C8\uB2E4."));
                 })),
                 React.createElement("div", { className: "collection-review-footer" },
-                    React.createElement("p", null, "\uB2E4\uC74C \uB2E8\uACC4\uC5D0\uC11C \uC911\uBCF5 \uC218\uAE08\uC744 \uB2E4\uC2DC \uD655\uC778\uD569\uB2C8\uB2E4. \uC2B9\uC778 \uB300\uAE30\uB85C \uB4F1\uB85D\uD55C \uC218\uAE08\uC740 \uC2B9\uC778 \uD6C4 \uCC44\uAD8C\uC5D0 \uBC18\uC601\uB429\uB2C8\uB2E4."),
+                    React.createElement("p", null, "\uCCB4\uD06C \uD6C4 \uC544\uB798 \u2018\uAC70\uB798\uCC98 \uC120\uD0DD \uC801\uC6A9\u2019\uC744 \uB20C\uB7EC\uC57C \uC624\uB958\uAC00 \uD574\uACB0\uB429\uB2C8\uB2E4. \uAC70\uB798\uCC98\uC640 \uC218\uAE08\uC740 \uBCF8\uBB38\uC758 \uCD5C\uC885 \uB4F1\uB85D \uC2DC \uD568\uAED8 \uC800\uC7A5\uB429\uB2C8\uB2E4."),
                     React.createElement("div", { className: "btnrow" },
                         React.createElement("button", { className: "btn", disabled: busy, onClick: () => setCustomerOpen(false) }, "\uB3CC\uC544\uAC00\uAE30"),
                         !!reviewRows.length && React.createElement("button", { className: "btn", disabled: busy, onClick: openReview },
                             "\uC911\uBCF5 ",
                             reviewRows.length,
                             "\uAC74 \uBA3C\uC800 \uCC98\uB9AC"),
-                        React.createElement("button", { className: "btn btn--primary", disabled: busy || !customersComplete, onClick: recheckCustomers }, busy ? "재검증 중" : "선택 반영 · 중복 재검증"))))),
+                        React.createElement("button", { className: "btn btn--primary", disabled: busy || !customersComplete, onClick: recheckCustomers }, busy ? "재검증 중" : "거래처 선택 적용 · 등록 단계로"))))),
         reviewOpen && preview && React.createElement("div", { className: "modal-backdrop", onMouseDown: closeReview },
             React.createElement("section", { className: "modal-card modal-card--wide collection-review-modal", role: "dialog", "aria-modal": "true", "aria-labelledby": "collection-review-title", onMouseDown: (e) => e.stopPropagation() },
                 React.createElement("h2", { id: "collection-review-title" },
@@ -2931,11 +2971,11 @@ function CollectionUploadGuide() {
             React.createElement("li", null, "\uC785\uB825 \uC624\uB958\uB294 \uD589 \uBC88\uD638\u00B7\uAC70\uB798\uCC98\u00B7\uACE0\uAC1D\uCF54\uB4DC\u00B7\uC218\uAE08\uBC88\uD638\u00B7\uC0AC\uC720\uB85C \uD45C\uC2DC\uD569\uB2C8\uB2E4. \u2018\uC624\uB958\uB9CC \uBCF4\uAE30\u2019\uB85C \uD574\uB2F9 \uD589\uC744 \uBAA8\uC544\uBCFC \uC218 \uC788\uC2B5\uB2C8\uB2E4."),
             React.createElement("li", null, "\uBBF8\uB4F1\uB85D\u00B7\uBAA8\uD638\uD55C \uACE0\uAC1D\uCF54\uB4DC\uAC00 \uC788\uC73C\uBA74 \uAC70\uB798\uCC98 \uD655\uC778 \uCC3D\uC774 \uBA3C\uC800 \uC5F4\uB9BD\uB2C8\uB2E4. \uAE30\uC874 \uAC70\uB798\uCC98 \uC5F0\uACB0, \uC5D1\uC140 \uCF54\uB4DC\uB85C \uC2E0\uADDC \uB4F1\uB85D, \uC774\uBC88 \uC5C5\uB85C\uB4DC \uC81C\uC678 \uC911 \uC9C1\uC811 \uC120\uD0DD\uD558\uACE0 \uD655\uC778\uB780\uC744 \uCCB4\uD06C\uD569\uB2C8\uB2E4. \uAC19\uC740 \uCF54\uB4DC\uC758 \uD589\uC740 \uD568\uAED8 \uCC98\uB9AC\uD569\uB2C8\uB2E4."),
             React.createElement("li", null, "\uAE30\uC874 \uAC70\uB798\uCC98 \uC5F0\uACB0\uC740 \uCF54\uB4DC\u00B7\uC0AC\uC5C5\uBD80\u00B7\uCC44\uAD8C\uC794\uC561\uC744 \uBE44\uAD50\uD558\uACE0 5~500\uC790 \uC0AC\uC720\uB97C \uC785\uB825\uD569\uB2C8\uB2E4. \uC2E0\uADDC \uB4F1\uB85D\uC740 \uAC70\uB798\uCC98\uBA85\uACFC \uC0AC\uC5C5\uBD80\uAC00 \uD544\uC218\uC774\uBA70 \uC218\uAE08 \uB4F1\uB85D \uAD8C\uD55C\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC0C8 \uAC70\uB798\uCC98\uB294 \uC794\uC561 0\uC6D0\u00B7\uD68C\uC218\uAE30\uAC04 \uBBF8\uC785\uB825\uC73C\uB85C \uC2DC\uC791\uD558\uACE0, \uC2B9\uC778 \uC2DC \uC218\uAE08\uC740 \uC120\uC218\uAE08\uC73C\uB85C \uCC98\uB9AC\uB429\uB2C8\uB2E4."),
-            React.createElement("li", null, "\u2018\uC120\uD0DD \uBC18\uC601 \u00B7 \uC911\uBCF5 \uC7AC\uAC80\uC99D\u2019\uC740 \uC800\uC7A5 \uC804 \uAC80\uC99D \uB2E8\uACC4\uC785\uB2C8\uB2E4. \uC5F0\uACB0\uD55C \uAC70\uB798\uCC98 \uAE30\uC900\uC73C\uB85C \uAE30\uC874 \uC218\uAE08\uACFC \uB2E4\uC2DC \uBE44\uAD50\uD55C \uB4A4 \uC911\uBCF5 \uD655\uC778 \uCC3D\uC774 \uC5F4\uB9BD\uB2C8\uB2E4. \uAE30\uC874 \uCF54\uB4DC\uB97C \uBCC0\uACBD\uD558\uAC70\uB098 \uB2E4\uC74C \uD30C\uC77C\uC758 \uCF54\uB4DC\uB97C \uC790\uB3D9 \uBCC0\uD658\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."),
+            React.createElement("li", null, "\u2018\uAC70\uB798\uCC98 \uC120\uD0DD \uC801\uC6A9 \u00B7 \uB4F1\uB85D \uB2E8\uACC4\uB85C\u2019\uB294 \uC800\uC7A5 \uC804 \uAC80\uC99D \uB2E8\uACC4\uC785\uB2C8\uB2E4. \uD655\uC778\uB780\uB9CC \uCCB4\uD06C\uD558\uACE0 \uCC3D\uC744 \uB2EB\uC558\uB2E4\uBA74 \uBCF8\uBB38\uC758 \uB4F1\uB85D \uC9C4\uD589 \uBC84\uD2BC\uC73C\uB85C \uC120\uD0DD\uC744 \uC801\uC6A9\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4. \uC5F0\uACB0\uD55C \uAC70\uB798\uCC98 \uAE30\uC900\uC73C\uB85C \uAE30\uC874 \uC218\uAE08\uACFC \uB2E4\uC2DC \uBE44\uAD50\uD55C \uB4A4 \uC911\uBCF5 \uD655\uC778 \uCC3D\uC774 \uC5F4\uB9BD\uB2C8\uB2E4. \uAE30\uC874 \uCF54\uB4DC\uB97C \uBCC0\uACBD\uD558\uAC70\uB098 \uB2E4\uC74C \uD30C\uC77C\uC758 \uCF54\uB4DC\uB97C \uC790\uB3D9 \uBCC0\uD658\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."),
             React.createElement("li", null, "\u2018\uC911\uBCF5 N\uAC74 \uCC98\uB9AC\u2019 \uB610\uB294 \uAC01 \uC911\uBCF5 \uD589\uC758 \u2018\uC911\uBCF5 \uCC98\uB9AC\u2019\uB97C \uB204\uB985\uB2C8\uB2E4. \uAC70\uB798\uCC98\u00B7\uC785\uB825 \uC624\uB958\uAC00 \uB0A8\uC544 \uC788\uC5B4\uB3C4 \uC911\uBCF5 \uD655\uC778 \uCC3D\uC744 \uC5F4\uACE0 \uBCC4\uB3C4\uB85C \uCC98\uB9AC\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4."),
             React.createElement("li", null, "\uAC01 \uD6C4\uBCF4\uC758 \u2018\uC911\uBCF5 \uD655\uC778\u00B7\uC774\uBC88 \uD589 \uC81C\uC678\u2019\uB97C \uCCB4\uD06C\uD569\uB2C8\uB2E4. \uB0B4\uC6A9\uC774 \uB3D9\uC77C\uD55C \uAE30\uB4F1\uB85D \uAC74\uC740 \uC77C\uAD04 \uD655\uC778\uB3C4 \uAC00\uB2A5\uD569\uB2C8\uB2E4. \uD31D\uC5C5\uC758 \u2018\uC911\uBCF5 \uD655\uC778 \uC801\uC6A9\u2019\uC740 \uC120\uD0DD\uB9CC \uBC18\uC601\uD558\uBA70 \uC218\uAE08\uC744 \uB4F1\uB85D\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."),
             React.createElement("li", null, "\uACE0\uAC1D\u00B7\uC218\uAE08\uC77C\u00B7\uAE08\uC561\u00B7\uBC29\uBC95\uB9CC \uAC19\uC740 \uD6C4\uBCF4\uAC00 \uC2E4\uC81C \uBCC4\uB3C4 \uC218\uAE08\uC774\uBA74 \u2018\uC911\uBCF5 \uC544\uB2D8\u00B7\uBCC4\uB3C4 \uC218\uAE08 \uB4F1\uB85D\u2019\uC744 \uC120\uD0DD\uD558\uACE0 5~500\uC790 \uC0AC\uC720\uC640 \uD655\uC778 \uCCB4\uD06C\uB97C \uC785\uB825\uD569\uB2C8\uB2E4."),
-            React.createElement("li", null, "\uBCF8\uBB38\uC758 \uC911\uBCF5 \uD655\uC778 \uC644\uB8CC \uAC74\uC218\uC640 \uC81C\uC678\u00B7\uBCC4\uB3C4 \uC218\uAE08 \uC120\uD0DD \uACB0\uACFC\uB97C \uD655\uC778\uD569\uB2C8\uB2E4. \uC785\uB825 \uC624\uB958 0\uAC74\u00B7\uC911\uBCF5 \uD655\uC778 \uC644\uB8CC \uC0C1\uD0DC\uC5D0\uC11C \u2018\uCD5C\uC885 \uB4F1\uB85D\u2019\uC744 \uB20C\uB7EC \uB4F1\uB85D\uD569\uB2C8\uB2E4. \uC2B9\uC778\uAD8C\uC790\uB9CC \uC989\uC2DC \uC2B9\uC778\u00B7\uC0C1\uACC4\uB97C \uC120\uD0DD\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4. \uC804\uBD80 \uC911\uBCF5\uC774\uBA74 \uC81C\uC678 \uD655\uC778 \uC774\uB825\uB9CC \uC800\uC7A5\uD558\uBA70 \uCC44\uAD8C\uC744 \uB2E4\uC2DC \uCC28\uAC10\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."),
+            React.createElement("li", null, "\uBCF8\uBB38\uC758 \uC911\uBCF5 \uD655\uC778 \uC644\uB8CC \uAC74\uC218\uC640 \uC81C\uC678\u00B7\uBCC4\uB3C4 \uC218\uAE08 \uC120\uD0DD \uACB0\uACFC\uB97C \uD655\uC778\uD569\uB2C8\uB2E4. \uC785\uB825 \uC624\uB958 0\uAC74\u00B7\uC911\uBCF5 \uD655\uC778 \uC644\uB8CC \uC0C1\uD0DC\uC5D0\uC11C \u2018\uCD5C\uC885 \uB4F1\uB85D\u2019\uC744 \uB20C\uB7EC \uB4F1\uB85D\uD569\uB2C8\uB2E4. \uC2B9\uC778 \uAD8C\uD55C\uC774 \uC788\uC73C\uBA74 \uCD5C\uC885 \uB4F1\uB85D\uACFC \uB3D9\uC2DC\uC5D0 \uC790\uB3D9 \uC2B9\uC778\u00B7\uC0C1\uACC4\uB429\uB2C8\uB2E4. \uC2B9\uC778 \uAD8C\uD55C\uC774 \uC5C6\uC73C\uBA74 \uC2B9\uC778 \uB300\uAE30\uB85C \uB4F1\uB85D\uB429\uB2C8\uB2E4. \uC804\uBD80 \uC911\uBCF5\uC774\uBA74 \uC81C\uC678 \uD655\uC778 \uC774\uB825\uB9CC \uC800\uC7A5\uD558\uBA70 \uCC44\uAD8C\uC744 \uB2E4\uC2DC \uCC28\uAC10\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."),
             React.createElement("li", null, "\uAC70\uB798\uCC98 \uC120\uD0DD\uC744 \uC7AC\uAC80\uC99D\uD574\uB3C4 \uBE44\uAD50 \uB300\uC0C1\uACFC \uB0B4\uC6A9\uC774 \uAC19\uC740 \uC911\uBCF5 \uD655\uC778 \uACB0\uACFC\uB294 \uC720\uC9C0\uD569\uB2C8\uB2E4. \uBE44\uAD50 \uB0B4\uC6A9\uC774 \uBC14\uB010 \uD589\uC740 \uB2E4\uC2DC \uD655\uC778\uD574\uC57C \uD569\uB2C8\uB2E4. \uC120\uD0DD\uC740 \uD604\uC7AC \uD30C\uC77C \uCC98\uB9AC \uC911\uC5D0\uB9CC \uC720\uC9C0\uB418\uBA70 \uC0C8 \uD30C\uC77C \uC120\uD0DD\u00B7\uC0C8\uB85C\uACE0\uCE68 \uC2DC \uC7AC\uD655\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4."),
             React.createElement("li", null, "\uCD5C\uC885 \uB4F1\uB85D\uC774 \uC131\uACF5\uD560 \uB54C \uD544\uC694\uD55C \uC2E0\uADDC \uAC70\uB798\uCC98\uC640 \uC218\uAE08\uC744 \uD568\uAED8 \uC800\uC7A5\uD569\uB2C8\uB2E4. \uC624\uB958\uAC00 \uB098\uBA74 \uB458 \uB2E4 \uC800\uC7A5\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uC81C\uC678\uD55C \uC218\uAE08\uC744 \uC704\uD55C \uAC70\uB798\uCC98\uB294 \uC0DD\uC131\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."),
             React.createElement("li", null, "\uC5C5\uB85C\uB4DC \uC774\uB825\uC758 \uC911\uBCF5\u00B7\uAC70\uB798\uCC98 \uD655\uC778 \uBC84\uD2BC\uC5D0\uC11C \uC6D0\uBCF8 \uCF54\uB4DC\u00B7\uC5F0\uACB0 \uCF54\uB4DC\u00B7\uC2E0\uADDC/\uC81C\uC678 \uD310\uB2E8\u00B7\uC0AC\uC720\u00B7\uD655\uC778\uC790\u00B7\uD655\uC778\uC77C\uC2DC\uB97C \uC870\uD68C\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.")),
@@ -3062,7 +3102,7 @@ function Manual() {
                     React.createElement("span", null, "\uBCF4\uACE0 \uD654\uBA74\uC740 \uC120\uD0DD\uD55C \uC870\uD68C\uAE30\uC900\uC744 \uB530\uB974\uBA70, \uC218\uAE08\u00B7\uC5C5\uB85C\uB4DC \uD654\uBA74\uC740 \uD56D\uC0C1 \uCD5C\uC2E0 \uC6B4\uC601\uB370\uC774\uD130\uB97C \uC0AC\uC6A9\uD569\uB2C8\uB2E4.")),
                 React.createElement("div", null,
                     React.createElement("b", null, "\uC218\uAE08 \uC2B9\uC778"),
-                    React.createElement("span", null, "\uC2B9\uC778 \uC644\uB8CC \uD6C4 \uC794\uC561\uC5D0 \uBC18\uC601\uB429\uB2C8\uB2E4. \uC218\uAE08 \uC5C5\uB85C\uB4DC\uC5D0\uC11C \uC2B9\uC778\uAD8C\uC790\uB294 \uC989\uC2DC \uC2B9\uC778\u00B7\uC0C1\uACC4\uB97C \uC120\uD0DD\uD560 \uC218 \uC788\uC73C\uBA70, \uC120\uD0DD\uD558\uC9C0 \uC54A\uC73C\uBA74 \uC2B9\uC778 \uB300\uAE30\uB85C \uB4F1\uB85D\uB429\uB2C8\uB2E4.")),
+                    React.createElement("span", null, "\uC2B9\uC778 \uC644\uB8CC \uD6C4 \uC794\uC561\uC5D0 \uBC18\uC601\uB429\uB2C8\uB2E4. \uC218\uAE08 \uC5C5\uB85C\uB4DC\uC5D0\uC11C \uC2B9\uC778\uAD8C\uC790\uB294 \uCD5C\uC885 \uB4F1\uB85D\uACFC \uB3D9\uC2DC\uC5D0 \uC790\uB3D9 \uC2B9\uC778\u00B7\uC0C1\uACC4\uB429\uB2C8\uB2E4. \uC2B9\uC778 \uAD8C\uD55C\uC774 \uC5C6\uB294 \uB4F1\uB85D\uC790\uB294 \uC2B9\uC778 \uB300\uAE30\uB85C \uB4F1\uB85D\uB429\uB2C8\uB2E4.")),
                 React.createElement("div", null,
                     React.createElement("b", null, "\uCE74\uB4DC\uC218\uAE08"),
                     React.createElement("span", null, "\uCC44\uAD8C\uC5D0\uC11C\uB294 \uC2B9\uC778 \uC989\uC2DC \uCC28\uAC10\uB418\uC9C0\uB9CC \uC218\uAE08\uACC4\uD68D\uC5D0\uB294 \uD1B5\uC7A5 \uC785\uAE08\uC608\uC815\uC77C\uC778 \uC218\uAE08\uC77C \uC774\uD6C4 3\uC601\uC5C5\uC77C\uAE4C\uC9C0 \uD3EC\uD568\uB429\uB2C8\uB2E4.")),

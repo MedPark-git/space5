@@ -318,6 +318,41 @@ class CollectionUploadTests(unittest.TestCase):
         self.customer('20', 0)
         self.assertEqual(self.preview([self.row()]).json['error_count'], 1)
 
+    def test_two_customer_resolutions_seven_duplicates_register_and_approve_atomically(self):
+        prior = [self.row(receipt_no='PRIOR-%s' % i, normal_amount=10 + i) for i in range(7)]
+        self.assertEqual(self.upload(prior, True).status_code, 201)
+        remaining = self.balance()['balance']
+        rows = prior + [self.row(receipt_no='LINK', customer_code='92018',
+                                 customer_name='시험 거래처 00020', normal_amount=150),
+                        self.row(receipt_no='CREATE', customer_code='70265',
+                                 customer_name='신규 거래처', normal_amount=250),
+                        self.row(receipt_no='NEW', normal_amount=600)]
+        before = self.preview(rows).json
+        self.assertEqual((before['error_count'], before['review_count'], before['ready_count']), (2, 7, 1))
+        decisions = [dict(issue_key=i['issue_key'], resolution_token=i['resolution_token'], confirmed=True,
+                          reason='거래처와 수금 증빙 확인', **({'action': 'link', 'target_code': '00020'}
+                          if i['source_code'] == '92018' else {'action': 'create', 'name': '신규 거래처', 'biz_unit': '덴탈'}))
+                     for i in before['customer_issues']]
+        reviews = [{'row_key': r['row_key'], 'review_token': r['review_token'], 'action': 'exclude', 'confirmed': True}
+                   for r in before['rows'] if r['status'] == 'review']
+        self.assertEqual(self.upload(rows, True, reviews=reviews).status_code, 409)
+        self.assertEqual(self.balance()['balance'], remaining)
+        checked = self.preview(rows, decisions).json
+        self.assertEqual((checked['error_count'], checked['review_count'], checked['ready_count']), (0, 7, 3))
+        result = self.upload(rows, True, customer_resolutions=decisions, reviews=reviews)
+        self.assertEqual(result.status_code, 201, result.json)
+        self.assertEqual((result.json['inserted'], result.json['approved'], result.json['skipped']), (3, 3, 7))
+        self.assertEqual(result.json['total_amount'], 1000)
+        self.assertEqual(self.balance()['balance'], remaining - 750)
+        with self.db.connect() as conn:
+            self.assertEqual(conn.execute("SELECT advance FROM customers WHERE code='70265'").fetchone()['advance'], 250)
+            states = list(conn.execute("SELECT state,approved_by FROM collections"))
+            self.assertEqual(len(states), 10)
+            self.assertTrue(all(r['state'] == 'approved' and r['approved_by'] == 'receipt-test' for r in states))
+        # A retry cannot create or offset any row again using now-stale customer choices.
+        self.assertEqual(self.upload(rows, True, customer_resolutions=decisions, reviews=reviews).status_code, 409)
+        self.assertEqual(self.balance()['balance'], remaining - 750)
+
     def test_permission_and_authentication_enforced_on_server(self):
         self.user['permissions'] = ['collection_register']
         self.assertEqual(self.upload([self.row()], True).status_code, 403)
