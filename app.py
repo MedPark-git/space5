@@ -18,6 +18,7 @@ from flask import Flask, jsonify, request, session, render_template, send_file
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import db
+from collection_import import validate_rows, resolve_reviews, ReviewRequired
 from db import connect, PERMISSIONS, ALL_PERMS, ROLE_TEMPLATES
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
@@ -889,6 +890,189 @@ def update_receivable(item_id):
 
 # ─────────────────────────────── 수금 ───────────────────────────────
 
+def collection_write_lock(conn):
+    # Serialize import/approval/shipment replacement across workers. SQLite's
+    # write transaction serves the same purpose in local verification.
+    if db.USE_PG:
+        conn.execute('SELECT pg_advisory_xact_lock(%s)', (778103,))
+    else:
+        conn.execute('BEGIN IMMEDIATE')
+
+
+class CollectionApprovalError(ValueError):
+    def __init__(self, message, status=409):
+        super().__init__(message)
+        self.status = status
+
+
+def approve_collection_in_transaction(conn, cid, actor):
+    collection = conn.execute('SELECT * FROM collections WHERE id=%s', (cid,)).fetchone()
+    if not collection:
+        raise CollectionApprovalError('수금 건을 찾을 수 없습니다.', 404)
+    if collection['state'] != 'pending':
+        raise CollectionApprovalError('이미 처리된 건입니다.')
+    imported = conn.execute('SELECT 1 FROM collection_import_rows WHERE collection_id=%s', (cid,)).fetchone()
+    if imported:
+        locked = conn.execute('SELECT locked FROM month_locks WHERE month=%s', (collection['paid_at'][:7],)).fetchone()
+        if locked and locked['locked']:
+            raise CollectionApprovalError('수금일자의 월이 마감되어 승인할 수 없습니다.', 423)
+    customer = conn.execute('SELECT * FROM customers WHERE code=%s' + (' FOR UPDATE' if db.USE_PG else ''),
+                            (collection['customer_code'],)).fetchone()
+    if not customer:
+        raise CollectionApprovalError('거래처를 찾을 수 없습니다.', 404)
+    row = conn.execute(
+        "UPDATE collections SET state='approved',approved_by=%s,approved_at=" + db.NOW_SQL +
+        " WHERE id=%s AND state='pending' RETURNING *", (actor, cid)).fetchone()
+    if not row:
+        raise CollectionApprovalError('이미 처리된 건입니다.')
+    remaining = row['amount']
+    items = list(conn.execute(
+        'SELECT id,balance,source_key,issue_month,biz_unit FROM receivable_items'
+        ' WHERE customer_code=%s AND balance>0'
+        " ORDER BY CASE category WHEN '부실' THEN 1 WHEN '연체' THEN 2 ELSE 3 END,issue_month,id"
+        + (' FOR UPDATE' if db.USE_PG else ''), (row['customer_code'],)))
+    for item in items:
+        deducted = min(remaining, item['balance'])
+        conn.execute('UPDATE receivable_items SET balance=balance-%s WHERE id=%s', (deducted, item['id']))
+        if str(item['source_key']).startswith('shipment:'):
+            conn.execute(
+                'UPDATE monthly_shipment_units SET balance=CASE WHEN balance-%s<0 THEN 0 ELSE balance-%s END'
+                ' WHERE month=%s AND code=%s AND biz_unit=%s',
+                (deducted, deducted, item['issue_month'], row['customer_code'], item['biz_unit']))
+        remaining -= deducted
+        if remaining <= 0:
+            break
+    # Only the portion not allocated to the ledger becomes an advance.
+    conn.execute(
+        'UPDATE customers SET advance=advance+%s,last_paid_at=CASE WHEN last_paid_at>%s THEN last_paid_at'
+        ' ELSE %s END,updated_at=' + db.NOW_SQL + ' WHERE code=%s',
+        (remaining, row['paid_at'], row['paid_at'], row['customer_code']))
+    customer = sync_customer_from_receivables(conn, row['customer_code'])
+    log(conn, actor, 'collection_approve', str(cid))
+    return row, customer
+
+
+def can_import_collections():
+    return bool({'collection_register', 'collection_approve'} & set(request.user['permissions']))
+
+
+def public_collection_preview(result):
+    return {**result, 'rows': [{k: v for k, v in row.items() if k not in ('source', 'fingerprint')}
+                               for row in result['rows']]}
+
+
+@app.post('/api/collection-uploads/preview')
+@login_required
+def preview_collection_upload():
+    if not can_import_collections():
+        return jsonify(error='수금 등록 또는 수금 승인 권한이 필요합니다.'), 403
+    data = body()
+    if not isinstance(data, dict):
+        return jsonify(error='요청 형식을 확인하세요.'), 400
+    try:
+        with connect() as conn:
+            result = validate_rows(conn, data.get('rows'))
+        return jsonify(public_collection_preview(result))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+
+
+@app.get('/api/collection-uploads')
+@login_required
+def collection_upload_history():
+    if not can_import_collections():
+        return jsonify(error='수금 등록 또는 수금 승인 권한이 필요합니다.'), 403
+    with connect() as conn:
+        batches = list(conn.execute(
+            'SELECT b.*, (SELECT COUNT(*) FROM collection_upload_reviews r WHERE r.batch_id=b.id) AS reviewed_count,'
+            " (SELECT COUNT(*) FROM collection_upload_reviews r WHERE r.batch_id=b.id AND r.action='exclude') AS excluded_count"
+            ' FROM collection_upload_batches b ORDER BY b.id DESC LIMIT 200'))
+    return jsonify(batches=batches)
+
+
+@app.get('/api/collection-uploads/<int:batch_id>/reviews')
+@login_required
+def collection_upload_review_history(batch_id):
+    if not can_import_collections():
+        return jsonify(error='수금 등록 또는 수금 승인 권한이 필요합니다.'), 403
+    with connect() as conn:
+        rows = list(conn.execute('SELECT * FROM collection_upload_reviews WHERE batch_id=%s ORDER BY id', (batch_id,)))
+    for row in rows:
+        row['details'] = json.loads(row.pop('details_json'))
+    return jsonify(reviews=rows)
+
+
+@app.post('/api/collection-uploads')
+@login_required
+def import_collections():
+    if not can_import_collections():
+        return jsonify(error='수금 등록 또는 수금 승인 권한이 필요합니다.'), 403
+    data = body()
+    if not isinstance(data, dict):
+        return jsonify(error='요청 형식을 확인하세요.'), 400
+    approve = data.get('approve_immediately', False)
+    if not isinstance(approve, bool):
+        return jsonify(error='승인 처리 방식을 확인하세요.'), 400
+    if approve and 'collection_approve' not in request.user['permissions']:
+        return jsonify(error='즉시 승인·상계는 수금 승인 권한이 필요합니다.'), 403
+    filename = str(data.get('filename') or '').strip()
+    if not filename or len(filename) > 255:
+        return jsonify(error='파일명을 확인하세요.'), 400
+    actor = request.user['username']
+    try:
+        with connect() as conn:
+            collection_write_lock(conn)
+            result = validate_rows(conn, data.get('rows'))
+            if result['error_count']:
+                return jsonify(error='검증 오류를 수정한 뒤 다시 업로드하세요. 등록된 행은 없습니다.',
+                               preview=public_collection_preview(result)), 400
+            try:
+                ready, reviewed, total_amount = resolve_reviews(result, data.get('reviews', []))
+            except ReviewRequired as exc:
+                return jsonify(error=str(exc), review_required=True, preview=public_collection_preview(result)), 409
+            skipped = sum(r['decision'] == 'exclude' for r in reviewed)
+            batch = conn.execute(
+                'INSERT INTO collection_upload_batches (filename,uploaded_by,row_count,total_amount,approved_count)'
+                ' VALUES (%s,%s,%s,%s,%s) RETURNING id',
+                (filename, actor, len(ready), total_amount, len(ready) if approve else 0)
+            ).fetchone()['id']
+            for item in reviewed:
+                details = {k: item[k] for k in ('source', 'review_kind', 'review_token', 'candidates',
+                           'customer_code', 'customer_name', 'paid_at', 'method', 'amount')}
+                conn.execute(
+                    'INSERT INTO collection_upload_reviews (batch_id,row_number,receipt_no,sequence,action,reason,reviewed_by,details_json)'
+                    ' VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',
+                    (batch, item['row_number'], item['receipt_no'], item['sequence'], item['decision'],
+                     item['decision_reason'], actor, json.dumps(details, ensure_ascii=False)))
+            ready = sorted(ready,
+                           key=lambda r: (r['customer_code'], r['paid_at'], r['receipt_no'], r['sequence']))
+            for item in ready:
+                note = '[엑셀수금 %s / %s] 정상수금 %s원 · 선수금 %s원' % (
+                    item['receipt_no'], item['sequence'], format(item['normal_amount'], ','), format(item['advance_amount'], ','))
+                if item['note']:
+                    note += ' / ' + item['note']
+                cid = conn.execute(
+                    'INSERT INTO collections (customer_code,customer_name,amount,method,paid_at,state,registered_by,note)'
+                    " VALUES (%s,%s,%s,%s,%s,'pending',%s,%s) RETURNING id",
+                    (item['customer_code'], item['customer_name'], item['amount'], item['method'], item['paid_at'], actor, note)
+                ).fetchone()['id']
+                conn.execute(
+                    'INSERT INTO collection_import_rows (receipt_no,sequence,batch_id,collection_id,fingerprint,source_json)'
+                    ' VALUES (%s,%s,%s,%s,%s,%s)',
+                    (item['receipt_no'], item['sequence'], batch, cid, item['fingerprint'],
+                     json.dumps(item['source'], ensure_ascii=False)))
+                log(conn, actor, 'collection_register', '%s / %d / upload:%s' % (item['customer_code'], item['amount'], batch))
+                if approve:
+                    approve_collection_in_transaction(conn, cid, actor)
+            log(conn, actor, 'collection_upload', '%s / 신규 %s건 / %s원 / 중복확인 %s건 / 제외 %s건'
+                % (batch, len(ready), total_amount, len(reviewed), skipped))
+        return jsonify(inserted=len(ready), approved=len(ready) if approve else 0,
+                       skipped=skipped, reviewed=len(reviewed), total_amount=total_amount, batch_id=batch,
+                       message='중복 확인을 완료했습니다. 중복 내역은 제외하고 확인 이력을 저장했습니다.' if not ready else ''), 201
+    except ValueError as exc:
+        return jsonify(error=str(exc)), getattr(exc, 'status', 400)
+
+
 @app.post("/api/collections")
 @requires("collection_register")
 def register_collection():
@@ -904,6 +1088,7 @@ def register_collection():
     if method not in METHODS:
         return jsonify(error="수금방법을 선택하세요."), 400
     with connect() as conn:
+        collection_write_lock(conn)
         cust = conn.execute("SELECT name, balance FROM customers WHERE code = %s",
                             (code,)).fetchone()
         if not cust:
@@ -922,56 +1107,13 @@ def register_collection():
 @app.post("/api/collections/<int:cid>/approve")
 @requires("collection_approve")
 def approve_collection(cid):
-    """
-    승인은 잔액을 깎는 동작이므로 한 건이 두 번 반영되면 안 된다.
-    상태를 조회한 뒤 갱신하면 그 사이에 다른 요청이 끼어들 수 있으므로,
-    'pending 인 경우에만' 이라는 조건을 UPDATE 문 안에 넣어 한 문장으로 처리한다.
-    조건에 걸려 0행이 바뀌면 다른 요청이 이미 가져간 것이다.
-    """
-    with connect() as conn:
-        before = conn.execute(
-            "SELECT balance,advance,bad_balance,overdue_balance,normal_balance FROM customers WHERE code=("
-            "SELECT customer_code FROM collections WHERE id=%s)", (cid,)).fetchone()
-        row = conn.execute(
-            "UPDATE collections SET state='approved', approved_by=%s,"
-            " approved_at=" + db.NOW_SQL +
-            " WHERE id=%s AND state='pending' RETURNING *",
-            (request.user["username"], cid)).fetchone()
-        if row is None:
-            exists = conn.execute("SELECT state FROM collections WHERE id = %s",
-                                  (cid,)).fetchone()
-            if not exists:
-                return jsonify(error="수금 건을 찾을 수 없습니다."), 404
-            return jsonify(error="이미 처리된 건입니다."), 409
-
-        # 잔액 차감도 읽고 쓰지 않고 한 문장으로 끝낸다.
-        amount = row["amount"]
-        # 발생월별 원장은 부실 → 미수 → 정상, 각 구분 안에서는 오래된 발생월부터 차감한다.
-        item_remaining = amount
-        detail_items = [x for x in conn.execute(
-            "SELECT id,balance,source_key,issue_month,biz_unit FROM receivable_items"
-            " WHERE customer_code=%s AND balance>0"
-            " ORDER BY CASE category WHEN '부실' THEN 1 WHEN '연체' THEN 2 ELSE 3 END,issue_month,id",
-            (row["customer_code"],))]
-        for item in detail_items:
-            deducted = min(item_remaining, item["balance"])
-            conn.execute("UPDATE receivable_items SET balance=balance-%s WHERE id=%s",
-                         (deducted, item["id"]))
-            if str(item["source_key"]).startswith("shipment:"):
-                conn.execute(
-                    "UPDATE monthly_shipment_units SET balance=CASE WHEN balance-%s<0 THEN 0 ELSE balance-%s END"
-                    " WHERE month=%s AND code=%s AND biz_unit=%s",
-                    (deducted, deducted, item["issue_month"], row["customer_code"], item["biz_unit"]))
-            item_remaining -= deducted
-            if item_remaining <= 0:
-                break
-        advance_paid = max(amount - before["balance"], 0) if before else amount
-        conn.execute(
-            "UPDATE customers SET advance=advance+%s,last_paid_at=%s,updated_at=" + db.NOW_SQL +
-            " WHERE code=%s", (advance_paid, row["paid_at"], row["customer_code"]))
-        customer = sync_customer_from_receivables(conn, row["customer_code"])
-        log(conn, request.user["username"], "collection_approve", str(cid))
-    return jsonify(collection=row, customer=customer)
+    try:
+        with connect() as conn:
+            collection_write_lock(conn)
+            row, customer = approve_collection_in_transaction(conn, cid, request.user["username"])
+        return jsonify(collection=row, customer=customer)
+    except CollectionApprovalError as exc:
+        return jsonify(error=str(exc)), exc.status
 
 
 @app.post("/api/collections/<int:cid>/reject")
@@ -979,6 +1121,7 @@ def approve_collection(cid):
 def reject_collection(cid):
     reason = (body().get("reason") or "").strip()
     with connect() as conn:
+        collection_write_lock(conn)
         collection = conn.execute(
             "UPDATE collections SET state='rejected', approved_by=%s,"
             " approved_at=" + db.NOW_SQL + ", reject_reason=%s"
@@ -1073,6 +1216,7 @@ def upload_rows():
                 return jsonify(error="%s행: 사업부를 선택하세요. 덴탈·메디컬·에스테틱만 가능합니다." % index), 400
 
     with connect() as conn:
+        collection_write_lock(conn)
         lock = conn.execute("SELECT locked FROM month_locks WHERE month = %s", (month,)).fetchone()
         if lock and lock["locked"]:
             return jsonify(error="%s 은 마감 잠금 상태입니다. 잠금을 해제한 뒤 업로드하세요." % month), 423
@@ -1379,6 +1523,7 @@ def upload_rows():
 @requires("upload_data")
 def rollback_upload(upload_id):
     with connect() as conn:
+        collection_write_lock(conn)
         upload = conn.execute("SELECT * FROM uploads WHERE id=%s", (upload_id,)).fetchone()
         if not upload:
             return jsonify(error="업로드 이력을 찾을 수 없습니다."), 404
@@ -1403,7 +1548,11 @@ def rollback_upload(upload_id):
         later_targets = conn.execute(
             "SELECT COUNT(*) AS c FROM targets WHERE created_at>%s",
             (upload["uploaded_at"],)).fetchone()["c"]
-        if changed_audit or later_collections or later_targets:
+        # Import in the same second must also block restoring stale balances.
+        later_imports = conn.execute(
+            'SELECT COUNT(*) AS c FROM collection_upload_batches WHERE created_at>=%s AND row_count>0',
+            (upload['uploaded_at'],)).fetchone()['c']
+        if changed_audit or later_collections or later_targets or later_imports:
             return jsonify(error="업로드 이후 수금·거래처·채권·목표 변경이 있어 삭제할 수 없습니다."), 409
 
         customers = json.loads(backup["customers_json"] or "[]")
@@ -1569,6 +1718,7 @@ def export_cash_plan():
 def toggle_lock(month):
     locked = 1 if body().get("locked") else 0
     with connect() as conn:
+        collection_write_lock(conn)
         conn.execute(
             "INSERT INTO month_locks (month, locked, locked_by, locked_at)"
             " VALUES (%s,%s,%s," + db.NOW_SQL + ")"

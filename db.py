@@ -269,6 +269,38 @@ CREATE TABLE IF NOT EXISTS collections (
 CREATE INDEX IF NOT EXISTS idx_col_state ON collections(state);
 CREATE INDEX IF NOT EXISTS idx_col_cust  ON collections(customer_code);
 
+CREATE TABLE IF NOT EXISTS collection_upload_batches (
+    id            {SERIAL},
+    filename      TEXT NOT NULL,
+    uploaded_by   TEXT NOT NULL,
+    row_count     INTEGER NOT NULL,
+    total_amount  {BIGINT} NOT NULL,
+    approved_count INTEGER NOT NULL DEFAULT 0,
+    created_at    TEXT NOT NULL {NOW_DEFAULT}
+);
+CREATE TABLE IF NOT EXISTS collection_import_rows (
+    receipt_no    TEXT NOT NULL,
+    sequence      INTEGER NOT NULL,
+    batch_id      {BIGINT} NOT NULL REFERENCES collection_upload_batches(id),
+    collection_id {BIGINT} NOT NULL UNIQUE REFERENCES collections(id),
+    fingerprint   TEXT NOT NULL,
+    source_json   TEXT NOT NULL,
+    PRIMARY KEY (receipt_no, sequence)
+);
+CREATE TABLE IF NOT EXISTS collection_upload_reviews (
+    id            {SERIAL},
+    batch_id      {BIGINT} NOT NULL REFERENCES collection_upload_batches(id),
+    row_number    INTEGER NOT NULL,
+    receipt_no    TEXT NOT NULL,
+    sequence      INTEGER NOT NULL,
+    action        TEXT NOT NULL,
+    reason        TEXT NOT NULL DEFAULT '',
+    reviewed_by   TEXT NOT NULL,
+    details_json  TEXT NOT NULL,
+    created_at    TEXT NOT NULL {NOW_DEFAULT}
+);
+CREATE INDEX IF NOT EXISTS idx_collection_reviews_batch ON collection_upload_reviews(batch_id);
+
 CREATE TABLE IF NOT EXISTS targets (
     id            {SERIAL},
     customer_code TEXT NOT NULL,

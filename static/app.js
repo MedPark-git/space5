@@ -1,4 +1,3 @@
-"use strict";
 const { useState, useEffect, useMemo, useRef, useCallback } = React;
 /* ══════════════════ 유틸 ══════════════════ */
 const won = (n) => (Number(n) || 0).toLocaleString("ko-KR");
@@ -1590,6 +1589,474 @@ function Targets({ data, notify, refresh }) {
                         React.createElement("td", { className: "r num" }, won(sum(rows, "amount"))),
                         React.createElement("td", { colSpan: 5 })))))))));
 }
+/* ══════════════════ 수금등록 데이터 업로드 ══════════════════ */
+const COLLECTION_COLUMNS = {
+    receipt_month: ["수금년월"], paid_at: ["수금일자", "수금일"], receipt_no: ["수금번호"],
+    customer_code: ["고객코드", "거래처코드"], customer_name: ["고객", "고객명", "거래처명"],
+    sequence: ["순번"], receipt_kind_code: ["수금구분코드"], receipt_kind: ["수금구분"],
+    receipt_type: ["수금구분유형"], normal_amount: ["정상수금"], advance_amount: ["선수금"],
+    note: ["비고(건)"], detail_note: ["비고(내역)"],
+};
+const COLLECTION_REQUIRED = ["paid_at", "receipt_no", "customer_code", "sequence", "receipt_kind",
+    "receipt_type", "normal_amount", "advance_amount"];
+function parseCollectionWorkbook(bytes) {
+    var _a, _b;
+    const signature = Array.from(new Uint8Array(bytes).slice(0, 11), (c) => String.fromCharCode(c)).join("");
+    if (signature === "BMS DocuRay")
+        throw new Error("보안 처리된 엑셀입니다. 사내 절차에 따라 반출용 일반 엑셀로 내보내 주세요.");
+    const wb = XLSX.read(bytes, { type: "array", cellDates: false });
+    const grid = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: "", raw: true, blankrows: true });
+    const clean = (v) => String(v !== null && v !== void 0 ? v : "").replace(/\s/g, "");
+    const headerIndex = grid.slice(0, 25).findIndex((row) => row.some((h) => ["고객코드", "거래처코드"].includes(clean(h))) && row.some((h) => clean(h) === "수금번호"));
+    if (headerIndex < 0)
+        throw new Error("첫 번째 시트의 앞 25행 안에 고객코드와 수금번호 머리글이 필요합니다.");
+    const headers = grid[headerIndex].map(clean), mapping = {};
+    for (const [key, names] of Object.entries(COLLECTION_COLUMNS)) {
+        const matches = headers.map((h, i) => names.includes(h) ? i : -1).filter((i) => i >= 0);
+        if (matches.length > 1)
+            throw new Error(names[0] + " 머리글이 중복되었습니다.");
+        if (matches.length)
+            mapping[key] = matches[0];
+    }
+    const missing = COLLECTION_REQUIRED.filter((key) => mapping[key] === undefined);
+    if (missing.length)
+        throw new Error("필수 열 누락: " + missing.map((key) => COLLECTION_COLUMNS[key][0]).join(", "));
+    const rows = [], totals = [];
+    for (let i = headerIndex + 1; i < grid.length; i++) {
+        const row = grid[i];
+        if (row.every((v) => clean(v) === ""))
+            continue;
+        const values = Object.fromEntries(Object.entries(mapping).map(([key, column]) => { var _a; return [key, (_a = row[column]) !== null && _a !== void 0 ? _a : ""]; }));
+        if (!clean(values.customer_code) && !clean(values.receipt_no) && !clean(values.sequence)
+            && [values.paid_at, values.customer_name].some((v) => ["합계", "총합계"].includes(clean(v)))) {
+            totals.push(values);
+            continue;
+        }
+        if (typeof values.paid_at === "number") {
+            const d = XLSX.SSF.parse_date_code(values.paid_at, { date1904: !!((_b = (_a = wb.Workbook) === null || _a === void 0 ? void 0 : _a.WBProps) === null || _b === void 0 ? void 0 : _b.date1904) });
+            if (d)
+                values.paid_at = `${d.y}-${String(d.m).padStart(2, "0")}-${String(d.d).padStart(2, "0")}`;
+        }
+        else {
+            const date = String(values.paid_at).trim().match(/^(\d{4})[-./](\d{1,2})[-./](\d{1,2})$/);
+            if (date)
+                values.paid_at = date[1] + "-" + date[2].padStart(2, "0") + "-" + date[3].padStart(2, "0");
+        }
+        // Preserve leading zeros and raw amount text; the server validates money.
+        rows.push({ ...values, customer_code: String(values.customer_code).trim(), row_number: i + 1 });
+    }
+    if (!rows.length || rows.length > 5000)
+        throw new Error("수금 내역은 1~5,000행까지 업로드할 수 있습니다.");
+    if (totals.length > 1)
+        throw new Error("합계행은 한 개만 포함해 주세요. 시트 구성을 확인하세요.");
+    if (totals.length) {
+        for (const key of ["normal_amount", "advance_amount"]) {
+            const number = (v) => Number(String(v).replace(/,/g, "").trim());
+            const expected = number(totals[0][key]), actual = rows.reduce((s, r) => s + number(r[key]), 0);
+            if (!Number.isSafeInteger(expected) || !Number.isSafeInteger(actual) || expected !== actual)
+                throw new Error(COLLECTION_COLUMNS[key][0] + " 합계행과 실제 내역 합계가 다릅니다. 파일을 확인하세요.");
+        }
+    }
+    return { rows, sheet: wb.SheetNames[0], skippedTotals: totals.length };
+}
+function CollectionUpload({ can, notify, refresh }) {
+    const [source, setSource] = useState(null), [preview, setPreview] = useState(null);
+    const [error, setError] = useState(""), [busy, setBusy] = useState(false);
+    const [approve, setApprove] = useState(false), [history, setHistory] = useState([]);
+    const [historyError, setHistoryError] = useState("");
+    const [page, setPage] = useState(0), [result, setResult] = useState(null);
+    const [reviewOpen, setReviewOpen] = useState(false), [decisions, setDecisions] = useState({});
+    const [reviewHistory, setReviewHistory] = useState(null);
+    const reading = useRef(0), submitting = useRef(false);
+    function applyChecked(checked) {
+        setPreview(checked);
+        setPage(0);
+        setDecisions(Object.fromEntries(checked.rows.filter((r) => r.status === "review")
+            .map((r) => [r.row_key, { action: "exclude", confirmed: false, reason: "" }])));
+        setReviewOpen(checked.review_count > 0);
+    }
+    function changeDecision(key, changes) {
+        setDecisions((current) => ({ ...current, [key]: { ...current[key], ...changes } }));
+    }
+    async function openReviewHistory(batch) {
+        try {
+            const r = await api(`/api/collection-uploads/${batch.id}/reviews`);
+            setReviewHistory({ batch, rows: r.reviews });
+        }
+        catch (e) {
+            notify(e.message, true);
+        }
+    }
+    async function loadHistory() {
+        try {
+            const r = await api("/api/collection-uploads");
+            setHistory(r.batches);
+            setHistoryError("");
+        }
+        catch (e) {
+            setHistoryError(e.message);
+        }
+    }
+    useEffect(() => { loadHistory(); return () => { reading.current++; }; }, []);
+    async function readFile(file) {
+        if (!file || submitting.current)
+            return;
+        const version = ++reading.current;
+        setBusy(true);
+        setError("");
+        setSource(null);
+        setPreview(null);
+        setPage(0);
+        setResult(null);
+        setApprove(false);
+        setReviewOpen(false);
+        setDecisions({});
+        try {
+            if (!/\.(xlsx|xls|csv)$/i.test(file.name))
+                throw new Error(".xlsx, .xls, .csv 파일을 선택하세요.");
+            if (file.size > 10 * 1024 * 1024)
+                throw new Error("파일 크기는 10MB 이하여야 합니다.");
+            const parsed = parseCollectionWorkbook(await file.arrayBuffer());
+            const checked = await api("/api/collection-uploads/preview", { method: "POST", body: { rows: parsed.rows } });
+            if (version !== reading.current)
+                return;
+            setSource({ ...parsed, filename: file.name });
+            applyChecked(checked);
+        }
+        catch (e) {
+            if (version === reading.current)
+                setError(e.message || "엑셀 파일을 읽지 못했습니다.");
+        }
+        finally {
+            if (version === reading.current)
+                setBusy(false);
+        }
+    }
+    async function submit() {
+        if (submitting.current || busy || !source || !preview || preview.error_count || !(preview.ready_count + (preview.review_count || 0)))
+            return;
+        if (!reviewsComplete) {
+            setReviewOpen(true);
+            return;
+        }
+        submitting.current = true;
+        setBusy(true);
+        setError("");
+        try {
+            const response = await api("/api/collection-uploads", { method: "POST", body: {
+                    filename: source.filename, rows: source.rows, approve_immediately: approve && can("collection_approve"),
+                    reviews: reviewRows.map((r) => ({ row_key: r.row_key, review_token: r.review_token, ...decisions[r.row_key] })),
+                } });
+            setResult(response);
+            setPreview(null);
+            setSource(null);
+            setApprove(false);
+            setReviewOpen(false);
+            setDecisions({});
+            notify(response.inserted ? `${response.inserted}건을 ${response.approved ? "승인·상계" : "승인 대기로 등록"}했습니다.` : response.message);
+            await loadHistory();
+            try {
+                await refresh();
+            }
+            catch (_) {
+                setError("등록은 완료됐습니다. 현황을 다시 불러오려면 새로고침해 주세요.");
+            }
+        }
+        catch (e) {
+            setError(e.message);
+            // Keep raw input for a fresh server check after a conflict or lost response.
+            try {
+                const checked = await api("/api/collection-uploads/preview", { method: "POST", body: { rows: source.rows } });
+                applyChecked(checked);
+            }
+            catch (_) {
+                setPreview(null);
+                setReviewOpen(false);
+            }
+        }
+        finally {
+            submitting.current = false;
+            setBusy(false);
+        }
+    }
+    const pageRows = preview ? preview.rows.slice(page * 50, (page + 1) * 50) : [];
+    const reviewRows = preview ? preview.rows.filter((r) => r.status === "review") : [];
+    const identicalRows = reviewRows.filter((r) => r.review_kind === "same_key");
+    const reviewsComplete = reviewRows.every((r) => {
+        const d = decisions[r.row_key];
+        return (d === null || d === void 0 ? void 0 : d.confirmed) && r.allowed_actions.includes(d.action)
+            && (d.action !== "separate" || (d.reason.trim().length >= 5 && d.reason.trim().length <= 500));
+    });
+    const separateRows = reviewRows.filter((r) => { var _a; return ((_a = decisions[r.row_key]) === null || _a === void 0 ? void 0 : _a.action) === "separate"; });
+    const finalCount = ((preview === null || preview === void 0 ? void 0 : preview.ready_count) || 0) + separateRows.length;
+    const finalAmount = ((preview === null || preview === void 0 ? void 0 : preview.total_amount) || 0) + separateRows.reduce((n, r) => n + r.amount, 0);
+    const closeReview = () => { if (!busy)
+        setReviewOpen(false); };
+    const stateLabel = { pending: "승인 대기", approved: "승인 완료", rejected: "반려", in_file: "이번 파일" };
+    return React.createElement(React.Fragment, null,
+        React.createElement(Card, { title: "\uC218\uAE08\uB4F1\uB85D \uB370\uC774\uD130 \uC5C5\uB85C\uB4DC" },
+            React.createElement("p", null, "\uC544\uB9C8\uB780\uC2A410 \uC218\uAE08\uC790\uB8CC\uB97C \uACE0\uAC1D\uCF54\uB4DC\uB85C \uC5F0\uACB0\uD569\uB2C8\uB2E4. \uD30C\uC77C \uC120\uD0DD \uD6C4 \uAC80\uC99D \uACB0\uACFC\uC640 \uAE08\uC561\uC744 \uD655\uC778\uD558\uACE0 \uB4F1\uB85D\uD558\uC138\uC694."),
+            React.createElement("div", { className: "alert alert--info" },
+                "\uC81C\uC608\uAE08 \u2192 \uACC4\uC88C\uC218\uAE08 \u00B7 \uCE74\uB4DC \u2192 \uCE74\uB4DC\uC218\uAE08 \u00B7 \uC5B4\uC74C \u2192 \uC5B4\uC74C\uC218\uAE08",
+                React.createElement("br", null),
+                "\uC218\uAE08\uC561 = \uC815\uC0C1\uC218\uAE08 + \uC120\uC218\uAE08. \uC2B9\uC778 \uC2DC \uAE30\uC874 \uCC44\uAD8C\uC5D0 \uC0C1\uACC4\uD558\uACE0 \uCD08\uACFC\uBD84\uC740 \uC120\uC218\uAE08\uC73C\uB85C \uBCF4\uAD00\uD569\uB2C8\uB2E4."),
+            React.createElement("div", { className: "dropzone", style: { marginTop: 16 }, onDragOver: (e) => e.preventDefault(), onDrop: (e) => { e.preventDefault(); if (!busy)
+                    readFile(e.dataTransfer.files[0]); } },
+                React.createElement("p", null, "\uC218\uAE08 \uC5D1\uC140\uC744 \uB04C\uC5B4\uB2E4 \uB193\uAC70\uB098 \uD30C\uC77C\uC744 \uC120\uD0DD\uD558\uC138\uC694."),
+                React.createElement("input", { type: "file", "aria-label": "\uC218\uAE08 \uC5D1\uC140 \uD30C\uC77C", accept: ".xlsx,.xls,.csv", disabled: busy, onChange: (e) => { const file = e.target.files[0]; e.target.value = ""; readFile(file); } }),
+                React.createElement("p", { className: "t-sm t-muted" }, "\uCCAB \uBC88\uC9F8 \uC2DC\uD2B8 \u00B7 \uCD5C\uB300 5,000\uD589 / 10MB \u00B7 \uD569\uACC4\uD589 \uC790\uB3D9 \uC81C\uC678")),
+            busy && React.createElement("p", { role: "status" }, "\uCC98\uB9AC \uC911\uC785\uB2C8\uB2E4. \uC7A0\uC2DC \uAE30\uB2E4\uB824 \uC8FC\uC138\uC694."),
+            error && React.createElement("div", { className: "alert alert--bad", role: "alert", style: { marginTop: 12 } }, error),
+            result && React.createElement("div", { className: "alert alert--info", role: "status", style: { marginTop: 12 } },
+                "\uB4F1\uB85D ",
+                result.inserted,
+                "\uAC74 \u00B7 \uC989\uC2DC \uC2B9\uC778 ",
+                result.approved,
+                "\uAC74 \u00B7 \uC911\uBCF5 \uD655\uC778 \uC81C\uC678 ",
+                result.skipped,
+                "\uAC74 \u00B7 ",
+                won(result.total_amount),
+                "\uC6D0",
+                result.inserted > result.approved && React.createElement("div", null, "\uC218\uAE08 \uB4F1\uB85D \uBA54\uB274\uC5D0\uC11C \uC2B9\uC778\uD558\uBA74 \uCC44\uAD8C\uC5D0 \uBC18\uC601\uB429\uB2C8\uB2E4."))),
+        source && preview && React.createElement(Card, { title: "검증 결과 · " + source.filename },
+            React.createElement("p", null,
+                source.sheet,
+                " \u00B7 \uC218\uAE08 \uB0B4\uC5ED ",
+                preview.row_count,
+                "\uD589 \u00B7 \uD569\uACC4\uD589 ",
+                source.skippedTotals,
+                "\uD589 \uC81C\uC678"),
+            React.createElement("div", { className: "collection-upload-summary" },
+                React.createElement("div", null,
+                    React.createElement("span", null, "\uC2E0\uADDC \uB4F1\uB85D"),
+                    React.createElement("b", null,
+                        preview.ready_count,
+                        "\uAC74")),
+                React.createElement("div", null,
+                    React.createElement("span", null, "\uC911\uBCF5 \uD655\uC778 \uD544\uC694"),
+                    React.createElement("b", null,
+                        preview.review_count || 0,
+                        "\uAC74")),
+                React.createElement("div", null,
+                    React.createElement("span", null, "\uC624\uB958"),
+                    React.createElement("b", null,
+                        preview.error_count,
+                        "\uAC74")),
+                React.createElement("div", null,
+                    React.createElement("span", null, "\uC2E0\uADDC \uC218\uAE08\uC561"),
+                    React.createElement("b", null,
+                        won(preview.total_amount),
+                        "\uC6D0"))),
+            React.createElement("p", null,
+                "\uC2B9\uC778 \uC2DC \uC0C1\uACC4 \uC608\uC0C1 ",
+                won(preview.offset_amount),
+                "\uC6D0 \u00B7 \uC120\uC218\uAE08 \uC794\uC5EC \uC608\uC0C1 ",
+                won(preview.advance_remaining),
+                "\uC6D0"),
+            React.createElement("p", { className: "t-sm t-muted" }, "\uC608\uC0C1\uC561\uC740 \uC911\uBCF5 \uD6C4\uBCF4\uB97C \uC81C\uC678\uD55C \uC2E0\uADDC \uAC74\uC758 \uD604\uC7AC \uC6D0\uC7A5 \uAE30\uC900\uC785\uB2C8\uB2E4. \uC911\uBCF5 \uD655\uC778 \uD6C4 \uB4F1\uB85D\u00B7\uC2B9\uC778 \uC2DC \uCD5C\uC2E0 \uC794\uC561\uC744 \uB2E4\uC2DC \uD655\uC778\uD569\uB2C8\uB2E4."),
+            !!preview.error_count && React.createElement("div", { className: "alert alert--bad" }, "\uC624\uB958\uAC00 \uC788\uB294 \uB3D9\uC548 \uC804\uCCB4 \uB4F1\uB85D\uC774 \uC911\uB2E8\uB429\uB2C8\uB2E4. \uC544\uB798 \uD589 \uBC88\uD638\uC640 \uC0AC\uC720\uB97C \uD655\uC778\uD574 \uC6D0\uBCF8 \uD30C\uC77C\uC744 \uC218\uC815\uD558\uC138\uC694."),
+            React.createElement("div", { className: "tablewrap", style: { marginTop: 12 } },
+                React.createElement("table", null,
+                    React.createElement("thead", null,
+                        React.createElement("tr", null,
+                            React.createElement("th", null, "\uD589"),
+                            React.createElement("th", null, "\uAC80\uC99D"),
+                            React.createElement("th", null, "\uC218\uAE08\uBC88\uD638 / \uC21C\uBC88"),
+                            React.createElement("th", null, "\uACE0\uAC1D\uCF54\uB4DC"),
+                            React.createElement("th", null, "\uAC70\uB798\uCC98"),
+                            React.createElement("th", null, "\uC218\uAE08\uC77C"),
+                            React.createElement("th", null, "\uC218\uAE08\uBC29\uBC95"),
+                            React.createElement("th", { className: "r" }, "\uC815\uC0C1\uC218\uAE08"),
+                            React.createElement("th", { className: "r" }, "\uC120\uC218\uAE08"),
+                            React.createElement("th", { className: "r" }, "\uC218\uAE08\uC561"),
+                            React.createElement("th", null, "\uAC80\uC99D \uB0B4\uC6A9"))),
+                    React.createElement("tbody", null, pageRows.map((row) => {
+                        var _a;
+                        return React.createElement("tr", { key: row.row_key || row.row_number },
+                            React.createElement("td", null, row.row_number),
+                            React.createElement("td", null,
+                                React.createElement("span", { className: "badge badge--" + ({ ready: "ok", error: "bad", review: "warn" }[row.status]) }, { ready: "신규", error: "오류", review: "중복 확인" }[row.status])),
+                            React.createElement("td", null,
+                                row.receipt_no || "–",
+                                " / ", (_a = row.sequence) !== null && _a !== void 0 ? _a : "–"),
+                            React.createElement("td", null, row.customer_code || "–"),
+                            React.createElement("td", null, row.customer_name || row.source_customer_name || "–"),
+                            React.createElement("td", null, row.paid_at || "–"),
+                            React.createElement("td", null, row.method || "–"),
+                            React.createElement("td", { className: "r" }, row.normal_amount === undefined ? "–" : won(row.normal_amount)),
+                            React.createElement("td", { className: "r" }, row.advance_amount === undefined ? "–" : won(row.advance_amount)),
+                            React.createElement("td", { className: "r" }, row.amount === undefined ? "–" : won(row.amount)),
+                            React.createElement("td", { style: { minWidth: 220, whiteSpace: "normal" } }, [...row.errors, ...row.warnings].join(" / ") || "정상"));
+                    })))),
+            preview.rows.length > 50 && React.createElement("div", { className: "btnrow", style: { marginTop: 12 } },
+                React.createElement("button", { className: "btn btn--sm", disabled: !page, onClick: () => setPage(page - 1) }, "\uC774\uC804"),
+                React.createElement("span", null,
+                    page + 1,
+                    " / ",
+                    Math.ceil(preview.rows.length / 50)),
+                React.createElement("button", { className: "btn btn--sm", disabled: (page + 1) * 50 >= preview.rows.length, onClick: () => setPage(page + 1) }, "\uB2E4\uC74C")),
+            can("collection_approve") && React.createElement("label", { className: "collection-upload-approve" },
+                React.createElement("input", { type: "checkbox", checked: approve, disabled: busy, onChange: (e) => setApprove(e.target.checked) }),
+                "\uB4F1\uB85D\uACFC \uB3D9\uC2DC\uC5D0 \uC2B9\uC778\u00B7\uC0C1\uACC4 (\uCC44\uAD8C\uC794\uC561\uC5D0 \uC989\uC2DC \uBC18\uC601)"),
+            React.createElement("div", { className: "btnrow", style: { marginTop: 16 } },
+                React.createElement("button", { className: "btn btn--primary", disabled: busy || !!preview.error_count || !(preview.ready_count + (preview.review_count || 0)), onClick: () => preview.review_count ? setReviewOpen(true) : submit() }, busy ? "처리 중" : preview.review_count ? `중복 ${preview.review_count}건 확인 후 업로드`
+                    : `${preview.ready_count}건 ${approve ? "승인·상계" : "승인 대기로 등록"}`))),
+        React.createElement(Card, { title: "\uC218\uAE08 \uC5C5\uB85C\uB4DC \uC774\uB825", flush: true },
+            historyError && React.createElement("div", { className: "alert alert--bad" }, historyError),
+            !history.length ? React.createElement(Empty, { title: "\uC218\uAE08 \uC5C5\uB85C\uB4DC \uC774\uB825\uC774 \uC5C6\uC2B5\uB2C8\uB2E4." }) : React.createElement("div", { className: "tablewrap" },
+                React.createElement("table", null,
+                    React.createElement("thead", null,
+                        React.createElement("tr", null,
+                            React.createElement("th", null, "\uB4F1\uB85D\uC77C\uC2DC"),
+                            React.createElement("th", null, "\uD30C\uC77C\uBA85"),
+                            React.createElement("th", { className: "r" }, "\uB4F1\uB85D \uAC74\uC218"),
+                            React.createElement("th", { className: "r" }, "\uC218\uAE08\uC561"),
+                            React.createElement("th", { className: "r" }, "\uB4F1\uB85D \uC2DC \uC989\uC2DC \uC2B9\uC778"),
+                            React.createElement("th", null, "\uB4F1\uB85D\uC790"),
+                            React.createElement("th", null, "\uC911\uBCF5 \uD655\uC778"))),
+                    React.createElement("tbody", null, history.map((row) => React.createElement("tr", { key: row.id },
+                        React.createElement("td", null, row.created_at),
+                        React.createElement("td", null, row.filename),
+                        React.createElement("td", { className: "r" }, row.row_count),
+                        React.createElement("td", { className: "r" }, won(row.total_amount)),
+                        React.createElement("td", { className: "r" }, row.approved_count),
+                        React.createElement("td", null, row.uploaded_by),
+                        React.createElement("td", null, row.reviewed_count ? React.createElement("button", { className: "btn btn--sm", onClick: () => openReviewHistory(row) },
+                            row.reviewed_count,
+                            "\uAC74 \uD655\uC778 \u00B7 ",
+                            row.excluded_count,
+                            "\uAC74 \uC81C\uC678") : "–"))))))),
+        reviewOpen && preview && React.createElement("div", { className: "modal-backdrop", onMouseDown: closeReview },
+            React.createElement("section", { className: "modal-card modal-card--wide collection-review-modal", role: "dialog", "aria-modal": "true", "aria-labelledby": "collection-review-title", onMouseDown: (e) => e.stopPropagation() },
+                React.createElement("h2", { id: "collection-review-title" },
+                    "\uC911\uBCF5 \uC218\uAE08 \uD655\uC778 \u00B7 ",
+                    reviewRows.length,
+                    "\uAC74"),
+                React.createElement("p", null, "\uAE30\uC874 \uB0B4\uC5ED\uACFC \uBE44\uAD50\uD55C \uB4A4 \uAC01 \uAC74\uC758 \uD655\uC778\uB780\uC744 \uCCB4\uD06C\uD558\uC138\uC694. \uC911\uBCF5\uC73C\uB85C \uD655\uC778\uD55C \uD589\uC740 \uC81C\uC678\uD558\uACE0 \uC2E0\uADDC \uB0B4\uC5ED\uC740 \uACC4\uC18D \uB4F1\uB85D\uD569\uB2C8\uB2E4."),
+                React.createElement("p", { className: "t-sm t-muted" }, "\uC218\uAE08\uBC88\uD638\u00B7\uC21C\uBC88\uC774 \uAC19\uC740 \uB0B4\uC5ED\uC740 \uCD94\uAC00 \uC0DD\uC131\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uB0B4\uC6A9 \uC815\uC815\uC774 \uD544\uC694\uD558\uBA74 \uD30C\uC77C \uB610\uB294 \uAE30\uC874 \uC218\uAE08 \uB0B4\uC5ED\uC744 \uBA3C\uC800 \uD655\uC778\uD558\uC138\uC694."),
+                error && React.createElement("div", { className: "alert alert--bad", role: "alert" }, error),
+                !!preview.error_count && React.createElement("div", { className: "alert alert--bad" },
+                    "\uC911\uBCF5 \uC774\uC678\uC758 \uC785\uB825 \uC624\uB958 ",
+                    preview.error_count,
+                    "\uAC74\uC744 \uC218\uC815\uD55C \uD6C4 \uB4F1\uB85D\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4."),
+                !!identicalRows.length && React.createElement("label", { className: "collection-review-check" },
+                    React.createElement("input", { type: "checkbox", disabled: busy, checked: identicalRows.every((r) => { var _a, _b; return ((_a = decisions[r.row_key]) === null || _a === void 0 ? void 0 : _a.confirmed) && ((_b = decisions[r.row_key]) === null || _b === void 0 ? void 0 : _b.action) === "exclude"; }), onChange: (e) => {
+                            const checked = e.target.checked;
+                            setDecisions((current) => ({ ...current,
+                                ...Object.fromEntries(identicalRows.map((r) => [r.row_key, { action: "exclude", reason: "", confirmed: checked }])) }));
+                        } }),
+                    "\uB0B4\uC6A9\uC774 \uB3D9\uC77C\uD55C \uAE30\uB4F1\uB85D ",
+                    identicalRows.length,
+                    "\uAC74\uC744 \uBAA8\uB450 \uC911\uBCF5\uC73C\uB85C \uD655\uC778"),
+                React.createElement("div", { className: "collection-review-list" }, reviewRows.map((row) => {
+                    var _a, _b, _c, _d, _e;
+                    return React.createElement("div", { className: "collection-review-item", key: row.row_key },
+                        React.createElement("b", null,
+                            "\uC5D1\uC140 ",
+                            row.row_number,
+                            "\uD589 \u00B7 ",
+                            row.receipt_no,
+                            " / ",
+                            row.sequence),
+                        React.createElement("p", null, row.warnings[row.warnings.length - 1]),
+                        React.createElement("div", { className: "tablewrap" },
+                            React.createElement("table", null,
+                                React.createElement("thead", null,
+                                    React.createElement("tr", null,
+                                        React.createElement("th", null, "\uAD6C\uBD84"),
+                                        React.createElement("th", null, "\uAC70\uB798\uCC98 / \uCF54\uB4DC"),
+                                        React.createElement("th", null, "\uC218\uAE08\uC77C"),
+                                        React.createElement("th", null, "\uBC29\uBC95"),
+                                        React.createElement("th", { className: "r" }, "\uC218\uAE08\uC561"),
+                                        React.createElement("th", null, "\uC815\uC0C1\uC218\uAE08 / \uC120\uC218\uAE08"),
+                                        React.createElement("th", null, "\uC0C1\uD0DC\u00B7\uB4F1\uB85D\uC790"))),
+                                React.createElement("tbody", null,
+                                    React.createElement("tr", null,
+                                        React.createElement("td", null, "\uC774\uBC88 \uC5C5\uB85C\uB4DC"),
+                                        React.createElement("td", null,
+                                            row.customer_name,
+                                            React.createElement("br", null),
+                                            row.customer_code),
+                                        React.createElement("td", null, row.paid_at),
+                                        React.createElement("td", null, row.method),
+                                        React.createElement("td", { className: "r" }, won(row.amount)),
+                                        React.createElement("td", null,
+                                            won(row.normal_amount),
+                                            " / ",
+                                            won(row.advance_amount)),
+                                        React.createElement("td", null, "\uB4F1\uB85D \uC804")),
+                                    row.candidates.map((c, i) => React.createElement("tr", { key: i },
+                                        React.createElement("td", null,
+                                            c.id ? `기존 #${c.id}` : `파일 ${c.row_number}행`,
+                                            React.createElement("br", null),
+                                            c.receipt_no ? `${c.receipt_no} / ${c.sequence}` : "수기등록"),
+                                        React.createElement("td", null,
+                                            c.customer_name,
+                                            React.createElement("br", null),
+                                            c.customer_code),
+                                        React.createElement("td", null, c.paid_at),
+                                        React.createElement("td", null, c.method),
+                                        React.createElement("td", { className: "r" }, won(c.amount)),
+                                        React.createElement("td", null,
+                                            c.normal_amount == null ? "–" : won(c.normal_amount),
+                                            " / ",
+                                            c.advance_amount == null ? "–" : won(c.advance_amount)),
+                                        React.createElement("td", null,
+                                            stateLabel[c.state] || c.state,
+                                            React.createElement("br", null),
+                                            c.registered_by || "")))))),
+                        row.allowed_actions.includes("separate") && React.createElement("div", { className: "formrow", style: { marginTop: 12 } },
+                            React.createElement(Field, { label: "\uD655\uC778 \uACB0\uACFC" },
+                                React.createElement("select", { className: "select", "aria-label": `엑셀 ${row.row_number}행 처리 방법`, disabled: busy, value: ((_a = decisions[row.row_key]) === null || _a === void 0 ? void 0 : _a.action) || "exclude", onChange: (e) => changeDecision(row.row_key, { action: e.target.value, confirmed: false }) },
+                                    React.createElement("option", { value: "exclude" }, "\uC911\uBCF5 \uC218\uAE08 \u00B7 \uC774\uBC88 \uD589 \uC81C\uC678"),
+                                    React.createElement("option", { value: "separate" }, "\uC911\uBCF5 \uC544\uB2D8 \u00B7 \uBCC4\uB3C4 \uC218\uAE08 \uB4F1\uB85D"))),
+                            ((_b = decisions[row.row_key]) === null || _b === void 0 ? void 0 : _b.action) === "separate" && React.createElement(Field, { label: "\uBCC4\uB3C4 \uC218\uAE08 \uB4F1\uB85D \uC0AC\uC720 (5~500\uC790)" },
+                                React.createElement("input", { className: "input", "aria-label": `엑셀 ${row.row_number}행 별도 등록 사유`, maxLength: 500, disabled: busy, value: ((_c = decisions[row.row_key]) === null || _c === void 0 ? void 0 : _c.reason) || "", onChange: (e) => changeDecision(row.row_key, { reason: e.target.value, confirmed: false }) }))),
+                        React.createElement("label", { className: "collection-review-check" },
+                            React.createElement("input", { type: "checkbox", disabled: busy, "aria-label": `엑셀 ${row.row_number}행 중복 여부 확인`, checked: !!((_d = decisions[row.row_key]) === null || _d === void 0 ? void 0 : _d.confirmed), onChange: (e) => changeDecision(row.row_key, { confirmed: e.target.checked }) }),
+                            ((_e = decisions[row.row_key]) === null || _e === void 0 ? void 0 : _e.action) === "separate" ? "별도 수금임을 확인하고 등록합니다." : "중복 여부를 확인했으며 이번 업로드에서 이 행을 제외합니다."));
+                })),
+                React.createElement("div", { className: "collection-review-footer" },
+                    React.createElement("b", null,
+                        "\uB4F1\uB85D \uC608\uC815 ",
+                        finalCount,
+                        "\uAC74 \u00B7 ",
+                        won(finalAmount),
+                        "\uC6D0 / \uC911\uBCF5 \uC81C\uC678 \uC608\uC815 ",
+                        reviewRows.length - separateRows.length,
+                        "\uAC74"),
+                    can("collection_approve") && React.createElement("label", { className: "collection-review-check" },
+                        React.createElement("input", { type: "checkbox", checked: approve, disabled: busy, onChange: (e) => setApprove(e.target.checked) }),
+                        "\uB4F1\uB85D\uACFC \uB3D9\uC2DC\uC5D0 \uC2B9\uC778\u00B7\uC0C1\uACC4 (\uCC44\uAD8C\uC794\uC561\uC5D0 \uC989\uC2DC \uBC18\uC601)"),
+                    React.createElement("div", { className: "btnrow" },
+                        React.createElement("button", { className: "btn", disabled: busy, onClick: closeReview }, "\uB3CC\uC544\uAC00\uAE30"),
+                        React.createElement("button", { className: "btn btn--primary", disabled: busy || !reviewsComplete || !!preview.error_count, onClick: submit }, busy ? "처리 중" : finalCount ? `확인 완료 · ${finalCount}건 ${approve ? "승인·상계" : "등록"}` : "중복 확인 완료 · 제외 이력 저장"))))),
+        reviewHistory && React.createElement("div", { className: "modal-backdrop", onMouseDown: () => setReviewHistory(null) },
+            React.createElement("section", { className: "modal-card modal-card--wide collection-review-history", role: "dialog", "aria-modal": "true", "aria-labelledby": "collection-review-history-title", onMouseDown: (e) => e.stopPropagation() },
+                React.createElement("h2", { id: "collection-review-history-title" }, "\uC911\uBCF5 \uD655\uC778 \uC774\uB825"),
+                React.createElement("p", null, reviewHistory.batch.filename),
+                React.createElement("div", { className: "tablewrap" },
+                    React.createElement("table", null,
+                        React.createElement("thead", null,
+                            React.createElement("tr", null,
+                                React.createElement("th", null, "\uC5D1\uC140 \uD589 / \uC218\uAE08\uBC88\uD638"),
+                                React.createElement("th", null, "\uCC98\uB9AC"),
+                                React.createElement("th", null, "\uC0AC\uC720"),
+                                React.createElement("th", null, "\uD655\uC778\uC790"),
+                                React.createElement("th", null, "\uD655\uC778\uC77C\uC2DC"))),
+                        React.createElement("tbody", null, reviewHistory.rows.map((r) => React.createElement("tr", { key: r.id },
+                            React.createElement("td", null,
+                                r.row_number,
+                                "\uD589 \u00B7 ",
+                                r.receipt_no,
+                                " / ",
+                                r.sequence),
+                            React.createElement("td", null, r.action === "exclude" ? "중복 확인·제외" : "별도 수금 등록"),
+                            React.createElement("td", null, r.reason || "중복 비교 확인"),
+                            React.createElement("td", null, r.reviewed_by),
+                            React.createElement("td", null, r.created_at)))))),
+                React.createElement("button", { className: "btn", onClick: () => setReviewHistory(null) }, "\uB2EB\uAE30"))));
+}
 /* ══════════════════ 출고 데이터 업로드 ══════════════════ */
 const COLUMN_ALIASES = {
     code: ["거래처코드", "코드", "거래처 코드", "고객코드", "code"],
@@ -2190,6 +2657,73 @@ function Users({ data, notify, refresh }) {
                 p.label))))))));
 }
 /* ══════════════════ 사용 매뉴얼 ══════════════════ */
+function CollectionUploadGuide() {
+    const columns = [
+        ["고객코드", "필수", "등록된 거래처 코드. 숫자 코드는 앞자리 0을 보정합니다. 고객명·관리고객코드로 매칭하지 않습니다."],
+        ["수금일자", "필수", "실제 수금일. YYYY-MM-DD 또는 Excel 날짜. 미래 날짜·존재하지 않는 날짜·마감월은 오류입니다."],
+        ["수금번호 / 순번", "각각 필수", "수금번호와 순번을 묶어 중복 판정합니다. 같은 번호라도 순번이 다르면 각각 등록합니다."],
+        ["수금구분 / 수금구분유형", "각각 필수", "공백을 제거해 제 예 금·카    드도 인식합니다. 명칭과 확인된 유형코드가 충돌하면 오류입니다."],
+        ["정상수금 / 선수금", "각각 필수", "원 단위 0 이상 정수. 미발생 금액도 공란 대신 0 입력. 두 금액의 합이 실제 수금등록액이며 0원 이하는 오류입니다."],
+        ["수금년월", "선택", "입력된 경우 YYYY-MM 형식이며 수금일자의 월과 일치해야 합니다."],
+        ["고객", "선택", "고객코드로 찾은 등록명과 다르면 경고합니다. 코드가 정확한지 확인하세요."],
+        ["비고(건) / 비고(내역)", "선택", "수금 적요에 함께 저장합니다. 수금번호·순번과 원본 정상수금·선수금도 추적할 수 있습니다."],
+    ];
+    return React.createElement(Card, { title: "\uC218\uAE08\uB4F1\uB85D \uB370\uC774\uD130 \uC5C5\uB85C\uB4DC \u00B7 \uC0AC\uC6A9\uBC95\uACFC \uAC80\uC99D \uAE30\uC900" },
+        React.createElement("ol", null,
+            React.createElement("li", null, "\uC218\uAE08 \u2192 \uC218\uAE08\uB4F1\uB85D \uB370\uC774\uD130 \uC5C5\uB85C\uB4DC\uC5D0\uC11C \uC544\uB9C8\uB780\uC2A410 \uD30C\uC77C\uC744 \uC120\uD0DD\uD569\uB2C8\uB2E4. \uCCAB \uBC88\uC9F8 \uC2DC\uD2B8\uC758 \uC55E 25\uD589 \uC548\uC5D0 \uBA38\uB9AC\uAE00\uC774 \uC788\uC5B4\uC57C \uD569\uB2C8\uB2E4."),
+            React.createElement("li", null, "\uD30C\uC77C\uC740 \uBA3C\uC800 \uC77D\uC5B4 \uC2E0\uADDC\u00B7\uC911\uBCF5 \uD655\uC778 \uD544\uC694\u00B7\uC785\uB825 \uC624\uB958\uB85C \uAD6C\uBD84\uD569\uB2C8\uB2E4. \uC911\uBCF5 \uD6C4\uBCF4\uAC00 \uC788\uC73C\uBA74 \uAE30\uC874 \uB0B4\uC5ED\uACFC \uC774\uBC88 \uB0B4\uC5ED\uC744 \uBE44\uAD50\uD558\uB294 \uD31D\uC5C5\uC774 \uC5F4\uB9BD\uB2C8\uB2E4."),
+            React.createElement("li", null, "\uAC01 \uD6C4\uBCF4\uC758 \u2018\uC911\uBCF5 \uD655\uC778\u00B7\uC774\uBC88 \uD589 \uC81C\uC678\u2019\uB97C \uCCB4\uD06C\uD569\uB2C8\uB2E4. \uB0B4\uC6A9\uC774 \uB3D9\uC77C\uD55C \uAE30\uB4F1\uB85D \uAC74\uC740 \uC77C\uAD04 \uD655\uC778\uB3C4 \uAC00\uB2A5\uD569\uB2C8\uB2E4. \uD655\uC778 \uC804\uC5D0\uB294 \uCD94\uAC00 \uB4F1\uB85D\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."),
+            React.createElement("li", null, "\uACE0\uAC1D\u00B7\uC218\uAE08\uC77C\u00B7\uAE08\uC561\u00B7\uBC29\uBC95\uB9CC \uAC19\uC740 \uD6C4\uBCF4\uAC00 \uC2E4\uC81C \uBCC4\uB3C4 \uC218\uAE08\uC774\uBA74 \u2018\uC911\uBCF5 \uC544\uB2D8\u00B7\uBCC4\uB3C4 \uC218\uAE08 \uB4F1\uB85D\u2019\uC744 \uC120\uD0DD\uD558\uACE0 5~500\uC790 \uC0AC\uC720\uC640 \uD655\uC778 \uCCB4\uD06C\uB97C \uC785\uB825\uD569\uB2C8\uB2E4."),
+            React.createElement("li", null, "\uD655\uC778 \uC644\uB8CC \uD6C4 \uC81C\uC678\uD55C \uD589\uC744 \uBE7C\uACE0 \uB098\uBA38\uC9C0\uB97C \uC2B9\uC778 \uB300\uAE30\uB85C \uB4F1\uB85D\uD569\uB2C8\uB2E4. \uC2B9\uC778\uAD8C\uC790\uB9CC \uC989\uC2DC \uC2B9\uC778\u00B7\uC0C1\uACC4\uB97C \uC120\uD0DD\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4. \uC804\uBD80 \uC911\uBCF5\uC774\uC5B4\uB3C4 \uD655\uC778 \uC774\uB825\uC744 \uC800\uC7A5\uD558\uBA70 \uCC44\uAD8C\uC740 \uB2E4\uC2DC \uCC28\uAC10\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."),
+            React.createElement("li", null, "\uC5C5\uB85C\uB4DC \uC774\uB825\uC758 \uC911\uBCF5 \uD655\uC778 \uBC84\uD2BC\uC5D0\uC11C \uD655\uC778\uC790\u00B7\uD655\uC778\uC77C\uC2DC\u00B7\uC81C\uC678/\uBCC4\uB3C4\uB4F1\uB85D \uD310\uB2E8\u00B7\uC0AC\uC720\uB97C \uC870\uD68C\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.")),
+        React.createElement("div", { className: "tablewrap" },
+            React.createElement("table", { className: "manual-table" },
+                React.createElement("thead", null,
+                    React.createElement("tr", null,
+                        React.createElement("th", null, "\uC5D1\uC140 \uC5F4"),
+                        React.createElement("th", null, "\uD544\uC218 \uC5EC\uBD80"),
+                        React.createElement("th", null, "\uC785\uB825\u00B7\uAC80\uC99D \uAE30\uC900"))),
+                React.createElement("tbody", null, columns.map((r) => React.createElement("tr", { key: r[0] },
+                    React.createElement("td", null, r[0]),
+                    React.createElement("td", null, r[1]),
+                    React.createElement("td", null, r[2])))))),
+        React.createElement("div", { className: "tablewrap", style: { marginTop: 16 } },
+            React.createElement("table", { className: "manual-table" },
+                React.createElement("thead", null,
+                    React.createElement("tr", null,
+                        React.createElement("th", null, "\uC218\uAE08\uAD6C\uBD84"),
+                        React.createElement("th", null, "\uC218\uAE08\uAD6C\uBD84\uC720\uD615"),
+                        React.createElement("th", null, "\uAE30\uC874 \uC218\uAE08\uBC29\uBC95"))),
+                React.createElement("tbody", null,
+                    React.createElement("tr", null,
+                        React.createElement("td", null, "\uC81C\uC608\uAE08 / \uC81C \uC608 \uAE08"),
+                        React.createElement("td", null, "1 \uB610\uB294 \uC81C\uC608\uAE08\u00B7\uACC4\uC88C\uC218\uAE08 \uBA85\uCE6D"),
+                        React.createElement("td", null, "\uACC4\uC88C\uC218\uAE08")),
+                    React.createElement("tr", null,
+                        React.createElement("td", null, "\uCE74\uB4DC / \uCE74    \uB4DC"),
+                        React.createElement("td", null, "5 \uB610\uB294 \uCE74\uB4DC\u00B7\uCE74\uB4DC\uC218\uAE08 \uBA85\uCE6D"),
+                        React.createElement("td", null, "\uCE74\uB4DC\uC218\uAE08")),
+                    React.createElement("tr", null,
+                        React.createElement("td", null, "\uC5B4\uC74C / \uBC1B\uC744\uC5B4\uC74C / \uC804\uC790\uC5B4\uC74C"),
+                        React.createElement("td", null, "\uC5B4\uC74C \uBA85\uCE6D\uC73C\uB85C \uD310\uC815. \uBBF8\uD655\uC778 \uC22B\uC790\uCF54\uB4DC\uB97C \uC784\uC758\uB85C \uC5B4\uC74C\uC73C\uB85C \uCD94\uC815\uD558\uC9C0 \uC54A\uC74C"),
+                        React.createElement("td", null, "\uC5B4\uC74C\uC218\uAE08"))))),
+        React.createElement("div", { className: "manual-notices", style: { marginTop: 16 } },
+            React.createElement("div", null,
+                React.createElement("b", null, "\uB4F1\uB85D \uC911\uB2E8 \uC624\uB958"),
+                React.createElement("span", null, "\uD544\uC218 \uC5F4\u00B7\uAC12 \uB204\uB77D, \uBBF8\uB4F1\uB85D\u00B7\uBAA8\uD638\uD55C \uACE0\uAC1D\uCF54\uB4DC, \uC798\uBABB\uB41C \uB0A0\uC9DC\u00B7\uC218\uAE08\uBC29\uBC95, \uC74C\uC218\u00B7\uC18C\uC218\u00B7\uBB38\uC790 \uAE08\uC561, 0\uC6D0 \uC218\uAE08, \uC218\uAE08\uB144\uC6D4 \uBD88\uC77C\uCE58 \uB4F1 \uC785\uB825 \uC624\uB958\uB294 \uC218\uC815\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC2E0\uADDC \uB4F1\uB85D\uD558\uB824\uB294 \uC218\uAE08\uC6D4\uC774 \uB9C8\uAC10\uB418\uC5C8\uAC70\uB098 \uC6D0\uC7A5\u00B7\uC9D1\uACC4\uC794\uC561\uC774 \uB2E4\uB974\uBA74 \uB4F1\uB85D\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uD569\uACC4\uD589\uC740 \uC2E4\uC81C \uB0B4\uC5ED \uD569\uACC4\uC640 \uB300\uC870\uD569\uB2C8\uB2E4.")),
+            React.createElement("div", null,
+                React.createElement("b", null, "\uBC88\uD638\u00B7\uC21C\uBC88 \uC911\uBCF5"),
+                React.createElement("span", null, "\uAC19\uC740 \uC218\uAE08\uBC88\uD638\u00B7\uC21C\uBC88\uC740 \uD31D\uC5C5\uC5D0\uC11C \uAE30\uC874 \uAC12\uACFC \uBE44\uAD50\uD558\uACE0 \uC774\uBC88 \uD589\uC744 \uC81C\uC678\uD560\uC9C0 \uD655\uC778\uD569\uB2C8\uB2E4. \uAC12\uC774 \uB2EC\uB77C\uB3C4 \uC790\uB3D9 \uB36E\uC5B4\uC4F0\uAC70\uB098 \uBCC4\uB3C4 \uC0DD\uC131\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uD30C\uC77C \uC548\uC5D0\uC11C \uC911\uBCF5\uB418\uBA74 \uBA3C\uC800 \uB098\uC628 \uD589\uACFC \uBE44\uAD50\uD558\uC5EC \uB4A4\uC758 \uD589 \uC81C\uC678 \uC5EC\uBD80\uB97C \uD655\uC778\uD569\uB2C8\uB2E4. \uC815\uC815\uC774 \uD544\uC694\uD55C \uACBD\uC6B0 \uB3CC\uC544\uAC00\uC11C \uC6D0\uBCF8 \uB610\uB294 \uAE30\uC874 \uB0B4\uC5ED\uC744 \uD655\uC778\uD558\uC138\uC694.")),
+            React.createElement("div", null,
+                React.createElement("b", null, "\uD655\uC778 \uC911 \uBCC0\uACBD"),
+                React.createElement("span", null, "\uD31D\uC5C5 \uD655\uC778 \uB4A4 \uB2E4\uB978 \uC0AC\uC6A9\uC790\uAC00 \uAC19\uC740 \uC218\uAE08\uC744 \uB4F1\uB85D\u00B7\uC2B9\uC778\uD558\uB294 \uB4F1 \uB0B4\uC5ED\uC774 \uBC14\uB00C\uBA74 \uCD5C\uC2E0 \uB0B4\uC5ED\uC744 \uB2E4\uC2DC \uD45C\uC2DC\uD558\uACE0 \uC7AC\uD655\uC778\uC744 \uBC1B\uC2B5\uB2C8\uB2E4. \uBBF8\uD655\uC778 \uD589\uC744 \uC790\uB3D9 \uC81C\uC678\uD558\uAC70\uB098 \uCD94\uAC00 \uB4F1\uB85D\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.")),
+            React.createElement("div", null,
+                React.createElement("b", null, "\uCC44\uAD8C \uC0C1\uACC4"),
+                React.createElement("span", null, "\uC2B9\uC778 \uC2DC \uACE0\uAC1D\uCF54\uB4DC\uC758 \uBD80\uC2E4 \u2192 \uBBF8\uC218 \u2192 \uC815\uC0C1\uCC44\uAD8C \uC21C\uC11C\uC774\uBA70 \uAC01 \uAD6C\uBD84\uC5D0\uC11C\uB294 \uC624\uB798\uB41C \uBC1C\uC0DD\uC6D4\uBD80\uD130 \uCC28\uAC10\uD569\uB2C8\uB2E4. \uC0AC\uC5C5\uBD80\uB294 \uAE30\uC874 \uCC44\uAD8C \uC6D0\uC7A5\uC744 \uB530\uB985\uB2C8\uB2E4. \uD30C\uC77C\uC758 \uC815\uC0C1\uC218\uAE08+\uC120\uC218\uAE08\uC744 \uD55C \uBC88\uB9CC \uBC18\uC601\uD558\uBA70 \uCD08\uACFC\uBD84\uB9CC \uC120\uC218\uAE08\uC73C\uB85C \uBCF4\uAD00\uD569\uB2C8\uB2E4.")),
+            React.createElement("div", null,
+                React.createElement("b", null, "\uC2B9\uC778\u00B7\uB9C8\uAC10\u00B7\uD30C\uC77C"),
+                React.createElement("span", null, "\uC2B9\uC778 \uB300\uAE30 \uAC74\uC740 \uC794\uC561\uC744 \uBC14\uAFB8\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uB4F1\uB85D \uB4A4 \uC218\uAE08\uC6D4\uC774 \uB9C8\uAC10\uB418\uBA74 \uC5C5\uB85C\uB4DC \uC218\uAE08\uC758 \uC2B9\uC778\uC774 \uCC28\uB2E8\uB429\uB2C8\uB2E4. .xlsx/.xls/.csv, 10MB \uC774\uD558, \uCD5C\uB300 5,000\uD589\uC744 \uC9C0\uC6D0\uD558\uBA70 \uBCF4\uC548 \uCC98\uB9AC\uB41C \uD30C\uC77C\uC740 \uC0AC\uB0B4 \uBC18\uCD9C \uC808\uCC28\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4."))));
+}
 function Manual() {
     const steps = [
         ["1", "조회기준 확인", "화면 상단에서 마감 기준 또는 최신 출고 포함 기준을 선택합니다."],
@@ -2205,6 +2739,7 @@ function Manual() {
         ["거래처별 현황", "채권 상세·회수기간·담당자·비고·사업부 관리", "사업부 변경 시 합계·보고서가 즉시 변경되므로 원본자료도 함께 정정"],
         ["담당자별 채권현황", "담당자별 거래처와 채권잔액 확인", "미배정 거래처를 우선 점검"],
         ["수금 등록", "채권 선택·자동 적요·승인·반려", "미등록 거래처 선수금은 간편등록 후 처리"],
+        ["수금등록 데이터 업로드", "고객코드 매칭·중복 확인 팝업·수금 일괄등록", "중복 여부를 체크한 뒤 신규 건 등록, 확인 이력 조회"],
         ["수금목표 관리", "예정 수금액과 완료일 관리", "완료 시 실제 수금등록 여부도 확인"],
         ["출고 데이터 업로드", "아마란스 출고자료 반영·이전 파일 복원", "월 자동 분리, 마감월 제외, 재업로드 결과 확인"],
         ["수금계획 다운로드", "선택한 조회기준으로 계획서 생성", "카드수금은 입금예정 3영업일까지 포함"],
@@ -2242,6 +2777,7 @@ function Manual() {
                         React.createElement("td", { className: "t-strong" }, row[0]),
                         React.createElement("td", null, row[1]),
                         React.createElement("td", null, row[2]))))))),
+        React.createElement(CollectionUploadGuide, null),
         React.createElement(Card, { title: "\uD504\uB85C\uADF8\uB7A8\uC774 \uCC44\uAD8C\uC744 \uACC4\uC0B0\uD558\uB294 \uBC29\uC2DD" },
             React.createElement("div", { className: "manual-notices" }, implementation.map(([title, text]) => React.createElement("div", { key: title },
                 React.createElement("b", null, title),
@@ -2263,7 +2799,7 @@ function Manual() {
                     React.createElement("span", null, "\uBCF4\uACE0 \uD654\uBA74\uC740 \uC120\uD0DD\uD55C \uC870\uD68C\uAE30\uC900\uC744 \uB530\uB974\uBA70, \uC218\uAE08\u00B7\uC5C5\uB85C\uB4DC \uD654\uBA74\uC740 \uD56D\uC0C1 \uCD5C\uC2E0 \uC6B4\uC601\uB370\uC774\uD130\uB97C \uC0AC\uC6A9\uD569\uB2C8\uB2E4.")),
                 React.createElement("div", null,
                     React.createElement("b", null, "\uC218\uAE08 \uC2B9\uC778"),
-                    React.createElement("span", null, "\uC2B9\uC778\uAD8C\uC790\uAC00 \uB4F1\uB85D\uD558\uBA74 \uC989\uC2DC \uC2B9\uC778\uB418\uBA70, \uADF8 \uC678 \uC0AC\uC6A9\uC790\uC758 \uB4F1\uB85D\uC740 \uC2B9\uC778 \uC644\uB8CC \uD6C4 \uC794\uC561\uC5D0 \uBC18\uC601\uB429\uB2C8\uB2E4.")),
+                    React.createElement("span", null, "\uC2B9\uC778 \uC644\uB8CC \uD6C4 \uC794\uC561\uC5D0 \uBC18\uC601\uB429\uB2C8\uB2E4. \uC218\uAE08 \uC5C5\uB85C\uB4DC\uC5D0\uC11C \uC2B9\uC778\uAD8C\uC790\uB294 \uC989\uC2DC \uC2B9\uC778\u00B7\uC0C1\uACC4\uB97C \uC120\uD0DD\uD560 \uC218 \uC788\uC73C\uBA70, \uC120\uD0DD\uD558\uC9C0 \uC54A\uC73C\uBA74 \uC2B9\uC778 \uB300\uAE30\uB85C \uB4F1\uB85D\uB429\uB2C8\uB2E4.")),
                 React.createElement("div", null,
                     React.createElement("b", null, "\uCE74\uB4DC\uC218\uAE08"),
                     React.createElement("span", null, "\uCC44\uAD8C\uC5D0\uC11C\uB294 \uC2B9\uC778 \uC989\uC2DC \uCC28\uAC10\uB418\uC9C0\uB9CC \uC218\uAE08\uACC4\uD68D\uC5D0\uB294 \uD1B5\uC7A5 \uC785\uAE08\uC608\uC815\uC77C\uC778 \uC218\uAE08\uC77C \uC774\uD6C4 3\uC601\uC5C5\uC77C\uAE4C\uC9C0 \uD3EC\uD568\uB429\uB2C8\uB2E4.")),
@@ -2288,6 +2824,7 @@ const SCREENS = [
     { key: "customers", label: "거래처별 현황", perm: "customer_view", group: "현황" },
     { key: "owners", label: "담당자별 채권현황", perm: "owner_view", group: "현황" },
     { key: "collections", label: "수금 등록", perm: "collection_register", group: "수금", alt: "collection_approve" },
+    { key: "collectionUpload", label: "수금등록 데이터 업로드", perm: "collection_register", group: "수금", alt: "collection_approve" },
     { key: "targets", label: "수금목표 관리", perm: "target_manage", group: "수금" },
     { key: "upload", label: "출고 데이터 업로드", perm: "upload_data", group: "관리" },
     { key: "cashplan", label: "수금계획 다운로드", perm: "data_export", group: "관리" },
@@ -2449,6 +2986,7 @@ function App() {
                 screen === "customers" && React.createElement(Customers, { data: reportData, can: can, preset: preset, notify: notify, patchCustomer: patchCustomer }),
                 screen === "owners" && React.createElement(Owners, { data: reportData }),
                 screen === "collections" && React.createElement(Collections, { data: data, can: can, notify: notify, refresh: load }),
+                screen === "collectionUpload" && React.createElement(CollectionUpload, { can: can, notify: notify, refresh: load }),
                 screen === "targets" && React.createElement(Targets, { data: reportData, notify: notify, refresh: load }),
                 screen === "upload" && React.createElement(Upload, { data: data, can: can, notify: notify, applyUpload: applyUpload, refresh: load }),
                 screen === "cashplan" && React.createElement(CashPlan, { data: reportData, dataView: effectiveView, notify: notify }),
