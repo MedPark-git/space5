@@ -6,6 +6,7 @@ MedPark 채권관리 — Flask 백엔드.
     운영  gunicorn -w 2 -b 0.0.0.0:$PORT app:app
 """
 import json
+import hashlib
 import os
 import base64
 import io
@@ -18,6 +19,7 @@ from flask import Flask, jsonify, request, session, render_template, send_file
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import db
+import receivable_activity
 from collection_import import validate_rows, resolve_reviews, ReviewRequired
 from db import connect, PERMISSIONS, ALL_PERMS, ROLE_TEMPLATES
 
@@ -445,7 +447,11 @@ def add_business_days(start, days):
 
 # ─────────────────────────────── 화면 ───────────────────────────────
 
-BUILD = str(int(os.path.getmtime(os.path.join(os.path.dirname(__file__), "static", "app.js"))))
+_asset_hash = hashlib.sha256()
+for _asset in ("app.js", "activity.js", "styles.css"):
+    with open(os.path.join(os.path.dirname(__file__), "static", _asset), "rb") as _asset_file:
+        _asset_hash.update(_asset_file.read())
+BUILD = _asset_hash.hexdigest()[:16]
 
 
 @app.get("/")
@@ -968,6 +974,43 @@ def validate_collection_request(conn, data):
                          'collection_register' in request.user['permissions'], UNITS)
 
 
+@app.get('/api/receivable-activity')
+@requires('dashboard_view')
+def receivable_activity_report():
+    try:
+        params = receivable_activity.parameters(request.args)
+        with connect() as conn:
+            conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY' if db.USE_PG else 'BEGIN')
+            result = receivable_activity.report(conn, params)
+        return jsonify(result)
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+
+
+@app.get('/api/receivable-activity/details')
+@requires('dashboard_view')
+def receivable_activity_details():
+    try:
+        params = receivable_activity.parameters(request.args)
+        with connect() as conn:
+            conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY' if db.USE_PG else 'BEGIN')
+            result = receivable_activity.details(conn, params, request.args)
+        return jsonify(result)
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+
+
+@app.get('/api/receivable-activity/source/<kind>/<int:source_id>')
+@requires('dashboard_view')
+def receivable_activity_source(kind, source_id):
+    try:
+        with connect() as conn:
+            result = receivable_activity.source(conn, kind, source_id)
+        return jsonify(result) if result else (jsonify(error='보관된 원본 내역이 없습니다.'), 404)
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+
+
 @app.post('/api/collection-uploads/preview')
 @login_required
 def preview_collection_upload():
@@ -1248,6 +1291,10 @@ def upload_rows():
         for index, row in enumerate(rows, start=1):
             if str(row.get("biz_unit") or "").strip() not in UNITS:
                 return jsonify(error="%s행: 사업부를 선택하세요. 덴탈·메디컬·에스테틱만 가능합니다." % index), 400
+        try:
+            shipment_sources = receivable_activity.source_lines(rows, month)
+        except ValueError as exc:
+            return jsonify(error=str(exc)), 400
 
     with connect() as conn:
         collection_write_lock(conn)
@@ -1414,6 +1461,12 @@ def upload_rows():
                 "INSERT INTO uploads (month,filename,row_count,uploaded_by,replaced,upload_type,shipment_date)"
                 " VALUES (%s,%s,%s,%s,%s,'shipment',%s) RETURNING id",
                 (month, filename, len(shipments), request.user["username"], previous, shipment_date)).fetchone()["id"]
+            if shipment_sources:
+                conn.executemany(
+                    'INSERT INTO shipment_upload_lines (upload_id,month,row_number,occurred_on,customer_code,customer_name,source_biz_unit,amount,source_json)'
+                    ' VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+                    [(upload_id, r['month'], r['row_number'], r['occurred_on'], r['customer_code'], r['customer_name'],
+                      r['source_biz_unit'], r['amount'], r['source_json']) for r in shipment_sources])
             save_upload_checkpoint(conn, upload_id, previous_filename, checkpoint)
             log(conn, request.user["username"], "shipment_upload",
                 "%s / %d행 (기존 %d행 교체, 기수금 %d원 승계, 선수금 %d원 상계)" %
@@ -1599,6 +1652,7 @@ def rollback_upload(upload_id):
         restore_table_rows(conn, "monthly_shipment_units", SHIPMENT_RESTORE_COLUMNS, shipments)
         restore_table_rows(conn, "receivable_items", RECEIVABLE_RESTORE_COLUMNS, receivables)
         conn.execute("DELETE FROM upload_backups WHERE upload_id=%s", (upload_id,))
+        conn.execute("DELETE FROM shipment_upload_lines WHERE upload_id=%s", (upload_id,))
         conn.execute("DELETE FROM uploads WHERE id=%s", (upload_id,))
         log(conn, request.user["username"], "upload_rollback",
             "%s 삭제 → %s 복원" % (upload["filename"], backup["previous_filename"]))

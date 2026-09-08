@@ -2431,7 +2431,7 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
             try {
                 const wb = XLSX.read(e.target.result, { type: "array" });
                 const sheet = wb.Sheets[wb.SheetNames[0]];
-                const grid = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false });
+                const grid = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: true });
                 let headerRow = -1, map = {};
                 for (let i = 0; i < Math.min(grid.length, 15); i++) {
                     const candidate = mapHeaders(grid[i] || []);
@@ -2492,6 +2492,15 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
                     }
                     rows.push({
                         code: normalizedCode,
+                        source_lines: shipmentMode ? [{ row_number: i + 1, shipment_date: rowShipmentDate,
+                                amount: parseUploadAmount(map.total_amount !== undefined ? pick("total_amount") : pick("shipment_amount")),
+                                columns: (grid[headerRow] || []).map((header, column) => {
+                                    var _a;
+                                    return ({
+                                        column: XLSX.utils.encode_col(column), name: String(header || ""), value: (_a = raw[column]) !== null && _a !== void 0 ? _a : "",
+                                    });
+                                }).filter((cell) => cell.name || cell.value !== ""),
+                            }] : undefined,
                         name,
                         biz_unit: bizUnit,
                         requires_unit_selection: requiresUnitSelection,
@@ -2532,6 +2541,7 @@ function Upload({ data, can, notify, applyUpload, refresh }) {
                             + (r.requires_unit_selection ? "|unassigned:" + index : "");
                         const current = grouped.get(key);
                         if (current) {
+                            current.source_lines = [...current.source_lines, ...r.source_lines];
                             current.shipment_amount = parseUploadAmount(current.shipment_amount) + parseUploadAmount(r.shipment_amount);
                             current.total_amount = current.shipment_amount;
                             if (r.shipment_date > current.shipment_date)
@@ -3038,6 +3048,8 @@ function Manual() {
     const menus = [
         ["대시보드", "전체 채권·전일 수금·거래처 확인", "조회기준과 사업부를 먼저 선택"],
         ["채권요약현황", "사업부별 채권·수금 실적 보고", "결산자료는 PPT 또는 PNG 다운로드"],
+        ["채권·수금 추이", "일별·월별 출고 발생액과 승인 수금 비교", "그래프·기간별 표 선택으로 상세 이동"],
+        ["채권·수금 상세내역", "출고채권·수금·기초이월 내역과 업로드 원본 확인", "사업부·거래처·일자·월·승인상태별 조회"],
         ["결산회의 미수채권", "잔액이 있는 미수채권만 회의자료로 확인", "부실·0원 거래처는 제외하고 PPT·PNG 다운로드"],
         ["거래처별 현황", "채권 상세·회수기간·담당자·비고·사업부 관리", "사업부 변경 시 합계·보고서가 즉시 변경되므로 원본자료도 함께 정정"],
         ["담당자별 채권현황", "담당자별 거래처와 채권잔액 확인", "미배정 거래처를 우선 점검"],
@@ -3095,6 +3107,15 @@ function Manual() {
                     React.createElement("tbody", null, terms.map((row) => React.createElement("tr", { key: row[0] },
                         React.createElement("td", { className: "t-strong" }, row[0]),
                         React.createElement("td", null, row[1]))))))),
+        React.createElement(Card, { title: "\uCC44\uAD8C\u00B7\uC218\uAE08 \uCD94\uC774 \u00B7 \uC9D1\uACC4 \uAE30\uC900" },
+            React.createElement("ul", null,
+                React.createElement("li", null, "\uC2DC\uC791\uC6D4\u00B7\uC885\uB8CC\uC6D4, \uC0AC\uC5C5\uBD80, \uAC70\uB798\uCC98\uBA85\u00B7\uACE0\uAC1D\uCF54\uB4DC\uB97C \uC120\uD0DD\uD574 \uCD5C\uB300 24\uAC1C\uC6D4\uC744 \uC870\uD68C\uD569\uB2C8\uB2E4. \uC77C\uBCC4\u00B7\uC6D4\uBCC4 \uADF8\uB798\uD504\uC758 \uB0A0\uC9DC \uB610\uB294 \uAE08\uC561 \uB300\uC870\uD45C\uB97C \uC120\uD0DD\uD558\uBA74 \uC138\uBD80 \uB0B4\uC5ED\uC73C\uB85C \uC774\uB3D9\uD569\uB2C8\uB2E4."),
+                React.createElement("li", null, "\uBC1C\uC0DD\uC561\uC740 \uC6D4\uBCC4 \uCD5C\uC2E0 \uBC18\uC601 \uCD9C\uACE0\uAE08\uC561\uC774\uBA70 \uBC18\uD488\u00B7\uC870\uC815\uC740 \uC74C\uC218\uB85C \uD3EC\uD568\uD569\uB2C8\uB2E4. \uC7AC\uC5C5\uB85C\uB4DC\uB294 \uB3D9\uC77C \uC6D4\uC758 \uC774\uC804 \uAE08\uC561\uC744 \uB354\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uC218\uAE08 \uC0C1\uACC4 \uD6C4 \uC794\uC561\uC744 \uBC1C\uC0DD\uC561\uC73C\uB85C \uC0AC\uC6A9\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."),
+                React.createElement("li", null, "\uC218\uAE08\uC740 \uC2E4\uC81C \uC218\uAE08\uC77C \uAE30\uC900 \uC2B9\uC778 \uC644\uB8CC \uAE08\uC561\uC774\uBA70 \uC120\uC218\uAE08\uC744 \uD3EC\uD568\uD569\uB2C8\uB2E4. \uC2B9\uC778 \uB300\uAE30\u00B7\uBC18\uB824\uB294 \uADF8\uB798\uD504\uC5D0\uC11C \uC81C\uC678\uD558\uACE0 \uC0C1\uC138\uB0B4\uC5ED\uC5D0\uC11C \uC0C1\uD0DC\uBCC4 \uC870\uD68C\uD569\uB2C8\uB2E4. \uC0AC\uC5C5\uBD80\uBCC4 \uC218\uAE08\uC740 \uD604\uC7AC \uAC70\uB798\uCC98 \uC0AC\uC5C5\uBD80 \uAE30\uC900\uC774\uBA70 \uCC44\uAD8C\uBCC4 \uC0C1\uACC4 \uBC30\uBD84\uC744 \uB73B\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."),
+                React.createElement("li", null, "\uAE30\uCD08\u00B7\uC774\uC6D4\uCC44\uAD8C\uC740 \uC2E0\uADDC \uBC1C\uC0DD\uC561\uC5D0\uC11C \uC81C\uC678\uD558\uACE0 \uBCC4\uB3C4 \uD0ED\uC5D0\uC11C \uD604\uC7AC \uC6D0\uAE08\uC744 \uD655\uC778\uD569\uB2C8\uB2E4. \uBC1C\uC0DD\uC561\u2212\uC218\uAE08\uC561\uC740 \uAE30\uAC04 \uAE08\uC561\uC758 \uBE44\uAD50\uC774\uBA70 \uD604\uC7AC \uCC44\uAD8C\uC794\uC561\uC774\uB098 \uC2E4\uC81C \uC0C1\uACC4\uC561\uACFC \uAC19\uC9C0 \uC54A\uC744 \uC218 \uC788\uC2B5\uB2C8\uB2E4."),
+                React.createElement("li", null, "\uACFC\uAC70 \uC6D4\uBCC4 \uD569\uACC4 \uC790\uB8CC\uC758 \uCD9C\uACE0\uC77C\uC740 \uC784\uC758\uB85C \uC9C0\uC815\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uC6D4\uBCC4 \uAE08\uC561\uC5D0 \uD3EC\uD568\uD558\uACE0 \uC77C\uBCC4 \uADF8\uB798\uD504\uC758 \uBBF8\uBCF4\uAD00 \uAE08\uC561\uC73C\uB85C \uC548\uB0B4\uD569\uB2C8\uB2E4. \uD574\uB2F9 \uC6D4\uC758 \uC804\uCCB4 \uCD9C\uACE0 \uC6D0\uBCF8\uC744 \uB2E4\uC2DC \uC5C5\uB85C\uB4DC\uD558\uBA74 \uBCF4\uAD00\uB41C \uCD9C\uACE0\uC77C\uB85C \uC870\uD68C\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4."),
+                React.createElement("li", null, "\uC0C8 \uCD9C\uACE0 \uC5C5\uB85C\uB4DC\uB294 \uC5D1\uC140 \uC6D0\uBCF8 \uD589\u00B7\uCD9C\uACE0\uC77C\u00B7\uAE08\uC561\uC744 \uD568\uAED8 \uBCF4\uAD00\uD569\uB2C8\uB2E4. \uAC19\uC740 \uC6D4\uC758 \uC804\uCCB4 \uC790\uB8CC\uB97C \uB2E4\uC2DC \uC62C\uB9AC\uB294 \uAE30\uC874 \uBC29\uC2DD\uC774\uBA70 \uC77C\uBD80 \uD589\uB9CC \uC62C\uB9AC\uBA74 \uADF8 \uC6D4\uC758 \uC804\uCCB4 \uBC18\uC601\uBD84\uC774 \uAD50\uCCB4\uB429\uB2C8\uB2E4. \uCD9C\uACE0 \uC5C5\uB85C\uB4DC \uBCF5\uC6D0 \uC2DC \uC0C1\uC138 \uC6D0\uBCF8\uB3C4 \uD574\uB2F9 \uBC18\uC601 \uBC84\uC804\uC73C\uB85C \uB3CC\uC544\uAC11\uB2C8\uB2E4."),
+                React.createElement("li", null, "\uC0C1\uC138\uB0B4\uC5ED\uC740 \uCD9C\uACE0\uCC44\uAD8C\u00B7\uC218\uAE08\u00B7\uAE30\uCD08\uC774\uC6D4\uB85C \uB098\uB269\uB2C8\uB2E4. \uC5C5\uB85C\uB4DC \uC6D0\uBCF8 \uBCF4\uAE30\uC5D0\uC11C \uD30C\uC77C\uBA85\u00B7\uB4F1\uB85D\uC790\u00B7\uC5D1\uC140 \uD589\uACFC \uC6D0\uBCF8 \uAC12\uC744 \uD655\uC778\uD569\uB2C8\uB2E4. \uC774\uBBF8 \uC81C\uC678\uD55C \uC911\uBCF5 \uD655\uC778 \uC774\uB825\uC740 \uC218\uAE08 \uC5C5\uB85C\uB4DC \uC774\uB825 \uBA54\uB274\uC5D0\uC11C \uD655\uC778\uD569\uB2C8\uB2E4."))),
         React.createElement(Card, { title: "\uAF2D \uD655\uC778\uD558\uC138\uC694" },
             React.createElement("div", { className: "manual-notices" },
                 React.createElement("div", null,
@@ -3123,6 +3144,8 @@ function Manual() {
 const SCREENS = [
     { key: "dashboard", label: "대시보드", perm: "dashboard_view", group: "현황" },
     { key: "summary", label: "채권요약현황", perm: "dashboard_view", group: "현황" },
+    { key: "activity", label: "채권·수금 추이", perm: "dashboard_view", group: "현황" },
+    { key: "activityDetails", label: "채권·수금 상세내역", perm: "dashboard_view", group: "현황" },
     { key: "closing", label: "결산회의 미수채권", perm: "dashboard_view", group: "현황" },
     { key: "customers", label: "거래처별 현황", perm: "customer_view", group: "현황" },
     { key: "owners", label: "담당자별 채권현황", perm: "owner_view", group: "현황" },
@@ -3152,6 +3175,7 @@ function App() {
     const [data, setData] = useState(null);
     const [screen, setScreen] = useState(initialScreen);
     const [preset, setPreset] = useState(null);
+    const [activityFilters, setActivityFilters] = useState(null);
     const [toast, setToast] = useState(null);
     const [passwordOpen, setPasswordOpen] = useState(false);
     const [dataView, setDataView] = useState(() => localStorage.getItem("ar_data_view") || "combined");
@@ -3285,6 +3309,10 @@ function App() {
             React.createElement("div", { className: "page" },
                 screen === "dashboard" && React.createElement(Dashboard, { data: reportData, setScreen: setScreen, setPreset: setPreset }),
                 screen === "summary" && React.createElement(BondSummary, { data: reportData, notify: notify }),
+                (screen === "activity" || screen === "activityDetails") && React.createElement(ReceivableActivity, { key: screen, data: data, detail: screen === "activityDetails", initialFilters: activityFilters, onDetails: (filters) => {
+                        setActivityFilters(filters);
+                        setScreen("activityDetails");
+                    } }),
                 screen === "closing" && React.createElement(ClosingReceivables, { data: reportData, notify: notify }),
                 screen === "customers" && React.createElement(Customers, { data: reportData, can: can, preset: preset, notify: notify, patchCustomer: patchCustomer }),
                 screen === "owners" && React.createElement(Owners, { data: reportData }),

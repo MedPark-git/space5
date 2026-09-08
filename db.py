@@ -329,6 +329,21 @@ CREATE TABLE IF NOT EXISTS uploads (
     shipment_date TEXT NOT NULL DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS shipment_upload_lines (
+    id             {SERIAL},
+    upload_id      {BIGINT} NOT NULL REFERENCES uploads(id) ON DELETE CASCADE,
+    month          TEXT NOT NULL,
+    row_number     INTEGER NOT NULL,
+    occurred_on    TEXT NOT NULL DEFAULT '',
+    customer_code  TEXT NOT NULL,
+    customer_name  TEXT NOT NULL DEFAULT '',
+    source_biz_unit TEXT NOT NULL,
+    amount         {BIGINT} NOT NULL,
+    source_json    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_shipment_lines_upload ON shipment_upload_lines(upload_id);
+CREATE INDEX IF NOT EXISTS idx_shipment_lines_month ON shipment_upload_lines(month);
+
 CREATE TABLE IF NOT EXISTS upload_backups (
     upload_id       {BIGINT} PRIMARY KEY,
     previous_filename TEXT NOT NULL DEFAULT '',

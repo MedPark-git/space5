@@ -133,3 +133,15 @@ test('dated semifinished shipments retain month splitting and closed-month exclu
   assert.equal(h.requests[0].payload.month, '2026-09');
   assert.equal(h.requests[0].payload.rows[0].shipment_amount, 220);
 });
+
+test('grouped monthly shipments preserve each original date amount and Excel row for daily reports', async () => {
+  const h = harness([[20, '제품_덴탈_국내', 100, '2026-08-02'], [20, '반제품_덴탈_국내', -25, '2026-08-03'],
+    [20, '제품_덴탈_국내', 50, '2026-08-05']]);
+  assert.equal(h.parsed().rows.length, 1);
+  await h.sendButton().props.onClick();
+  const group = h.requests[0].payload.rows[0];
+  assert.equal(group.shipment_amount, 125);
+  assert.deepEqual(group.source_lines.map((r) => [r.row_number, r.shipment_date, r.amount]),
+    [[2, '2026-08-02', 100], [3, '2026-08-03', -25], [4, '2026-08-05', 50]]);
+  assert.equal(group.source_lines[1].columns.find((c) => c.column === 'AB').value, -25);
+});
