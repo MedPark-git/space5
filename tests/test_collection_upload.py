@@ -34,7 +34,7 @@ class CollectionUploadTests(unittest.TestCase):
         self.auth = patch.object(self.module, 'current_user', side_effect=lambda: self.user)
         self.auth.start(); self.addCleanup(self.auth.stop)
         with self.db.connect() as conn:
-            for table in ('collection_import_rows', 'collection_upload_batches', 'collections', 'receivable_items',
+            for table in ('collection_upload_reviews', 'collection_import_rows', 'collection_upload_batches', 'collections', 'receivable_items',
                           'monthly_shipment_units', 'customers', 'month_locks', 'audit', 'uploads', 'upload_backups'):
                 conn.execute('DELETE FROM ' + table)
         self.customer('00020', 1000)
@@ -55,9 +55,17 @@ class CollectionUploadTests(unittest.TestCase):
     def preview(self, rows):
         return self.client.post('/api/collection-uploads/preview', json={'rows': rows})
 
-    def upload(self, rows, approve=False, client=None):
+    def upload(self, rows, approve=False, client=None, reviews=None):
         return (client or self.client).post('/api/collection-uploads', json={
-            'rows': rows, 'filename': 'receipts.xlsx', 'approve_immediately': approve})
+            'rows': rows, 'filename': 'receipts.xlsx', 'approve_immediately': approve, 'reviews': reviews or []})
+
+    def decisions(self, rows, action='exclude', reason=''):
+        return [{'row_key': r['row_key'], 'review_token': r['review_token'], 'action': action,
+                 'reason': reason, 'confirmed': True}
+                for r in self.preview(rows).json['rows'] if r['status'] == 'review']
+
+    def upload_reviewed(self, rows, approve=False):
+        return self.upload(rows, approve, reviews=self.decisions(rows))
 
     def counts(self):
         with self.db.connect() as conn:
@@ -87,7 +95,8 @@ class CollectionUploadTests(unittest.TestCase):
         r = self.upload(rows, True); self.assertEqual(r.status_code, 201, r.json)
         self.assertEqual(self.balance(), {'balance': 0, 'advance': 300, 'last_paid_at': '2026-09-01'})
         self.assertEqual(self.counts(), [2, 2, 1])
-        again = self.upload(rows, True)
+        self.assertEqual(self.upload(rows, True).status_code, 409)
+        again = self.upload_reviewed(rows, True)
         self.assertEqual((again.json['inserted'], again.json['skipped']), (0, 2))
         self.assertEqual(self.balance()['advance'], 300)
 
@@ -95,16 +104,18 @@ class CollectionUploadTests(unittest.TestCase):
         bad = self.upload([self.row(), self.row(sequence=2, normal_amount='100원')], True)
         self.assertEqual(bad.status_code, 400); self.assertEqual(self.counts(), [0, 0, 0])
         self.upload([self.row()], True)
-        self.assertEqual(self.upload([self.row(normal_amount=601)], True).status_code, 400)
+        self.assertEqual(self.upload([self.row(normal_amount=601)], True).status_code, 409)
         self.assertEqual(self.balance()['balance'], 400)
-        mixed = self.upload([self.row(), self.row(sequence=2, normal_amount=200)], True)
+        mixed = self.upload_reviewed([self.row(), self.row(sequence=2, normal_amount=200)], True)
         self.assertEqual((mixed.json['inserted'], mixed.json['skipped']), (1, 1))
         self.assertEqual(self.balance()['balance'], 200)
 
-    def test_duplicate_keys_in_file_block_both_even_if_identical(self):
+    def test_duplicate_keys_in_file_require_review_then_keep_first_row_once(self):
         result = self.preview([self.row(), self.row()]).json
-        self.assertEqual((result['error_count'], result['ready_count']), (2, 0))
-        self.assertEqual(self.upload([self.row(), self.row()]).status_code, 400)
+        self.assertEqual((result['error_count'], result['ready_count'], result['review_count']), (0, 1, 1))
+        self.assertEqual(self.upload([self.row(), self.row()]).status_code, 409)
+        r = self.upload_reviewed([self.row(), self.row()])
+        self.assertEqual((r.json['inserted'], r.json['skipped']), (1, 1))
 
     def test_method_mapping_and_type_conflict(self):
         for label, kind, expected in [('제 예 금', 1, '계좌수금'), ('카    드', 5, '카드수금'),
@@ -138,7 +149,7 @@ class CollectionUploadTests(unittest.TestCase):
         self.assertEqual(self.upload([self.row()], True).status_code, 403)
         self.assertEqual(self.upload([self.row()]).status_code, 201)
         self.user['permissions'] = ['collection_approve']
-        self.assertEqual(self.upload([self.row(sequence=2)], True).status_code, 201)
+        self.assertEqual(self.upload([self.row(sequence=2, normal_amount=300)], True).status_code, 201)
         self.user['permissions'] = ['upload_data']
         self.assertEqual(self.preview([self.row()]).status_code, 403)
         self.assertEqual(self.client.get('/api/collection-uploads').status_code, 403)
@@ -148,7 +159,7 @@ class CollectionUploadTests(unittest.TestCase):
     def test_manual_duplicate_requires_review_and_ledger_mismatch_blocks(self):
         self.client.post('/api/collections', json={'customer_code': '00020', 'amount': 600,
                                                   'method': '계좌수금', 'paid_at': '2026-09-01'})
-        self.assertEqual(self.preview([self.row()]).json['error_count'], 1)
+        self.assertEqual(self.preview([self.row()]).json['review_count'], 1)
         with self.db.connect() as conn:
             conn.execute("UPDATE customers SET balance=300 WHERE code='00020'")
         p = self.preview([self.row(normal_amount=200)]).json
@@ -159,9 +170,9 @@ class CollectionUploadTests(unittest.TestCase):
         with self.db.connect() as conn:
             cid = conn.execute('SELECT id FROM collections').fetchone()['id']
         self.client.post('/api/locks/2026-09', json={'locked': True})
-        self.assertEqual(self.upload([self.row(sequence=2)]).status_code, 400)
+        self.assertEqual(self.upload([self.row(sequence=2, normal_amount=300)]).status_code, 400)
         self.assertEqual(self.client.post('/api/collections/%s/approve' % cid).status_code, 423)
-        self.assertEqual(self.upload([self.row()]).json['skipped'], 1)
+        self.assertEqual(self.upload_reviewed([self.row()]).json['skipped'], 1)
         self.assertEqual(self.balance()['balance'], 1000)
 
     def test_rejected_import_cannot_be_replayed(self):
@@ -169,7 +180,7 @@ class CollectionUploadTests(unittest.TestCase):
         with self.db.connect() as conn:
             cid = conn.execute('SELECT id FROM collections').fetchone()['id']
         self.client.post('/api/collections/%s/reject' % cid, json={'reason': '테스트'})
-        self.assertEqual(self.upload([self.row()], True).json['inserted'], 0)
+        self.assertEqual(self.upload_reviewed([self.row()], True).json['inserted'], 0)
         self.assertEqual(self.balance()['balance'], 1000)
 
     def test_full_transaction_rolls_back_on_mid_batch_failure(self):
@@ -188,8 +199,8 @@ class CollectionUploadTests(unittest.TestCase):
     def test_parallel_replay_is_registered_and_offset_exactly_once(self):
         with ThreadPoolExecutor(max_workers=4) as pool:
             results = list(pool.map(lambda _: self.upload([self.row()], True, self.module.app.test_client()), range(8)))
-        self.assertTrue(all(r.status_code in (200, 201) for r in results))
-        self.assertEqual(sum(r.json['inserted'] for r in results), 1)
+        self.assertTrue(all(r.status_code in (409, 201) for r in results))
+        self.assertEqual(sum(r.json.get('inserted', 0) for r in results), 1)
         self.assertEqual(self.counts(), [1, 1, 1]); self.assertEqual(self.balance()['balance'], 400)
 
     def test_allocation_priority_shipments_and_historical_date(self):
@@ -243,6 +254,80 @@ class CollectionUploadTests(unittest.TestCase):
         self.assertEqual(self.upload([self.row(sequence=2, normal_amount=900)], True).status_code, 201)
         self.assertEqual((self.balance()['balance'], self.balance()['advance']), (-100, 0))
 
+    def test_every_candidate_requires_check_and_review_history_is_persisted(self):
+        rows = [self.row(), self.row(sequence=2, normal_amount=200)]
+        self.upload(rows, True)
+        p = self.preview(rows).json
+        self.assertEqual((p['error_count'], p['review_count']), (0, 2))
+        decisions = self.decisions(rows)
+        self.assertEqual(self.upload(rows, True, reviews=decisions[:1]).status_code, 409)
+        unchecked = [dict(d) for d in decisions]; unchecked[0]['confirmed'] = False
+        self.assertEqual(self.upload(rows, True, reviews=unchecked).status_code, 409)
+        self.assertEqual(self.counts(), [2, 2, 1])
+        response = self.upload(rows, True, reviews=decisions)
+        self.assertEqual((response.json['inserted'], response.json['skipped'], response.json['reviewed']), (0, 2, 2))
+        self.assertEqual(self.balance()['balance'], 200)
+        history = self.client.get('/api/collection-uploads/%s/reviews' % response.json['batch_id']).json['reviews']
+        self.assertEqual(len(history), 2)
+        self.assertTrue(all(r['action'] == 'exclude' and r['reviewed_by'] == 'receipt-test' for r in history))
+        self.assertEqual(history[0]['details']['candidates'][0]['amount'], 600)
+        self.assertEqual(self.client.get('/api/collection-uploads').json['batches'][0]['excluded_count'], 2)
+        self.user['permissions'] = []
+        self.assertEqual(self.client.get('/api/collection-uploads/%s/reviews' % response.json['batch_id']).status_code, 403)
+
+    def test_changed_same_key_can_be_compared_and_excluded_but_never_reinserted(self):
+        self.upload([self.row()], True)
+        rows = [self.row(normal_amount=650), self.row(sequence=2, normal_amount=100)]
+        p = self.preview(rows).json
+        self.assertEqual((p['review_count'], p['error_count']), (1, 0))
+        self.assertEqual(p['rows'][0]['review_kind'], 'changed_key')
+        self.assertEqual(p['rows'][0]['candidates'][0]['amount'], 600)
+        invalid = self.decisions(rows, action='separate', reason='별도 수금 확인')
+        self.assertEqual(self.upload(rows, True, reviews=invalid).status_code, 409)
+        r = self.upload_reviewed(rows, True)
+        self.assertEqual((r.json['inserted'], r.json['skipped'], r.json['total_amount']), (1, 1, 100))
+        self.assertEqual(self.balance()['balance'], 300)
+
+    def test_similar_manual_receipt_can_be_excluded_or_explicitly_separate_with_reason(self):
+        self.client.post('/api/collections', json={'customer_code': '00020', 'amount': 600,
+                                                  'method': '계좌수금', 'paid_at': '2026-09-01'})
+        rows = [self.row()]
+        p = self.preview(rows).json
+        self.assertEqual(p['rows'][0]['review_kind'], 'similar')
+        self.assertIn('separate', p['rows'][0]['allowed_actions'])
+        self.assertEqual(self.upload(rows, reviews=self.decisions(rows, 'separate', '짧음')).status_code, 409)
+        excluded = self.upload_reviewed(rows)
+        self.assertEqual((excluded.json['inserted'], excluded.json['skipped']), (0, 1))
+        r = self.upload(rows, reviews=self.decisions(rows, 'separate', '같은 날 별도 입금 내역 확인'))
+        self.assertEqual(r.status_code, 201, r.json)
+        self.assertEqual((r.json['inserted'], r.json['skipped']), (1, 0))
+        h = self.client.get('/api/collection-uploads/%s/reviews' % r.json['batch_id']).json['reviews'][0]
+        self.assertEqual(h['action'], 'separate'); self.assertIn('별도 입금', h['reason'])
+
+    def test_stale_or_tampered_confirmation_requires_new_review(self):
+        self.upload([self.row()])
+        rows = [self.row()]; decisions = self.decisions(rows)
+        tampered = [dict(decisions[0], review_token='forged')]
+        self.assertEqual(self.upload(rows, reviews=tampered).status_code, 409)
+        with self.db.connect() as conn:
+            cid = conn.execute('SELECT id FROM collections').fetchone()['id']
+        self.client.post('/api/collections/%s/approve' % cid)
+        self.assertEqual(self.upload(rows, reviews=decisions).status_code, 409)
+        self.assertEqual(self.counts(), [1, 1, 1])
+        self.assertEqual(self.upload_reviewed(rows).json['skipped'], 1)
+        changed_rows = [self.row(normal_amount=610)]
+        self.assertEqual(self.upload(changed_rows, reviews=self.decisions(rows)).status_code, 409)
+
+    def test_similar_imported_receipts_and_closed_month_cannot_bypass_registration_rules(self):
+        self.upload([self.row()])
+        rows = [self.row(receipt_no='RC2609000020')]
+        self.assertEqual(self.preview(rows).json['rows'][0]['review_kind'], 'similar')
+        self.client.post('/api/locks/2026-09', json={'locked': True})
+        p = self.preview(rows).json
+        self.assertEqual(p['rows'][0]['allowed_actions'], ['exclude'])
+        self.assertEqual(self.upload(rows, reviews=self.decisions(rows, 'separate', '별도 수금 확인 완료')).status_code, 409)
+        self.assertEqual(self.upload_reviewed(rows).json['skipped'], 1)
+
     @unittest.skipUnless(os.environ.get('COLLECTION_SAMPLE_JSON'), 'Supply locally parsed attachment for acceptance check')
     def test_supplied_attachment_19_rows_exact_total_and_replay(self):
         rows = json.loads(Path(os.environ['COLLECTION_SAMPLE_JSON']).read_text())
@@ -257,7 +342,7 @@ class CollectionUploadTests(unittest.TestCase):
             total = conn.execute("SELECT SUM(balance) AS n FROM receivable_items WHERE customer_code<>'00020'").fetchone()['n']
         self.assertEqual(amount, 98268581)
         self.assertEqual(total, 18 * 100000000 - 98268581)
-        self.assertEqual(self.upload(rows, True).json['skipped'], 19)
+        self.assertEqual(self.upload_reviewed(rows, True).json['skipped'], 19)
 
 
 if __name__ == '__main__':

@@ -28,7 +28,7 @@ function harness(grid = [headers, row], approvePermission = true, previewChanges
   const checkedRow = { row_number: 2, status: 'ready', customer_code: '03791', customer_name: '테스트',
     receipt_no: 'RC2609000001', sequence: 1, amount: 2000000, normal_amount: 2000000, advance_amount: 0,
     method: '계좌수금', paid_at: '2026-09-01', errors: [], warnings: [] };
-  const checked = { rows: [checkedRow], row_count: 1, ready_count: 1, duplicate_count: 0, error_count: 0,
+  const checked = { rows: [checkedRow], row_count: 1, ready_count: 1, review_count: 0, error_count: 0,
     total_amount: 2000000, offset_amount: 2000000, advance_remaining: 0, ...previewChanges };
   const context = vm.createContext({ console, Uint8Array, React: react,
     ReactDOM: { createRoot: () => ({ render() {} }) }, document: { getElementById() {} },
@@ -115,6 +115,68 @@ test('validation errors prevent submit and non-approvers cannot select immediate
   const button = h.find((n) => n.type === 'button' && n.props.className === 'btn btn--primary');
   assert.equal(button.props.disabled, true); await button.props.onClick();
   assert.equal(h.requests.length, 1);
+});
+
+function reviewRow(key, kind = 'same_key') {
+  return { row_key: key, row_number: Number(key) + 1, status: 'review', receipt_no: 'RC2609000001', sequence: 1,
+    customer_code: '03791', customer_name: '테스트', paid_at: '2026-09-01', method: '계좌수금',
+    normal_amount: 2000000, advance_amount: 0, amount: 2000000, errors: [], warnings: ['중복 비교 확인'],
+    review_kind: kind, review_token: 'verified-' + key, allowed_actions: kind === 'similar' ? ['exclude', 'separate'] : ['exclude'],
+    candidates: [{ id: 10, customer_code: '03791', customer_name: '기존 거래처', paid_at: '2026-09-01',
+      method: '계좌수금', amount: 2000000, state: 'approved', registered_by: '기존 등록자' }] };
+}
+
+test('duplicates automatically open comparison dialog and require every checkbox before upload', async () => {
+  const h = harness(undefined, true, { rows: [reviewRow('1'), reviewRow('2', 'changed_key')],
+    row_count: 2, ready_count: 0, review_count: 2, total_amount: 0 });
+  await h.select();
+  const modal = () => h.find((n) => n.props.role === 'dialog');
+  assert.ok(modal());
+  const confirm = () => h.find((n) => n.type === 'button' && n.props.className === 'btn btn--primary', modal());
+  assert.equal(confirm().props.disabled, true);
+  await confirm().props.onClick(); assert.equal(h.requests.length, 1);
+  h.find((n) => n.type === 'input' && n.props['aria-label'] === '엑셀 2행 중복 여부 확인').props.onChange({ target: { checked: true } });
+  assert.equal(confirm().props.disabled, true);
+  h.find((n) => n.type === 'input' && n.props['aria-label'] === '엑셀 3행 중복 여부 확인').props.onChange({ target: { checked: true } });
+  assert.equal(confirm().props.disabled, false);
+  await confirm().props.onClick();
+  const request = h.requests.find((r) => r.url === '/api/collection-uploads' && r.payload);
+  assert.equal(request.payload.reviews.length, 2);
+  assert.ok(request.payload.reviews.every((r) => r.confirmed && r.action === 'exclude'));
+  assert.equal(request.payload.reviews[1].review_token, 'verified-2');
+});
+
+test('identical-only bulk check leaves changed candidates for individual confirmation', async () => {
+  const h = harness(undefined, false, { rows: [reviewRow('1'), reviewRow('2', 'changed_key')],
+    row_count: 2, ready_count: 0, review_count: 2, total_amount: 0 });
+  await h.select();
+  const modal = h.find((n) => n.props.role === 'dialog');
+  const bulk = h.find((n) => n.type === 'input' && n.props.type === 'checkbox' && !n.props['aria-label'], modal);
+  bulk.props.onChange({ target: { checked: true } });
+  assert.equal(h.find((n) => n.props['aria-label'] === '엑셀 2행 중복 여부 확인').props.checked, true);
+  assert.equal(h.find((n) => n.props['aria-label'] === '엑셀 3행 중복 여부 확인').props.checked, false);
+  const updatedModal = h.find((n) => n.props.role === 'dialog');
+  assert.equal(h.find((n) => n.type === 'button' && n.props.className === 'btn btn--primary', updatedModal).props.disabled, true);
+});
+
+test('separate payment selection requires reason and a new explicit check', async () => {
+  const h = harness(undefined, false, { rows: [reviewRow('1', 'similar')], row_count: 1, ready_count: 0,
+    review_count: 1, total_amount: 0 });
+  await h.select();
+  const modal = () => h.find((n) => n.props.role === 'dialog');
+  const confirm = () => h.find((n) => n.type === 'button' && n.props.className === 'btn btn--primary', modal());
+  h.find((n) => n.props['aria-label'] === '엑셀 2행 처리 방법').props.onChange({ target: { value: 'separate' } });
+  h.find((n) => n.props['aria-label'] === '엑셀 2행 중복 여부 확인').props.onChange({ target: { checked: true } });
+  assert.equal(confirm().props.disabled, true);
+  h.find((n) => n.props['aria-label'] === '엑셀 2행 별도 등록 사유').props.onChange({ target: { value: '당일 별도 입금 증빙 확인' } });
+  assert.equal(confirm().props.disabled, true);
+  h.find((n) => n.props['aria-label'] === '엑셀 2행 중복 여부 확인').props.onChange({ target: { checked: true } });
+  assert.equal(confirm().props.disabled, false);
+  await confirm().props.onClick();
+  const request = h.requests.find((r) => r.url === '/api/collection-uploads' && r.payload);
+  assert.equal(request.payload.reviews[0].action, 'separate');
+  assert.equal(request.payload.reviews[0].reason, '당일 별도 입금 증빙 확인');
+  assert.equal(request.payload.approve_immediately, false);
 });
 
 test('attached ERP export parses all 19 rows with exact amounts despite its unusual styles',

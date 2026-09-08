@@ -73,20 +73,22 @@ def validate_rows(conn, raw_rows):
     ledger = {r['customer_code']: r['balance'] for r in ledger_rows}
     locked = {r['month'] for r in conn.execute('SELECT month FROM month_locks WHERE locked=1')}
     # This query is deliberately not limited to the 800 receipts shown by bootstrap.
-    existing = {(r['receipt_no'], r['sequence']): r for r in conn.execute(
-        'SELECT i.receipt_no,i.sequence,i.fingerprint,c.id,c.state FROM collection_import_rows i'
-        ' JOIN collections c ON c.id=i.collection_id')}
-    manual = {}
+    existing, matching = {}, {}
     for r in conn.execute(
-            "SELECT c.id,c.customer_code,c.amount,c.paid_at,c.method FROM collections c"
-            " LEFT JOIN collection_import_rows i ON i.collection_id=c.id"
-            " WHERE i.collection_id IS NULL AND c.state IN ('pending','approved')"):
-        key = (r['customer_code'], r['amount'], r['paid_at'], r['method'])
-        manual.setdefault(key, []).append(r['id'])
+            'SELECT c.id,c.customer_code,c.customer_name,c.amount,c.paid_at,c.method,c.state,c.registered_by,'
+            'c.created_at,i.receipt_no,i.sequence,i.fingerprint,i.source_json FROM collections c'
+            ' LEFT JOIN collection_import_rows i ON i.collection_id=c.id ORDER BY c.id'):
+        source = json.loads(r.pop('source_json') or '{}')
+        r['normal_amount'], r['advance_amount'] = source.get('normal_amount'), source.get('advance_amount')
+        if r['receipt_no'] is not None:
+            existing[(r['receipt_no'], r['sequence'])] = r
+        if r['state'] in ('pending', 'approved'):
+            key = (r['customer_code'], r['amount'], r['paid_at'], r['method'])
+            matching.setdefault(key, []).append(r)
     today = datetime.now(timezone(timedelta(hours=9))).date()
-    seen, result = {}, []
+    result = []
     for index, raw in enumerate(raw_rows, start=1):
-        item = {'row_number': index, 'status': 'ready', 'errors': [], 'warnings': []}
+        item = {'row_key': str(index), 'row_number': index, 'status': 'ready', 'errors': [], 'warnings': []}
         result.append(item)
         if not isinstance(raw, dict):
             item.update(status='error', errors=['수금 행 형식이 올바르지 않습니다.'])
@@ -100,12 +102,6 @@ def validate_rows(conn, raw_rows):
             item['sequence'] = integer(raw.get('sequence'), '순번', positive=True)
             if item['sequence'] > 2147483647:
                 raise ValueError('순번이 허용 범위를 초과했습니다.')
-            key = (item['receipt_no'], item['sequence'])
-            if key in seen:
-                seen[key]['errors'].append('파일 안에 동일한 수금번호·순번이 중복되었습니다.')
-                seen[key]['status'] = 'error'
-                raise ValueError('파일 안에 동일한 수금번호·순번이 중복되었습니다.')
-            seen[key] = item
             code = canonical_code(raw.get('customer_code'))
             item['customer_code'] = code
             item['source_customer_name'] = text(raw.get('customer_name'))[:200]
@@ -142,21 +138,11 @@ def validate_rows(conn, raw_rows):
             payload = {k: item[k] for k in ('receipt_no', 'sequence', 'customer_code', 'paid_at',
                                            'method', 'normal_amount', 'advance_amount')}
             item['fingerprint'] = hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
-            previous = existing.get(key)
-            if previous:
-                if previous['fingerprint'] != item['fingerprint']:
-                    raise ValueError('이미 등록된 수금번호·순번의 고객·날짜·금액·방법이 다릅니다. 기존 내역을 확인하세요.')
-                item['status'] = 'duplicate'
-                item['warnings'].append('기등록 수금 #%s (%s): 재등록하지 않습니다.' % (previous['id'], previous['state']))
-                continue
+            item['registration_errors'] = []
             if paid_at[:7] in locked:
-                raise ValueError('수금일자의 월이 마감 잠금 상태입니다.')
+                item['registration_errors'].append('수금일자의 월이 마감 잠금 상태입니다.')
             if int(ledger.get(customer['code'], 0)) != int(customer['balance']):
-                raise ValueError('거래처 잔액과 채권 상세 원장이 일치하지 않습니다. 원장을 먼저 확인하세요.')
-            manual_ids = manual.get((customer['code'], item['amount'], paid_at, item['method']))
-            if manual_ids:
-                raise ValueError('같은 고객·수금일·금액·방법의 수기등록이 있습니다 (#%s). 중복 여부를 먼저 확인하세요.'
-                                 % ', #'.join(map(str, manual_ids)))
+                item['registration_errors'].append('거래처 잔액과 채권 상세 원장이 일치하지 않습니다. 원장을 먼저 확인하세요.')
             item['source'] = {k: raw.get(k) for k in (
                 'row_number', 'receipt_month', 'receipt_no', 'sequence', 'customer_code', 'customer_name',
                 'paid_at', 'receipt_kind', 'receipt_type', 'receipt_kind_code', 'normal_amount',
@@ -164,6 +150,43 @@ def validate_rows(conn, raw_rows):
         except ValueError as exc:
             item['status'] = 'error'
             item['errors'].append(str(exc))
+    seen = {}
+    for item in result:
+        if item['status'] == 'error':
+            continue
+        key = (item['receipt_no'], item['sequence'])
+        previous, in_file = existing.get(key), seen.get(key)
+        if previous:
+            kind = 'same_key' if previous['fingerprint'] == item['fingerprint'] else 'changed_key'
+            candidates = [previous]
+        elif in_file:
+            kind = 'file_key'
+            candidates = [{**{k: in_file[k] for k in ('receipt_no', 'sequence', 'customer_code', 'customer_name',
+                            'paid_at', 'amount', 'method', 'normal_amount', 'advance_amount', 'row_number')},
+                           'state': 'in_file', 'fingerprint': in_file['fingerprint']}]
+        else:
+            candidates = matching.get((item['customer_code'], item['amount'], item['paid_at'], item['method']), [])
+            kind = 'similar' if candidates else None
+        seen.setdefault(key, item)
+        if kind:
+            item['status'], item['review_kind'] = 'review', kind
+            item['candidates'] = [{k: v for k, v in r.items() if k != 'fingerprint'} for r in candidates]
+            item['allowed_actions'] = ['exclude']
+            if kind == 'similar' and not item['registration_errors']:
+                item['allowed_actions'].append('separate')
+            item['review_token'] = hashlib.sha256(json.dumps({
+                'row_key': item['row_key'], 'source': item['source'], 'fingerprint': item['fingerprint'],
+                'kind': kind, 'candidates': candidates, 'allowed_actions': item['allowed_actions'],
+            }, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+            item['warnings'].append({
+                'same_key': '기등록 내역입니다. 팝업에서 중복 여부를 확인해 주세요.',
+                'changed_key': '같은 수금번호·순번의 내용이 달라졌습니다. 비교 후 중복 제외 여부를 확인해 주세요.',
+                'file_key': '파일 안의 %s행과 수금번호·순번이 같습니다. 이 행을 제외할지 확인해 주세요.' % (in_file['row_number'] if in_file else ''),
+                'similar': '기존 수금과 고객·날짜·방법·금액이 같습니다. 중복 또는 별도 수금인지 확인해 주세요.',
+            }[kind])
+        elif item['registration_errors']:
+            item['status'] = 'error'
+            item['errors'].extend(item['registration_errors'])
     ready = [r for r in result if r['status'] == 'ready']
     total = sum(r['amount'] for r in ready)
     if total > MAX_AMOUNT:
@@ -180,8 +203,48 @@ def validate_rows(conn, raw_rows):
             item['warnings'].append('승인 시 채권잔액 초과분 %s원은 선수금으로 보관됩니다.' % format(item['advance_remaining'], ','))
     return {
         'rows': result, 'row_count': len(result), 'ready_count': len(ready),
-        'duplicate_count': sum(r['status'] == 'duplicate' for r in result),
+        'review_count': sum(r['status'] == 'review' for r in result),
         'error_count': sum(r['status'] == 'error' for r in result),
         'total_amount': total, 'offset_amount': sum(r['offset_amount'] for r in ready),
         'advance_remaining': sum(r['advance_remaining'] for r in ready),
     }
+
+
+class ReviewRequired(ValueError):
+    pass
+
+
+def resolve_reviews(result, decisions):
+    """Bind each explicit decision to the freshly loaded candidate state."""
+    if not isinstance(decisions, list) or len(decisions) > MAX_ROWS:
+        raise ReviewRequired('중복 확인 내용을 확인해 주세요.')
+    review_rows = {r['row_key']: r for r in result['rows'] if r['status'] == 'review'}
+    submitted = {}
+    for decision in decisions:
+        if not isinstance(decision, dict) or not isinstance(decision.get('row_key'), str):
+            raise ReviewRequired('중복 확인 내용을 확인해 주세요.')
+        key = decision['row_key']
+        if key in submitted:
+            raise ReviewRequired('같은 행의 확인 결과가 중복 제출되었습니다.')
+        submitted[key] = decision
+    if set(submitted) != set(review_rows):
+        raise ReviewRequired('중복 후보를 팝업에서 모두 확인해 주세요. 최신 내역으로 다시 확인합니다.')
+    reviewed = []
+    for key, item in review_rows.items():
+        decision = submitted[key]
+        if decision.get('review_token') != item['review_token']:
+            raise ReviewRequired('확인 중 기존 수금 또는 업로드 내용이 변경되었습니다. 팝업에서 다시 확인해 주세요.')
+        action, reason = decision.get('action'), text(decision.get('reason'))
+        if decision.get('confirmed') is not True or action not in item['allowed_actions']:
+            raise ReviewRequired('각 중복 후보의 처리 방법을 선택하고 확인 체크를 해 주세요.')
+        if action == 'separate' and not 5 <= len(reason) <= 500:
+            raise ReviewRequired('별도 수금으로 등록하는 사유를 5~500자로 입력해 주세요.')
+        if len(reason) > 500:
+            raise ReviewRequired('확인 사유는 500자 이내로 입력해 주세요.')
+        reviewed.append({**item, 'decision': action, 'decision_reason': reason})
+    ready = [r for r in result['rows'] if r['status'] == 'ready']
+    ready.extend(r for r in reviewed if r['decision'] == 'separate')
+    total = sum(r['amount'] for r in ready)
+    if total > MAX_AMOUNT:
+        raise ValueError('등록할 수금 합계가 허용 범위를 초과했습니다.')
+    return ready, reviewed, total

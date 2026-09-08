@@ -18,7 +18,7 @@ from flask import Flask, jsonify, request, session, render_template, send_file
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import db
-from collection_import import validate_rows
+from collection_import import validate_rows, resolve_reviews, ReviewRequired
 from db import connect, PERMISSIONS, ALL_PERMS, ROLE_TEMPLATES
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
@@ -983,8 +983,23 @@ def collection_upload_history():
     if not can_import_collections():
         return jsonify(error='수금 등록 또는 수금 승인 권한이 필요합니다.'), 403
     with connect() as conn:
-        batches = list(conn.execute('SELECT * FROM collection_upload_batches ORDER BY id DESC LIMIT 200'))
+        batches = list(conn.execute(
+            'SELECT b.*, (SELECT COUNT(*) FROM collection_upload_reviews r WHERE r.batch_id=b.id) AS reviewed_count,'
+            " (SELECT COUNT(*) FROM collection_upload_reviews r WHERE r.batch_id=b.id AND r.action='exclude') AS excluded_count"
+            ' FROM collection_upload_batches b ORDER BY b.id DESC LIMIT 200'))
     return jsonify(batches=batches)
+
+
+@app.get('/api/collection-uploads/<int:batch_id>/reviews')
+@login_required
+def collection_upload_review_history(batch_id):
+    if not can_import_collections():
+        return jsonify(error='수금 등록 또는 수금 승인 권한이 필요합니다.'), 403
+    with connect() as conn:
+        rows = list(conn.execute('SELECT * FROM collection_upload_reviews WHERE batch_id=%s ORDER BY id', (batch_id,)))
+    for row in rows:
+        row['details'] = json.loads(row.pop('details_json'))
+    return jsonify(reviews=rows)
 
 
 @app.post('/api/collection-uploads')
@@ -1011,15 +1026,25 @@ def import_collections():
             if result['error_count']:
                 return jsonify(error='검증 오류를 수정한 뒤 다시 업로드하세요. 등록된 행은 없습니다.',
                                preview=public_collection_preview(result)), 400
-            if not result['ready_count']:
-                return jsonify(inserted=0, approved=0, skipped=result['duplicate_count'], total_amount=0,
-                               message='모두 기등록 내역입니다. 추가로 등록하지 않았습니다.')
+            try:
+                ready, reviewed, total_amount = resolve_reviews(result, data.get('reviews', []))
+            except ReviewRequired as exc:
+                return jsonify(error=str(exc), review_required=True, preview=public_collection_preview(result)), 409
+            skipped = sum(r['decision'] == 'exclude' for r in reviewed)
             batch = conn.execute(
                 'INSERT INTO collection_upload_batches (filename,uploaded_by,row_count,total_amount,approved_count)'
                 ' VALUES (%s,%s,%s,%s,%s) RETURNING id',
-                (filename, actor, result['ready_count'], result['total_amount'], result['ready_count'] if approve else 0)
+                (filename, actor, len(ready), total_amount, len(ready) if approve else 0)
             ).fetchone()['id']
-            ready = sorted((r for r in result['rows'] if r['status'] == 'ready'),
+            for item in reviewed:
+                details = {k: item[k] for k in ('source', 'review_kind', 'review_token', 'candidates',
+                           'customer_code', 'customer_name', 'paid_at', 'method', 'amount')}
+                conn.execute(
+                    'INSERT INTO collection_upload_reviews (batch_id,row_number,receipt_no,sequence,action,reason,reviewed_by,details_json)'
+                    ' VALUES (%s,%s,%s,%s,%s,%s,%s,%s)',
+                    (batch, item['row_number'], item['receipt_no'], item['sequence'], item['decision'],
+                     item['decision_reason'], actor, json.dumps(details, ensure_ascii=False)))
+            ready = sorted(ready,
                            key=lambda r: (r['customer_code'], r['paid_at'], r['receipt_no'], r['sequence']))
             for item in ready:
                 note = '[엑셀수금 %s / %s] 정상수금 %s원 · 선수금 %s원' % (
@@ -1039,9 +1064,11 @@ def import_collections():
                 log(conn, actor, 'collection_register', '%s / %d / upload:%s' % (item['customer_code'], item['amount'], batch))
                 if approve:
                     approve_collection_in_transaction(conn, cid, actor)
-            log(conn, actor, 'collection_upload', '%s / %s건 / %s원' % (batch, len(ready), result['total_amount']))
+            log(conn, actor, 'collection_upload', '%s / 신규 %s건 / %s원 / 중복확인 %s건 / 제외 %s건'
+                % (batch, len(ready), total_amount, len(reviewed), skipped))
         return jsonify(inserted=len(ready), approved=len(ready) if approve else 0,
-                       skipped=result['duplicate_count'], total_amount=result['total_amount'], batch_id=batch), 201
+                       skipped=skipped, reviewed=len(reviewed), total_amount=total_amount, batch_id=batch,
+                       message='중복 확인을 완료했습니다. 중복 내역은 제외하고 확인 이력을 저장했습니다.' if not ready else ''), 201
     except ValueError as exc:
         return jsonify(error=str(exc)), getattr(exc, 'status', 400)
 
@@ -1523,7 +1550,7 @@ def rollback_upload(upload_id):
             (upload["uploaded_at"],)).fetchone()["c"]
         # Import in the same second must also block restoring stale balances.
         later_imports = conn.execute(
-            'SELECT COUNT(*) AS c FROM collection_upload_batches WHERE created_at>=%s',
+            'SELECT COUNT(*) AS c FROM collection_upload_batches WHERE created_at>=%s AND row_count>0',
             (upload['uploaded_at'],)).fetchone()['c']
         if changed_audit or later_collections or later_targets or later_imports:
             return jsonify(error="업로드 이후 수금·거래처·채권·목표 변경이 있어 삭제할 수 없습니다."), 409

@@ -287,6 +287,19 @@ CREATE TABLE IF NOT EXISTS collection_import_rows (
     source_json   TEXT NOT NULL,
     PRIMARY KEY (receipt_no, sequence)
 );
+CREATE TABLE IF NOT EXISTS collection_upload_reviews (
+    id            {SERIAL},
+    batch_id      {BIGINT} NOT NULL REFERENCES collection_upload_batches(id),
+    row_number    INTEGER NOT NULL,
+    receipt_no    TEXT NOT NULL,
+    sequence      INTEGER NOT NULL,
+    action        TEXT NOT NULL,
+    reason        TEXT NOT NULL DEFAULT '',
+    reviewed_by   TEXT NOT NULL,
+    details_json  TEXT NOT NULL,
+    created_at    TEXT NOT NULL {NOW_DEFAULT}
+);
+CREATE INDEX IF NOT EXISTS idx_collection_reviews_batch ON collection_upload_reviews(batch_id);
 
 CREATE TABLE IF NOT EXISTS targets (
     id            {SERIAL},

@@ -341,6 +341,13 @@ tfoot td { background: var(--surface-2); font-weight: 700; border-top: 1px solid
 .collection-upload-summary span { display: block; margin-bottom: 8px; font-size: 13px; }
 .collection-upload-summary b { font-size: 20px; }
 .collection-upload-approve { display: flex; align-items: center; gap: 8px; margin-top: 18px; }
+.collection-review-modal { display: flex; flex-direction: column; max-height: 90vh; width: min(1200px, 95vw); padding: 22px; }
+.collection-review-history { padding: 22px; }
+.collection-review-list { overflow: auto; min-height: 100px; flex: 1; }
+.collection-review-item { border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin: 12px 0; }
+.collection-review-check { display: flex; align-items: center; gap: 8px; margin: 12px 0; font-size: 14px; }
+.collection-review-footer { border-top: 1px solid var(--line); padding-top: 14px; flex-shrink: 0; }
+.collection-review-footer .btnrow { margin-top: 12px; }
 .permgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; }
 .permgrid label { display: flex; gap: 8px; align-items: center; padding: 7px 10px;
   border: 1px solid var(--line); border-radius: var(--radius); font-size: 12.5px; }

@@ -1647,7 +1647,22 @@ function CollectionUpload({ can, notify, refresh }) {
   const [approve, setApprove] = useState(false), [history, setHistory] = useState([]);
   const [historyError, setHistoryError] = useState("");
   const [page, setPage] = useState(0), [result, setResult] = useState(null);
+  const [reviewOpen, setReviewOpen] = useState(false), [decisions, setDecisions] = useState({});
+  const [reviewHistory, setReviewHistory] = useState(null);
   const reading = useRef(0), submitting = useRef(false);
+  function applyChecked(checked) {
+    setPreview(checked); setPage(0);
+    setDecisions(Object.fromEntries(checked.rows.filter((r) => r.status === "review")
+      .map((r) => [r.row_key, { action: "exclude", confirmed: false, reason: "" }])));
+    setReviewOpen(checked.review_count > 0);
+  }
+  function changeDecision(key, changes) {
+    setDecisions((current) => ({ ...current, [key]: { ...current[key], ...changes } }));
+  }
+  async function openReviewHistory(batch) {
+    try { const r = await api(`/api/collection-uploads/${batch.id}/reviews`);
+      setReviewHistory({ batch, rows: r.reviews }); } catch (e) { notify(e.message, true); }
+  }
   async function loadHistory() {
     try { const r = await api("/api/collection-uploads"); setHistory(r.batches); setHistoryError(""); }
     catch (e) { setHistoryError(e.message); }
@@ -1657,24 +1672,28 @@ function CollectionUpload({ can, notify, refresh }) {
     if (!file || submitting.current) return;
     const version = ++reading.current;
     setBusy(true); setError(""); setSource(null); setPreview(null); setPage(0); setResult(null); setApprove(false);
+    setReviewOpen(false); setDecisions({});
     try {
       if (!/\.(xlsx|xls|csv)$/i.test(file.name)) throw new Error(".xlsx, .xls, .csv 파일을 선택하세요.");
       if (file.size > 10 * 1024 * 1024) throw new Error("파일 크기는 10MB 이하여야 합니다.");
       const parsed = parseCollectionWorkbook(await file.arrayBuffer());
       const checked = await api("/api/collection-uploads/preview", { method: "POST", body: { rows: parsed.rows } });
       if (version !== reading.current) return;
-      setSource({ ...parsed, filename: file.name }); setPreview(checked);
+      setSource({ ...parsed, filename: file.name }); applyChecked(checked);
     } catch (e) { if (version === reading.current) setError(e.message || "엑셀 파일을 읽지 못했습니다."); }
     finally { if (version === reading.current) setBusy(false); }
   }
   async function submit() {
-    if (submitting.current || busy || !source || !preview || preview.error_count || !preview.ready_count) return;
+    if (submitting.current || busy || !source || !preview || preview.error_count || !(preview.ready_count + (preview.review_count || 0))) return;
+    if (!reviewsComplete) { setReviewOpen(true); return; }
     submitting.current = true; setBusy(true); setError("");
     try {
       const response = await api("/api/collection-uploads", { method: "POST", body: {
         filename: source.filename, rows: source.rows, approve_immediately: approve && can("collection_approve"),
+        reviews: reviewRows.map((r) => ({ row_key: r.row_key, review_token: r.review_token, ...decisions[r.row_key] })),
       } });
       setResult(response); setPreview(null); setSource(null); setApprove(false);
+      setReviewOpen(false); setDecisions({});
       notify(response.inserted ? `${response.inserted}건을 ${response.approved ? "승인·상계" : "승인 대기로 등록"}했습니다.` : response.message);
       await loadHistory();
       try { await refresh(); } catch (_) { setError("등록은 완료됐습니다. 현황을 다시 불러오려면 새로고침해 주세요."); }
@@ -1682,10 +1701,22 @@ function CollectionUpload({ can, notify, refresh }) {
       setError(e.message);
       // Keep raw input for a fresh server check after a conflict or lost response.
       try { const checked = await api("/api/collection-uploads/preview", { method: "POST", body: { rows: source.rows } });
-        setPreview(checked); setPage(0); } catch (_) { setPreview(null); }
+        applyChecked(checked); } catch (_) { setPreview(null); setReviewOpen(false); }
     } finally { submitting.current = false; setBusy(false); }
   }
   const pageRows = preview ? preview.rows.slice(page * 50, (page + 1) * 50) : [];
+  const reviewRows = preview ? preview.rows.filter((r) => r.status === "review") : [];
+  const identicalRows = reviewRows.filter((r) => r.review_kind === "same_key");
+  const reviewsComplete = reviewRows.every((r) => {
+    const d = decisions[r.row_key];
+    return d?.confirmed && r.allowed_actions.includes(d.action)
+      && (d.action !== "separate" || (d.reason.trim().length >= 5 && d.reason.trim().length <= 500));
+  });
+  const separateRows = reviewRows.filter((r) => decisions[r.row_key]?.action === "separate");
+  const finalCount = (preview?.ready_count || 0) + separateRows.length;
+  const finalAmount = (preview?.total_amount || 0) + separateRows.reduce((n, r) => n + r.amount, 0);
+  const closeReview = () => { if (!busy) setReviewOpen(false); };
+  const stateLabel = { pending: "승인 대기", approved: "승인 완료", rejected: "반려", in_file: "이번 파일" };
   return <>
     <Card title="수금등록 데이터 업로드">
       <p>아마란스10 수금자료를 고객코드로 연결합니다. 파일 선택 후 검증 결과와 금액을 확인하고 등록하세요.</p>
@@ -1701,7 +1732,7 @@ function CollectionUpload({ can, notify, refresh }) {
       {busy && <p role="status">처리 중입니다. 잠시 기다려 주세요.</p>}
       {error && <div className="alert alert--bad" role="alert" style={{ marginTop: 12 }}>{error}</div>}
       {result && <div className="alert alert--info" role="status" style={{ marginTop: 12 }}>
-        등록 {result.inserted}건 · 즉시 승인 {result.approved}건 · 기등록 제외 {result.skipped}건 · {won(result.total_amount)}원
+        등록 {result.inserted}건 · 즉시 승인 {result.approved}건 · 중복 확인 제외 {result.skipped}건 · {won(result.total_amount)}원
         {result.inserted > result.approved && <div>수금 등록 메뉴에서 승인하면 채권에 반영됩니다.</div>}
       </div>}
     </Card>
@@ -1709,19 +1740,19 @@ function CollectionUpload({ can, notify, refresh }) {
       <p>{source.sheet} · 수금 내역 {preview.row_count}행 · 합계행 {source.skippedTotals}행 제외</p>
       <div className="collection-upload-summary">
         <div><span>신규 등록</span><b>{preview.ready_count}건</b></div>
-        <div><span>기등록 제외</span><b>{preview.duplicate_count}건</b></div>
+        <div><span>중복 확인 필요</span><b>{preview.review_count || 0}건</b></div>
         <div><span>오류</span><b>{preview.error_count}건</b></div>
         <div><span>신규 수금액</span><b>{won(preview.total_amount)}원</b></div>
       </div>
       <p>승인 시 상계 예상 {won(preview.offset_amount)}원 · 선수금 잔여 예상 {won(preview.advance_remaining)}원</p>
-      <p className="t-sm t-muted">예상액은 현재 원장 기준입니다. 등록·승인 시 최신 잔액을 다시 확인합니다.</p>
+      <p className="t-sm t-muted">예상액은 중복 후보를 제외한 신규 건의 현재 원장 기준입니다. 중복 확인 후 등록·승인 시 최신 잔액을 다시 확인합니다.</p>
       {!!preview.error_count && <div className="alert alert--bad">오류가 있는 동안 전체 등록이 중단됩니다. 아래 행 번호와 사유를 확인해 원본 파일을 수정하세요.</div>}
       <div className="tablewrap" style={{ marginTop: 12 }}><table>
         <thead><tr><th>행</th><th>검증</th><th>수금번호 / 순번</th><th>고객코드</th><th>거래처</th><th>수금일</th>
           <th>수금방법</th><th className="r">정상수금</th><th className="r">선수금</th><th className="r">수금액</th><th>검증 내용</th></tr></thead>
-        <tbody>{pageRows.map((row) => <tr key={row.row_number}>
-          <td>{row.row_number}</td><td><span className={"badge badge--" + ({ ready: "ok", error: "bad", duplicate: "mute" }[row.status])}>
-            {{ ready: "신규", error: "오류", duplicate: "기등록" }[row.status]}</span></td>
+        <tbody>{pageRows.map((row) => <tr key={row.row_key || row.row_number}>
+          <td>{row.row_number}</td><td><span className={"badge badge--" + ({ ready: "ok", error: "bad", review: "warn" }[row.status])}>
+            {{ ready: "신규", error: "오류", review: "중복 확인" }[row.status]}</span></td>
           <td>{row.receipt_no || "–"} / {row.sequence ?? "–"}</td><td>{row.customer_code || "–"}</td>
           <td>{row.customer_name || row.source_customer_name || "–"}</td><td>{row.paid_at || "–"}</td><td>{row.method || "–"}</td>
           <td className="r">{row.normal_amount === undefined ? "–" : won(row.normal_amount)}</td>
@@ -1740,20 +1771,90 @@ function CollectionUpload({ can, notify, refresh }) {
         등록과 동시에 승인·상계 (채권잔액에 즉시 반영)
       </label>}
       <div className="btnrow" style={{ marginTop: 16 }}>
-        <button className="btn btn--primary" disabled={busy || !!preview.error_count || !preview.ready_count} onClick={submit}>
-          {busy ? "처리 중" : `${preview.ready_count}건 ${approve ? "승인·상계" : "승인 대기로 등록"}`}</button>
+        <button className="btn btn--primary" disabled={busy || !!preview.error_count || !(preview.ready_count + (preview.review_count || 0))}
+          onClick={() => preview.review_count ? setReviewOpen(true) : submit()}>
+          {busy ? "처리 중" : preview.review_count ? `중복 ${preview.review_count}건 확인 후 업로드`
+            : `${preview.ready_count}건 ${approve ? "승인·상계" : "승인 대기로 등록"}`}</button>
       </div>
     </Card>}
     <Card title="수금 업로드 이력" flush>
       {historyError && <div className="alert alert--bad">{historyError}</div>}
       {!history.length ? <Empty title="수금 업로드 이력이 없습니다." /> : <div className="tablewrap"><table>
         <thead><tr><th>등록일시</th><th>파일명</th><th className="r">등록 건수</th><th className="r">수금액</th>
-          <th className="r">등록 시 즉시 승인</th><th>등록자</th></tr></thead>
+          <th className="r">등록 시 즉시 승인</th><th>등록자</th><th>중복 확인</th></tr></thead>
         <tbody>{history.map((row) => <tr key={row.id}><td>{row.created_at}</td><td>{row.filename}</td>
           <td className="r">{row.row_count}</td><td className="r">{won(row.total_amount)}</td>
-          <td className="r">{row.approved_count}</td><td>{row.uploaded_by}</td></tr>)}</tbody>
+          <td className="r">{row.approved_count}</td><td>{row.uploaded_by}</td>
+          <td>{row.reviewed_count ? <button className="btn btn--sm" onClick={() => openReviewHistory(row)}>
+            {row.reviewed_count}건 확인 · {row.excluded_count}건 제외</button> : "–"}</td></tr>)}</tbody>
       </table></div>}
     </Card>
+    {reviewOpen && preview && <div className="modal-backdrop" onMouseDown={closeReview}>
+      <section className="modal-card modal-card--wide collection-review-modal" role="dialog" aria-modal="true"
+        aria-labelledby="collection-review-title" onMouseDown={(e) => e.stopPropagation()}>
+        <h2 id="collection-review-title">중복 수금 확인 · {reviewRows.length}건</h2>
+        <p>기존 내역과 비교한 뒤 각 건의 확인란을 체크하세요. 중복으로 확인한 행은 제외하고 신규 내역은 계속 등록합니다.</p>
+        <p className="t-sm t-muted">수금번호·순번이 같은 내역은 추가 생성할 수 없습니다. 내용 정정이 필요하면 파일 또는 기존 수금 내역을 먼저 확인하세요.</p>
+        {error && <div className="alert alert--bad" role="alert">{error}</div>}
+        {!!preview.error_count && <div className="alert alert--bad">중복 이외의 입력 오류 {preview.error_count}건을 수정한 후 등록할 수 있습니다.</div>}
+        {!!identicalRows.length && <label className="collection-review-check">
+          <input type="checkbox" disabled={busy} checked={identicalRows.every((r) => decisions[r.row_key]?.confirmed && decisions[r.row_key]?.action === "exclude")}
+            onChange={(e) => { const checked = e.target.checked; setDecisions((current) => ({ ...current,
+              ...Object.fromEntries(identicalRows.map((r) => [r.row_key, { action: "exclude", reason: "", confirmed: checked }])) })); }} />
+          내용이 동일한 기등록 {identicalRows.length}건을 모두 중복으로 확인
+        </label>}
+        <div className="collection-review-list">
+          {reviewRows.map((row) => <div className="collection-review-item" key={row.row_key}>
+            <b>엑셀 {row.row_number}행 · {row.receipt_no} / {row.sequence}</b>
+            <p>{row.warnings[row.warnings.length - 1]}</p>
+            <div className="tablewrap"><table><thead><tr><th>구분</th><th>거래처 / 코드</th><th>수금일</th><th>방법</th>
+              <th className="r">수금액</th><th>정상수금 / 선수금</th><th>상태·등록자</th></tr></thead>
+              <tbody><tr><td>이번 업로드</td><td>{row.customer_name}<br />{row.customer_code}</td><td>{row.paid_at}</td>
+                <td>{row.method}</td><td className="r">{won(row.amount)}</td><td>{won(row.normal_amount)} / {won(row.advance_amount)}</td><td>등록 전</td></tr>
+                {row.candidates.map((c, i) => <tr key={i}><td>{c.id ? `기존 #${c.id}` : `파일 ${c.row_number}행`}<br />
+                  {c.receipt_no ? `${c.receipt_no} / ${c.sequence}` : "수기등록"}</td><td>{c.customer_name}<br />{c.customer_code}</td>
+                  <td>{c.paid_at}</td><td>{c.method}</td><td className="r">{won(c.amount)}</td>
+                  <td>{c.normal_amount == null ? "–" : won(c.normal_amount)} / {c.advance_amount == null ? "–" : won(c.advance_amount)}</td>
+                  <td>{stateLabel[c.state] || c.state}<br />{c.registered_by || ""}</td></tr>)}
+              </tbody></table></div>
+            {row.allowed_actions.includes("separate") && <div className="formrow" style={{ marginTop: 12 }}>
+              <Field label="확인 결과"><select className="select" aria-label={`엑셀 ${row.row_number}행 처리 방법`} disabled={busy}
+                value={decisions[row.row_key]?.action || "exclude"} onChange={(e) => changeDecision(row.row_key, { action: e.target.value, confirmed: false })}>
+                <option value="exclude">중복 수금 · 이번 행 제외</option><option value="separate">중복 아님 · 별도 수금 등록</option>
+              </select></Field>
+              {decisions[row.row_key]?.action === "separate" && <Field label="별도 수금 등록 사유 (5~500자)">
+                <input className="input" aria-label={`엑셀 ${row.row_number}행 별도 등록 사유`} maxLength={500} disabled={busy}
+                  value={decisions[row.row_key]?.reason || ""} onChange={(e) => changeDecision(row.row_key, { reason: e.target.value, confirmed: false })} />
+              </Field>}
+            </div>}
+            <label className="collection-review-check"><input type="checkbox" disabled={busy}
+              aria-label={`엑셀 ${row.row_number}행 중복 여부 확인`} checked={!!decisions[row.row_key]?.confirmed}
+              onChange={(e) => changeDecision(row.row_key, { confirmed: e.target.checked })} />
+              {decisions[row.row_key]?.action === "separate" ? "별도 수금임을 확인하고 등록합니다." : "중복 여부를 확인했으며 이번 업로드에서 이 행을 제외합니다."}
+            </label>
+          </div>)}
+        </div>
+        <div className="collection-review-footer">
+          <b>등록 예정 {finalCount}건 · {won(finalAmount)}원 / 중복 제외 예정 {reviewRows.length - separateRows.length}건</b>
+          {can("collection_approve") && <label className="collection-review-check"><input type="checkbox" checked={approve} disabled={busy}
+            onChange={(e) => setApprove(e.target.checked)} />등록과 동시에 승인·상계 (채권잔액에 즉시 반영)</label>}
+          <div className="btnrow"><button className="btn" disabled={busy} onClick={closeReview}>돌아가기</button>
+            <button className="btn btn--primary" disabled={busy || !reviewsComplete || !!preview.error_count} onClick={submit}>
+              {busy ? "처리 중" : finalCount ? `확인 완료 · ${finalCount}건 ${approve ? "승인·상계" : "등록"}` : "중복 확인 완료 · 제외 이력 저장"}</button></div>
+        </div>
+      </section>
+    </div>}
+    {reviewHistory && <div className="modal-backdrop" onMouseDown={() => setReviewHistory(null)}>
+      <section className="modal-card modal-card--wide collection-review-history" role="dialog" aria-modal="true" aria-labelledby="collection-review-history-title"
+        onMouseDown={(e) => e.stopPropagation()}>
+        <h2 id="collection-review-history-title">중복 확인 이력</h2><p>{reviewHistory.batch.filename}</p>
+        <div className="tablewrap"><table><thead><tr><th>엑셀 행 / 수금번호</th><th>처리</th><th>사유</th><th>확인자</th><th>확인일시</th></tr></thead>
+          <tbody>{reviewHistory.rows.map((r) => <tr key={r.id}><td>{r.row_number}행 · {r.receipt_no} / {r.sequence}</td>
+            <td>{r.action === "exclude" ? "중복 확인·제외" : "별도 수금 등록"}</td><td>{r.reason || "중복 비교 확인"}</td>
+            <td>{r.reviewed_by}</td><td>{r.created_at}</td></tr>)}</tbody></table></div>
+        <button className="btn" onClick={() => setReviewHistory(null)}>닫기</button>
+      </section>
+    </div>}
   </>;
 }
 
@@ -2417,9 +2518,11 @@ function CollectionUploadGuide() {
   return <Card title="수금등록 데이터 업로드 · 사용법과 검증 기준">
     <ol>
       <li>수금 → 수금등록 데이터 업로드에서 아마란스10 파일을 선택합니다. 첫 번째 시트의 앞 25행 안에 머리글이 있어야 합니다.</li>
-      <li>신규·기등록·오류 건수와 금액, 고객코드 매칭 결과를 확인합니다. 합계행은 제외하며 합계행 금액과 내역 합계가 다르면 오류입니다.</li>
-      <li>오류가 없을 때 승인 대기로 등록합니다. 승인권자만 ‘등록과 동시에 승인·상계’를 선택할 수 있습니다.</li>
-      <li>승인 대기 건은 수금 등록 메뉴에서 승인합니다. 업로드 이력에는 파일명·등록자·건수·금액이 저장됩니다.</li>
+      <li>파일은 먼저 읽어 신규·중복 확인 필요·입력 오류로 구분합니다. 중복 후보가 있으면 기존 내역과 이번 내역을 비교하는 팝업이 열립니다.</li>
+      <li>각 후보의 ‘중복 확인·이번 행 제외’를 체크합니다. 내용이 동일한 기등록 건은 일괄 확인도 가능합니다. 확인 전에는 추가 등록하지 않습니다.</li>
+      <li>고객·수금일·금액·방법만 같은 후보가 실제 별도 수금이면 ‘중복 아님·별도 수금 등록’을 선택하고 5~500자 사유와 확인 체크를 입력합니다.</li>
+      <li>확인 완료 후 제외한 행을 빼고 나머지를 승인 대기로 등록합니다. 승인권자만 즉시 승인·상계를 선택할 수 있습니다. 전부 중복이어도 확인 이력을 저장하며 채권은 다시 차감하지 않습니다.</li>
+      <li>업로드 이력의 중복 확인 버튼에서 확인자·확인일시·제외/별도등록 판단·사유를 조회할 수 있습니다.</li>
     </ol>
     <div className="tablewrap"><table className="manual-table">
       <thead><tr><th>엑셀 열</th><th>필수 여부</th><th>입력·검증 기준</th></tr></thead>
@@ -2432,8 +2535,9 @@ function CollectionUploadGuide() {
         <tr><td>어음 / 받을어음 / 전자어음</td><td>어음 명칭으로 판정. 미확인 숫자코드를 임의로 어음으로 추정하지 않음</td><td>어음수금</td></tr></tbody>
     </table></div>
     <div className="manual-notices" style={{ marginTop: 16 }}>
-      <div><b>등록 중단 오류</b><span>필수 열·값 누락, 미등록·모호한 고객코드, 잘못된 날짜·수금방법, 음수·소수·문자 금액, 0원 수금, 수금년월 불일치, 마감월, 원장·집계잔액 불일치, 파일 내 수금번호·순번 중복. 오류가 한 건이라도 있으면 전체 등록을 중단합니다.</span></div>
-      <div><b>재업로드·중복</b><span>기등록 수금번호·순번의 고객·날짜·방법·금액이 같으면 상태와 관계없이 제외합니다. 값이 바뀌면 자동 덮어쓰지 않고 오류를 표시합니다. 같은 고객·날짜·방법·금액의 기존 수기등록이 있어도 확인이 필요합니다.</span></div>
+      <div><b>등록 중단 오류</b><span>필수 열·값 누락, 미등록·모호한 고객코드, 잘못된 날짜·수금방법, 음수·소수·문자 금액, 0원 수금, 수금년월 불일치 등 입력 오류는 수정이 필요합니다. 신규 등록하려는 수금월이 마감되었거나 원장·집계잔액이 다르면 등록할 수 없습니다. 합계행은 실제 내역 합계와 대조합니다.</span></div>
+      <div><b>번호·순번 중복</b><span>같은 수금번호·순번은 팝업에서 기존 값과 비교하고 이번 행을 제외할지 확인합니다. 값이 달라도 자동 덮어쓰거나 별도 생성하지 않습니다. 파일 안에서 중복되면 먼저 나온 행과 비교하여 뒤의 행 제외 여부를 확인합니다. 정정이 필요한 경우 돌아가서 원본 또는 기존 내역을 확인하세요.</span></div>
+      <div><b>확인 중 변경</b><span>팝업 확인 뒤 다른 사용자가 같은 수금을 등록·승인하는 등 내역이 바뀌면 최신 내역을 다시 표시하고 재확인을 받습니다. 미확인 행을 자동 제외하거나 추가 등록하지 않습니다.</span></div>
       <div><b>채권 상계</b><span>승인 시 고객코드의 부실 → 미수 → 정상채권 순서이며 각 구분에서는 오래된 발생월부터 차감합니다. 사업부는 기존 채권 원장을 따릅니다. 파일의 정상수금+선수금을 한 번만 반영하며 초과분만 선수금으로 보관합니다.</span></div>
       <div><b>승인·마감·파일</b><span>승인 대기 건은 잔액을 바꾸지 않습니다. 등록 뒤 수금월이 마감되면 업로드 수금의 승인이 차단됩니다. .xlsx/.xls/.csv, 10MB 이하, 최대 5,000행을 지원하며 보안 처리된 파일은 사내 반출 절차가 필요합니다.</span></div>
     </div>
@@ -2455,7 +2559,7 @@ function Manual() {
     ["거래처별 현황", "채권 상세·회수기간·담당자·비고·사업부 관리", "사업부 변경 시 합계·보고서가 즉시 변경되므로 원본자료도 함께 정정"],
     ["담당자별 채권현황", "담당자별 거래처와 채권잔액 확인", "미배정 거래처를 우선 점검"],
     ["수금 등록", "채권 선택·자동 적요·승인·반려", "미등록 거래처 선수금은 간편등록 후 처리"],
-    ["수금등록 데이터 업로드", "고객코드 매칭·중복 검증·수금 일괄등록", "신규·기등록·오류를 확인한 뒤 승인 대기 또는 승인·상계"],
+    ["수금등록 데이터 업로드", "고객코드 매칭·중복 확인 팝업·수금 일괄등록", "중복 여부를 체크한 뒤 신규 건 등록, 확인 이력 조회"],
     ["수금목표 관리", "예정 수금액과 완료일 관리", "완료 시 실제 수금등록 여부도 확인"],
     ["출고 데이터 업로드", "아마란스 출고자료 반영·이전 파일 복원", "월 자동 분리, 마감월 제외, 재업로드 결과 확인"],
     ["수금계획 다운로드", "선택한 조회기준으로 계획서 생성", "카드수금은 입금예정 3영업일까지 포함"],
