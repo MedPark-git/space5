@@ -20,6 +20,7 @@ class ShipmentUploadTests(unittest.TestCase):
                 cls.db = importlib.import_module('db')
             cls.db.DB_PATH = str(Path(cls.temp.name) / 'test.db')
             cls.module = importlib.import_module('app')
+            cls.db.init_db()
         cls.module.app.config['TESTING'] = True
 
     @classmethod

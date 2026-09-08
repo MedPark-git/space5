@@ -1580,6 +1580,184 @@ function Targets({ data, notify, refresh }) {
   );
 }
 
+/* ══════════════════ 수금등록 데이터 업로드 ══════════════════ */
+
+const COLLECTION_COLUMNS = {
+  receipt_month: ["수금년월"], paid_at: ["수금일자", "수금일"], receipt_no: ["수금번호"],
+  customer_code: ["고객코드", "거래처코드"], customer_name: ["고객", "고객명", "거래처명"],
+  sequence: ["순번"], receipt_kind_code: ["수금구분코드"], receipt_kind: ["수금구분"],
+  receipt_type: ["수금구분유형"], normal_amount: ["정상수금"], advance_amount: ["선수금"],
+  note: ["비고(건)"], detail_note: ["비고(내역)"],
+};
+const COLLECTION_REQUIRED = ["paid_at", "receipt_no", "customer_code", "sequence", "receipt_kind",
+  "receipt_type", "normal_amount", "advance_amount"];
+
+function parseCollectionWorkbook(bytes) {
+  const signature = Array.from(new Uint8Array(bytes).slice(0, 11), (c) => String.fromCharCode(c)).join("");
+  if (signature === "BMS DocuRay") throw new Error("보안 처리된 엑셀입니다. 사내 절차에 따라 반출용 일반 엑셀로 내보내 주세요.");
+  const wb = XLSX.read(bytes, { type: "array", cellDates: false });
+  const grid = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: "", raw: true, blankrows: true });
+  const clean = (v) => String(v ?? "").replace(/\s/g, "");
+  const headerIndex = grid.slice(0, 25).findIndex((row) =>
+    row.some((h) => ["고객코드", "거래처코드"].includes(clean(h))) && row.some((h) => clean(h) === "수금번호"));
+  if (headerIndex < 0) throw new Error("첫 번째 시트의 앞 25행 안에 고객코드와 수금번호 머리글이 필요합니다.");
+  const headers = grid[headerIndex].map(clean), mapping = {};
+  for (const [key, names] of Object.entries(COLLECTION_COLUMNS)) {
+    const matches = headers.map((h, i) => names.includes(h) ? i : -1).filter((i) => i >= 0);
+    if (matches.length > 1) throw new Error(names[0] + " 머리글이 중복되었습니다.");
+    if (matches.length) mapping[key] = matches[0];
+  }
+  const missing = COLLECTION_REQUIRED.filter((key) => mapping[key] === undefined);
+  if (missing.length) throw new Error("필수 열 누락: " + missing.map((key) => COLLECTION_COLUMNS[key][0]).join(", "));
+  const rows = [], totals = [];
+  for (let i = headerIndex + 1; i < grid.length; i++) {
+    const row = grid[i];
+    if (row.every((v) => clean(v) === "")) continue;
+    const values = Object.fromEntries(Object.entries(mapping).map(([key, column]) => [key, row[column] ?? ""]));
+    if (!clean(values.customer_code) && !clean(values.receipt_no) && !clean(values.sequence)
+      && [values.paid_at, values.customer_name].some((v) => ["합계", "총합계"].includes(clean(v)))) {
+      totals.push(values); continue;
+    }
+    if (typeof values.paid_at === "number") {
+      const d = XLSX.SSF.parse_date_code(values.paid_at, { date1904: !!wb.Workbook?.WBProps?.date1904 });
+      if (d) values.paid_at = `${d.y}-${String(d.m).padStart(2, "0")}-${String(d.d).padStart(2, "0")}`;
+    } else {
+      const date = String(values.paid_at).trim().match(/^(\d{4})[-./](\d{1,2})[-./](\d{1,2})$/);
+      if (date) values.paid_at = date[1] + "-" + date[2].padStart(2, "0") + "-" + date[3].padStart(2, "0");
+    }
+    // Preserve leading zeros and raw amount text; the server validates money.
+    rows.push({ ...values, customer_code: String(values.customer_code).trim(), row_number: i + 1 });
+  }
+  if (!rows.length || rows.length > 5000) throw new Error("수금 내역은 1~5,000행까지 업로드할 수 있습니다.");
+  if (totals.length > 1) throw new Error("합계행은 한 개만 포함해 주세요. 시트 구성을 확인하세요.");
+  if (totals.length) {
+    for (const key of ["normal_amount", "advance_amount"]) {
+      const number = (v) => Number(String(v).replace(/,/g, "").trim());
+      const expected = number(totals[0][key]), actual = rows.reduce((s, r) => s + number(r[key]), 0);
+      if (!Number.isSafeInteger(expected) || !Number.isSafeInteger(actual) || expected !== actual)
+        throw new Error(COLLECTION_COLUMNS[key][0] + " 합계행과 실제 내역 합계가 다릅니다. 파일을 확인하세요.");
+    }
+  }
+  return { rows, sheet: wb.SheetNames[0], skippedTotals: totals.length };
+}
+
+function CollectionUpload({ can, notify, refresh }) {
+  const [source, setSource] = useState(null), [preview, setPreview] = useState(null);
+  const [error, setError] = useState(""), [busy, setBusy] = useState(false);
+  const [approve, setApprove] = useState(false), [history, setHistory] = useState([]);
+  const [historyError, setHistoryError] = useState("");
+  const [page, setPage] = useState(0), [result, setResult] = useState(null);
+  const reading = useRef(0), submitting = useRef(false);
+  async function loadHistory() {
+    try { const r = await api("/api/collection-uploads"); setHistory(r.batches); setHistoryError(""); }
+    catch (e) { setHistoryError(e.message); }
+  }
+  useEffect(() => { loadHistory(); return () => { reading.current++; }; }, []);
+  async function readFile(file) {
+    if (!file || submitting.current) return;
+    const version = ++reading.current;
+    setBusy(true); setError(""); setSource(null); setPreview(null); setPage(0); setResult(null); setApprove(false);
+    try {
+      if (!/\.(xlsx|xls|csv)$/i.test(file.name)) throw new Error(".xlsx, .xls, .csv 파일을 선택하세요.");
+      if (file.size > 10 * 1024 * 1024) throw new Error("파일 크기는 10MB 이하여야 합니다.");
+      const parsed = parseCollectionWorkbook(await file.arrayBuffer());
+      const checked = await api("/api/collection-uploads/preview", { method: "POST", body: { rows: parsed.rows } });
+      if (version !== reading.current) return;
+      setSource({ ...parsed, filename: file.name }); setPreview(checked);
+    } catch (e) { if (version === reading.current) setError(e.message || "엑셀 파일을 읽지 못했습니다."); }
+    finally { if (version === reading.current) setBusy(false); }
+  }
+  async function submit() {
+    if (submitting.current || busy || !source || !preview || preview.error_count || !preview.ready_count) return;
+    submitting.current = true; setBusy(true); setError("");
+    try {
+      const response = await api("/api/collection-uploads", { method: "POST", body: {
+        filename: source.filename, rows: source.rows, approve_immediately: approve && can("collection_approve"),
+      } });
+      setResult(response); setPreview(null); setSource(null); setApprove(false);
+      notify(response.inserted ? `${response.inserted}건을 ${response.approved ? "승인·상계" : "승인 대기로 등록"}했습니다.` : response.message);
+      await loadHistory();
+      try { await refresh(); } catch (_) { setError("등록은 완료됐습니다. 현황을 다시 불러오려면 새로고침해 주세요."); }
+    } catch (e) {
+      setError(e.message);
+      // Keep raw input for a fresh server check after a conflict or lost response.
+      try { const checked = await api("/api/collection-uploads/preview", { method: "POST", body: { rows: source.rows } });
+        setPreview(checked); setPage(0); } catch (_) { setPreview(null); }
+    } finally { submitting.current = false; setBusy(false); }
+  }
+  const pageRows = preview ? preview.rows.slice(page * 50, (page + 1) * 50) : [];
+  return <>
+    <Card title="수금등록 데이터 업로드">
+      <p>아마란스10 수금자료를 고객코드로 연결합니다. 파일 선택 후 검증 결과와 금액을 확인하고 등록하세요.</p>
+      <div className="alert alert--info">제예금 → 계좌수금 · 카드 → 카드수금 · 어음 → 어음수금<br />
+        수금액 = 정상수금 + 선수금. 승인 시 기존 채권에 상계하고 초과분은 선수금으로 보관합니다.</div>
+      <div className="dropzone" style={{ marginTop: 16 }}
+        onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); if (!busy) readFile(e.dataTransfer.files[0]); }}>
+        <p>수금 엑셀을 끌어다 놓거나 파일을 선택하세요.</p>
+        <input type="file" aria-label="수금 엑셀 파일" accept=".xlsx,.xls,.csv" disabled={busy}
+          onChange={(e) => { const file = e.target.files[0]; e.target.value = ""; readFile(file); }} />
+        <p className="t-sm t-muted">첫 번째 시트 · 최대 5,000행 / 10MB · 합계행 자동 제외</p>
+      </div>
+      {busy && <p role="status">처리 중입니다. 잠시 기다려 주세요.</p>}
+      {error && <div className="alert alert--bad" role="alert" style={{ marginTop: 12 }}>{error}</div>}
+      {result && <div className="alert alert--info" role="status" style={{ marginTop: 12 }}>
+        등록 {result.inserted}건 · 즉시 승인 {result.approved}건 · 기등록 제외 {result.skipped}건 · {won(result.total_amount)}원
+        {result.inserted > result.approved && <div>수금 등록 메뉴에서 승인하면 채권에 반영됩니다.</div>}
+      </div>}
+    </Card>
+    {source && preview && <Card title={"검증 결과 · " + source.filename}>
+      <p>{source.sheet} · 수금 내역 {preview.row_count}행 · 합계행 {source.skippedTotals}행 제외</p>
+      <div className="collection-upload-summary">
+        <div><span>신규 등록</span><b>{preview.ready_count}건</b></div>
+        <div><span>기등록 제외</span><b>{preview.duplicate_count}건</b></div>
+        <div><span>오류</span><b>{preview.error_count}건</b></div>
+        <div><span>신규 수금액</span><b>{won(preview.total_amount)}원</b></div>
+      </div>
+      <p>승인 시 상계 예상 {won(preview.offset_amount)}원 · 선수금 잔여 예상 {won(preview.advance_remaining)}원</p>
+      <p className="t-sm t-muted">예상액은 현재 원장 기준입니다. 등록·승인 시 최신 잔액을 다시 확인합니다.</p>
+      {!!preview.error_count && <div className="alert alert--bad">오류가 있는 동안 전체 등록이 중단됩니다. 아래 행 번호와 사유를 확인해 원본 파일을 수정하세요.</div>}
+      <div className="tablewrap" style={{ marginTop: 12 }}><table>
+        <thead><tr><th>행</th><th>검증</th><th>수금번호 / 순번</th><th>고객코드</th><th>거래처</th><th>수금일</th>
+          <th>수금방법</th><th className="r">정상수금</th><th className="r">선수금</th><th className="r">수금액</th><th>검증 내용</th></tr></thead>
+        <tbody>{pageRows.map((row) => <tr key={row.row_number}>
+          <td>{row.row_number}</td><td><span className={"badge badge--" + ({ ready: "ok", error: "bad", duplicate: "mute" }[row.status])}>
+            {{ ready: "신규", error: "오류", duplicate: "기등록" }[row.status]}</span></td>
+          <td>{row.receipt_no || "–"} / {row.sequence ?? "–"}</td><td>{row.customer_code || "–"}</td>
+          <td>{row.customer_name || row.source_customer_name || "–"}</td><td>{row.paid_at || "–"}</td><td>{row.method || "–"}</td>
+          <td className="r">{row.normal_amount === undefined ? "–" : won(row.normal_amount)}</td>
+          <td className="r">{row.advance_amount === undefined ? "–" : won(row.advance_amount)}</td>
+          <td className="r">{row.amount === undefined ? "–" : won(row.amount)}</td>
+          <td style={{ minWidth: 220, whiteSpace: "normal" }}>{[...row.errors, ...row.warnings].join(" / ") || "정상"}</td>
+        </tr>)}</tbody>
+      </table></div>
+      {preview.rows.length > 50 && <div className="btnrow" style={{ marginTop: 12 }}>
+        <button className="btn btn--sm" disabled={!page} onClick={() => setPage(page - 1)}>이전</button>
+        <span>{page + 1} / {Math.ceil(preview.rows.length / 50)}</span>
+        <button className="btn btn--sm" disabled={(page + 1) * 50 >= preview.rows.length} onClick={() => setPage(page + 1)}>다음</button>
+      </div>}
+      {can("collection_approve") && <label className="collection-upload-approve">
+        <input type="checkbox" checked={approve} disabled={busy} onChange={(e) => setApprove(e.target.checked)} />
+        등록과 동시에 승인·상계 (채권잔액에 즉시 반영)
+      </label>}
+      <div className="btnrow" style={{ marginTop: 16 }}>
+        <button className="btn btn--primary" disabled={busy || !!preview.error_count || !preview.ready_count} onClick={submit}>
+          {busy ? "처리 중" : `${preview.ready_count}건 ${approve ? "승인·상계" : "승인 대기로 등록"}`}</button>
+      </div>
+    </Card>}
+    <Card title="수금 업로드 이력" flush>
+      {historyError && <div className="alert alert--bad">{historyError}</div>}
+      {!history.length ? <Empty title="수금 업로드 이력이 없습니다." /> : <div className="tablewrap"><table>
+        <thead><tr><th>등록일시</th><th>파일명</th><th className="r">등록 건수</th><th className="r">수금액</th>
+          <th className="r">등록 시 즉시 승인</th><th>등록자</th></tr></thead>
+        <tbody>{history.map((row) => <tr key={row.id}><td>{row.created_at}</td><td>{row.filename}</td>
+          <td className="r">{row.row_count}</td><td className="r">{won(row.total_amount)}</td>
+          <td className="r">{row.approved_count}</td><td>{row.uploaded_by}</td></tr>)}</tbody>
+      </table></div>}
+    </Card>
+  </>;
+}
+
+
 /* ══════════════════ 출고 데이터 업로드 ══════════════════ */
 
 const COLUMN_ALIASES = {
@@ -2225,6 +2403,43 @@ function Users({ data, notify, refresh }) {
 
 /* ══════════════════ 사용 매뉴얼 ══════════════════ */
 
+function CollectionUploadGuide() {
+  const columns = [
+    ["고객코드", "필수", "등록된 거래처 코드. 숫자 코드는 앞자리 0을 보정합니다. 고객명·관리고객코드로 매칭하지 않습니다."],
+    ["수금일자", "필수", "실제 수금일. YYYY-MM-DD 또는 Excel 날짜. 미래 날짜·존재하지 않는 날짜·마감월은 오류입니다."],
+    ["수금번호 / 순번", "각각 필수", "수금번호와 순번을 묶어 중복 판정합니다. 같은 번호라도 순번이 다르면 각각 등록합니다."],
+    ["수금구분 / 수금구분유형", "각각 필수", "공백을 제거해 제 예 금·카    드도 인식합니다. 명칭과 확인된 유형코드가 충돌하면 오류입니다."],
+    ["정상수금 / 선수금", "각각 필수", "원 단위 0 이상 정수. 미발생 금액도 공란 대신 0 입력. 두 금액의 합이 실제 수금등록액이며 0원 이하는 오류입니다."],
+    ["수금년월", "선택", "입력된 경우 YYYY-MM 형식이며 수금일자의 월과 일치해야 합니다."],
+    ["고객", "선택", "고객코드로 찾은 등록명과 다르면 경고합니다. 코드가 정확한지 확인하세요."],
+    ["비고(건) / 비고(내역)", "선택", "수금 적요에 함께 저장합니다. 수금번호·순번과 원본 정상수금·선수금도 추적할 수 있습니다."],
+  ];
+  return <Card title="수금등록 데이터 업로드 · 사용법과 검증 기준">
+    <ol>
+      <li>수금 → 수금등록 데이터 업로드에서 아마란스10 파일을 선택합니다. 첫 번째 시트의 앞 25행 안에 머리글이 있어야 합니다.</li>
+      <li>신규·기등록·오류 건수와 금액, 고객코드 매칭 결과를 확인합니다. 합계행은 제외하며 합계행 금액과 내역 합계가 다르면 오류입니다.</li>
+      <li>오류가 없을 때 승인 대기로 등록합니다. 승인권자만 ‘등록과 동시에 승인·상계’를 선택할 수 있습니다.</li>
+      <li>승인 대기 건은 수금 등록 메뉴에서 승인합니다. 업로드 이력에는 파일명·등록자·건수·금액이 저장됩니다.</li>
+    </ol>
+    <div className="tablewrap"><table className="manual-table">
+      <thead><tr><th>엑셀 열</th><th>필수 여부</th><th>입력·검증 기준</th></tr></thead>
+      <tbody>{columns.map((r) => <tr key={r[0]}><td>{r[0]}</td><td>{r[1]}</td><td>{r[2]}</td></tr>)}</tbody>
+    </table></div>
+    <div className="tablewrap" style={{ marginTop: 16 }}><table className="manual-table">
+      <thead><tr><th>수금구분</th><th>수금구분유형</th><th>기존 수금방법</th></tr></thead>
+      <tbody><tr><td>제예금 / 제 예 금</td><td>1 또는 제예금·계좌수금 명칭</td><td>계좌수금</td></tr>
+        <tr><td>카드 / 카    드</td><td>5 또는 카드·카드수금 명칭</td><td>카드수금</td></tr>
+        <tr><td>어음 / 받을어음 / 전자어음</td><td>어음 명칭으로 판정. 미확인 숫자코드를 임의로 어음으로 추정하지 않음</td><td>어음수금</td></tr></tbody>
+    </table></div>
+    <div className="manual-notices" style={{ marginTop: 16 }}>
+      <div><b>등록 중단 오류</b><span>필수 열·값 누락, 미등록·모호한 고객코드, 잘못된 날짜·수금방법, 음수·소수·문자 금액, 0원 수금, 수금년월 불일치, 마감월, 원장·집계잔액 불일치, 파일 내 수금번호·순번 중복. 오류가 한 건이라도 있으면 전체 등록을 중단합니다.</span></div>
+      <div><b>재업로드·중복</b><span>기등록 수금번호·순번의 고객·날짜·방법·금액이 같으면 상태와 관계없이 제외합니다. 값이 바뀌면 자동 덮어쓰지 않고 오류를 표시합니다. 같은 고객·날짜·방법·금액의 기존 수기등록이 있어도 확인이 필요합니다.</span></div>
+      <div><b>채권 상계</b><span>승인 시 고객코드의 부실 → 미수 → 정상채권 순서이며 각 구분에서는 오래된 발생월부터 차감합니다. 사업부는 기존 채권 원장을 따릅니다. 파일의 정상수금+선수금을 한 번만 반영하며 초과분만 선수금으로 보관합니다.</span></div>
+      <div><b>승인·마감·파일</b><span>승인 대기 건은 잔액을 바꾸지 않습니다. 등록 뒤 수금월이 마감되면 업로드 수금의 승인이 차단됩니다. .xlsx/.xls/.csv, 10MB 이하, 최대 5,000행을 지원하며 보안 처리된 파일은 사내 반출 절차가 필요합니다.</span></div>
+    </div>
+  </Card>;
+}
+
 function Manual() {
   const steps = [
     ["1", "조회기준 확인", "화면 상단에서 마감 기준 또는 최신 출고 포함 기준을 선택합니다."],
@@ -2240,6 +2455,7 @@ function Manual() {
     ["거래처별 현황", "채권 상세·회수기간·담당자·비고·사업부 관리", "사업부 변경 시 합계·보고서가 즉시 변경되므로 원본자료도 함께 정정"],
     ["담당자별 채권현황", "담당자별 거래처와 채권잔액 확인", "미배정 거래처를 우선 점검"],
     ["수금 등록", "채권 선택·자동 적요·승인·반려", "미등록 거래처 선수금은 간편등록 후 처리"],
+    ["수금등록 데이터 업로드", "고객코드 매칭·중복 검증·수금 일괄등록", "신규·기등록·오류를 확인한 뒤 승인 대기 또는 승인·상계"],
     ["수금목표 관리", "예정 수금액과 완료일 관리", "완료 시 실제 수금등록 여부도 확인"],
     ["출고 데이터 업로드", "아마란스 출고자료 반영·이전 파일 복원", "월 자동 분리, 마감월 제외, 재업로드 결과 확인"],
     ["수금계획 다운로드", "선택한 조회기준으로 계획서 생성", "카드수금은 입금예정 3영업일까지 포함"],
@@ -2269,6 +2485,7 @@ function Manual() {
         <tbody>{menus.map((row) => <tr key={row[0]}><td className="t-strong">{row[0]}</td><td>{row[1]}</td><td>{row[2]}</td></tr>)}</tbody>
       </table></div>
     </Card>
+    <CollectionUploadGuide />
     <Card title="프로그램이 채권을 계산하는 방식">
       <div className="manual-notices">
         {implementation.map(([title, text]) => <div key={title}><b>{title}</b><span>{text}</span></div>)}
@@ -2283,7 +2500,7 @@ function Manual() {
     <Card title="꼭 확인하세요">
       <div className="manual-notices">
         <div><b>조회기준</b><span>보고 화면은 선택한 조회기준을 따르며, 수금·업로드 화면은 항상 최신 운영데이터를 사용합니다.</span></div>
-        <div><b>수금 승인</b><span>승인권자가 등록하면 즉시 승인되며, 그 외 사용자의 등록은 승인 완료 후 잔액에 반영됩니다.</span></div>
+        <div><b>수금 승인</b><span>승인 완료 후 잔액에 반영됩니다. 수금 업로드에서 승인권자는 즉시 승인·상계를 선택할 수 있으며, 선택하지 않으면 승인 대기로 등록됩니다.</span></div>
         <div><b>카드수금</b><span>채권에서는 승인 즉시 차감되지만 수금계획에는 통장 입금예정일인 수금일 이후 3영업일까지 포함됩니다.</span></div>
         <div><b>선수금 대사</b><span>출고파일을 다시 올려도 직전 상계 결과를 복원한 뒤 최신 출고금액과 선수금을 다시 자동 대사합니다.</span></div>
         <div><b>월 마감</b><span>마감된 월의 출고자료는 재업로드 파일에 포함되어 있어도 새 채권으로 다시 반영하지 않습니다.</span></div>
@@ -2303,6 +2520,7 @@ const SCREENS = [
   { key: "customers", label: "거래처별 현황",     perm: "customer_view",       group: "현황" },
   { key: "owners",    label: "담당자별 채권현황", perm: "owner_view",          group: "현황" },
   { key: "collections", label: "수금 등록",       perm: "collection_register", group: "수금", alt: "collection_approve" },
+  { key: "collectionUpload", label: "수금등록 데이터 업로드", perm: "collection_register", group: "수금", alt: "collection_approve" },
   { key: "targets",   label: "수금목표 관리",     perm: "target_manage",       group: "수금" },
   { key: "upload",    label: "출고 데이터 업로드", perm: "upload_data",        group: "관리" },
   { key: "cashplan",  label: "수금계획 다운로드", perm: "data_export",          group: "관리" },
@@ -2467,6 +2685,7 @@ function App() {
             notify={notify} patchCustomer={patchCustomer} />}
           {screen === "owners" && <Owners data={reportData} />}
           {screen === "collections" && <Collections data={data} can={can} notify={notify} refresh={load} />}
+          {screen === "collectionUpload" && <CollectionUpload can={can} notify={notify} refresh={load} />}
           {screen === "targets" && <Targets data={reportData} notify={notify} refresh={load} />}
           {screen === "upload" && <Upload data={data} can={can} notify={notify}
             applyUpload={applyUpload} refresh={load} />}
